@@ -10,6 +10,17 @@ They override any style examples or style profile provided below.
 ---
 {% endif %}
 
+{% if beats %}
+## Chapter Beats — FOLLOW THESE EXACTLY
+The author has defined the following plot beats for this chapter.
+You MUST write content that advances through these beats in order.
+Do NOT skip any beat. Do NOT add beats not listed here.
+
+{{ beats }}
+
+---
+{% endif %}
+
 {% if rag_chunks %}
 ## Project Reference Material
 The following excerpts from the author's codex, beats, and prior drafts are relevant to this scene:

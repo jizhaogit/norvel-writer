@@ -60,6 +60,7 @@ def build_continuation_messages(
     style_mode: str,
     constraints: Optional[List[str]] = None,
     persona: str = "",
+    beats: str = "",
 ) -> List[Dict[str, str]]:
     """Build the messages list for a continuation request."""
     system_prompt = render_template(
@@ -71,6 +72,7 @@ def build_continuation_messages(
         style_mode=style_mode,
         constraints=constraints or [],
         persona=persona,
+        beats=beats,
     )
     messages = [
         {"role": "system", "content": system_prompt},

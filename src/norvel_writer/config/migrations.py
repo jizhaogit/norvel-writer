@@ -102,4 +102,10 @@ MIGRATIONS: List[Tuple[int, str]] = [
         ALTER TABLE projects ADD COLUMN persona TEXT NOT NULL DEFAULT '';
         """,
     ),
+    (
+        3,
+        """
+        ALTER TABLE chapters ADD COLUMN beats TEXT NOT NULL DEFAULT '';
+        """,
+    ),
 ]

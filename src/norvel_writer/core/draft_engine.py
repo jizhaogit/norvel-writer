@@ -34,6 +34,7 @@ class DraftEngine:
         constraints: Optional[List[str]] = None,
         language: str = "en",
         active_doc_types: Optional[List[str]] = None,
+        beats: str = "",
     ) -> AsyncIterator[str]:
         """Stream continuation tokens for the current draft."""
         from norvel_writer.llm.ollama_client import get_client
@@ -80,6 +81,7 @@ class DraftEngine:
             style_mode=style_mode,
             constraints=constraints,
             persona=persona,
+            beats=beats,
         )
 
         client = get_client()

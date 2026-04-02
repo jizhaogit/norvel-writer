@@ -220,7 +220,6 @@ body {
 #word-count { font-size: 11px; color: var(--muted); }
 #editor {
   flex: 1;
-  resize: none;
   background: var(--bg);
   color: var(--text);
   border: none;
@@ -230,7 +229,40 @@ body {
   line-height: 1.7;
   padding: 20px 24px;
   overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
+
+/* ── Format toolbar ── */
+#format-toolbar {
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  background: var(--surface);
+  flex-wrap: wrap;
+}
+.fmt-btn {
+  padding: 3px 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+  min-width: 28px;
+  text-align: center;
+}
+.fmt-btn:hover { background: var(--surface); border-color: var(--accent); }
+.fmt-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+#font-size-pick { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; padding: 2px 4px; }
+#editor[contenteditable] { outline: none; }
+.ai-rewrite-marker { color: var(--accent); font-weight: bold; display: block; margin: 8px 0 4px; }
+.ai-rewrite-end { color: var(--accent); font-weight: bold; display: block; margin: 4px 0 8px; }
+.ai-rewrite-content { background: rgba(137,180,250,0.06); border-left: 3px solid var(--accent); padding-left: 8px; display: block; }
 
 /* ── Right panel ── */
 #right-panel {
@@ -483,7 +515,24 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <span id="word-count">0 words</span>
       <span id="save-status"></span>
     </div>
-    <textarea id="editor" placeholder="Select a chapter from the sidebar to start writing..."></textarea>
+    <div id="format-toolbar">
+      <select id="font-size-pick" title="Font size">
+        <option value="12">12</option>
+        <option value="14" selected>14</option>
+        <option value="16">16</option>
+        <option value="18">18</option>
+        <option value="20">20</option>
+        <option value="24">24</option>
+      </select>
+      <div class="fmt-sep"></div>
+      <button class="fmt-btn" data-cmd="bold" title="Bold"><b>B</b></button>
+      <button class="fmt-btn" data-cmd="italic" title="Italic"><i>I</i></button>
+      <button class="fmt-btn" data-cmd="underline" title="Underline"><u>U</u></button>
+      <button class="fmt-btn" data-cmd="strikeThrough" title="Strikethrough"><s>S</s></button>
+      <div class="fmt-sep"></div>
+      <button class="fmt-btn" data-cmd="removeFormat" title="Clear formatting">✕ fmt</button>
+    </div>
+    <div id="editor" contenteditable="true" spellcheck="true" data-placeholder="Select a chapter from the sidebar to start writing..."></div>
   </div>
 
   <!-- Right panel -->
@@ -510,6 +559,16 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
           <option value="preserve_tone_rhythm">Preserve Tone &amp; Rhythm</option>
           <option value="avoid_exact_phrasing">Avoid Exact Phrasing</option>
         </select>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;justify-content:space-between;">
+          <span>Chapter Beats</span>
+          <span style="display:flex;gap:4px;">
+            <button class="btn" id="gen-beats-btn" style="padding:2px 8px;font-size:11px;">AI Generate</button>
+            <button class="btn primary" id="save-beats-btn" style="padding:2px 8px;font-size:11px;">Save</button>
+          </span>
+        </label>
+        <textarea id="beats-editor" rows="5" class="ctrl" placeholder="Enter chapter beats (e.g.)&#10;1. Hero discovers the letter&#10;2. Confronts the villain&#10;3. Escapes the castle"></textarea>
       </div>
       <div class="form-group">
         <label>Instruction</label>
@@ -552,7 +611,6 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         <select id="doc-filter">
           <option value="">All Types</option>
           <option value="codex">Codex</option>
-          <option value="beats">Beats</option>
           <option value="style_sample">Style Sample</option>
           <option value="draft">Draft</option>
           <option value="research">Research</option>
@@ -566,7 +624,6 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
           <label>Import as</label>
           <select id="import-doc-type">
             <option value="codex">Codex</option>
-            <option value="beats">Beats</option>
             <option value="style_sample">Style Sample</option>
             <option value="draft">Draft</option>
             <option value="research">Research</option>
@@ -633,6 +690,34 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     <div style="display:flex;gap:10px;justify-content:flex-end;">
       <button id="doc-editor-cancel" style="padding:7px 18px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;">Cancel</button>
       <button id="doc-editor-save" style="padding:7px 18px;background:var(--accent);border:none;border-radius:6px;color:#1e1e2e;font-weight:600;cursor:pointer;">Save & Re-index</button>
+    </div>
+  </div>
+</div>
+
+<!-- Beats Generate Modal -->
+<div id="beats-gen-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:var(--surface1);border:1px solid var(--border);border-radius:10px;padding:24px;width:520px;max-width:95vw;display:flex;flex-direction:column;gap:12px;">
+    <h3 style="margin:0;font-size:15px;">Generate Chapter Beats with AI</h3>
+    <label style="font-size:13px;color:var(--subtext);">Describe what happens in this chapter
+      <textarea id="beats-desc" rows="4" style="margin-top:4px;width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px;resize:vertical;" placeholder="e.g. The hero finds the villain's hideout, they fight, hero barely escapes but learns the villain's plan"></textarea>
+    </label>
+    <div id="beats-gen-output" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:13px;min-height:60px;white-space:pre-wrap;display:none;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="beats-gen-cancel" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;">Cancel</button>
+      <button id="beats-gen-run" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;">Generate</button>
+      <button id="beats-gen-accept" style="padding:7px 16px;background:var(--accent);border:none;border-radius:6px;color:#1e1e2e;font-weight:600;cursor:pointer;display:none;">Use These Beats</button>
+    </div>
+  </div>
+</div>
+
+<!-- Beats Required Modal -->
+<div id="beats-required-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:var(--surface1);border:1px solid var(--border);border-radius:10px;padding:24px;width:400px;max-width:95vw;display:flex;flex-direction:column;gap:12px;">
+    <h3 style="margin:0;font-size:15px;">Chapter Beats Required</h3>
+    <p style="margin:0;font-size:13px;color:var(--subtext);">This chapter has no beats yet. The AI writes based on beats to stay on track. Please add beats before continuing.</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="beats-req-dismiss" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;">Write Beats Now</button>
+      <button id="beats-req-skip" style="padding:7px 16px;background:var(--accent);border:none;border-radius:6px;color:#1e1e2e;font-weight:600;cursor:pointer;">Continue Anyway</button>
     </div>
   </div>
 </div>
@@ -1038,10 +1123,11 @@ async function selectChapter(cid) {
     el('chapter-title').textContent = cEl.textContent;
   }
 
+  await loadBeats(cid);
   try {
     const data = await apiFetch('/api/chapters/' + cid + '/content');
-    el('editor').value = data.content || '';
-    el('word-count').textContent = countWords(el('editor').value) + ' words';
+    el('editor').innerHTML = data.content || '';
+    el('word-count').textContent = countWords(el('editor').innerText) + ' words';
     state.isDirty = false;
     setStatus('');
   } catch (e) {
@@ -1052,7 +1138,7 @@ async function selectChapter(cid) {
 // ── Autosave ───────────────────────────────────────────────────────────────
 el('editor').addEventListener('input', () => {
   state.isDirty = true;
-  el('word-count').textContent = countWords(el('editor').value) + ' words';
+  el('word-count').textContent = countWords(el('editor').innerText) + ' words';
   setStatus('Saving...');
   clearTimeout(state.autosaveTimer);
   state.autosaveTimer = setTimeout(saveChapterContent, 2000);
@@ -1063,7 +1149,7 @@ async function saveChapterContent() {
   try {
     await apiFetch('/api/chapters/' + state.currentChapterId + '/content', {
       method: 'PUT',
-      body: { content: el('editor').value, model_used: 'manual' },
+      body: { content: el('editor').innerHTML, model_used: 'manual' },
     });
     state.isDirty = false;
     setStatus('Saved ✓', 3000);
@@ -1152,7 +1238,7 @@ el('ctx-delete-project').addEventListener('click', () => {
       state.currentProjectId = null;
       state.currentChapterId = null;
       el('current-project-name').textContent = 'No project selected';
-      el('editor').value = '';
+      el('editor').innerHTML = '';
       el('chapter-title').textContent = 'Select a chapter to edit';
     }
     loadProjects();
@@ -1219,6 +1305,12 @@ el('continue-btn').addEventListener('click', async () => {
   if (!state.currentProjectId || !state.currentChapterId) {
     alert('Please select a chapter first.'); return;
   }
+  // Gate: require beats unless skip was chosen
+  if (!_pendingContinue && !el('beats-editor').value.trim()) {
+    el('beats-required-modal').style.display = 'flex';
+    return;
+  }
+  _pendingContinue = false;
   const output = el('draft-output');
   output.textContent = '';
   state.draftOutput = '';
@@ -1231,7 +1323,7 @@ el('continue-btn').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chapter_id: state.currentChapterId,
-        current_text: el('editor').value,
+        current_text: el('editor').innerText,
         user_instruction: el('draft-instruction').value || 'Continue the story from where it left off.',
         style_mode: el('draft-style-mode').value,
         language: el('draft-lang').value,
@@ -1252,18 +1344,33 @@ el('continue-btn').addEventListener('click', async () => {
 
 el('rewrite-btn').addEventListener('click', async () => {
   if (!state.currentProjectId) { alert('Please select a project first.'); return; }
-  const editor = el('editor');
-  const start = editor.selectionStart;
-  const end = editor.selectionEnd;
-  const passage = start !== end ? editor.value.substring(start, end) : editor.value;
-  if (!passage.trim()) { alert('Select text in the editor to rewrite, or the editor must have content.'); return; }
 
-  const output = el('draft-output');
-  output.textContent = '';
-  state.draftOutput = '';
+  const sel = window.getSelection();
+  const passage = sel ? sel.toString().trim() : '';
+  if (!passage) { alert('Please select text in the editor to rewrite.'); return; }
+
+  // 1. Apply strikethrough to selection
+  document.execCommand('strikeThrough', false, null);
+
+  // 2. Collapse selection to end and insert markers
+  if (sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  // 3. Insert rewrite block
+  document.execCommand('insertHTML', false, '<br><span class="ai-rewrite-marker">=============== AI Rewrite ===============</span><br>');
+
+  // 4. Create a live-updating span for streamed text
+  const rewriteId = 'rw-' + Date.now();
+  document.execCommand('insertHTML', false, `<span class="ai-rewrite-content" id="${rewriteId}"></span>`);
+
   el('rewrite-btn').disabled = true;
   el('rewrite-btn').textContent = 'Rewriting...';
 
+  let rewriteText = '';
   try {
     const res = await fetch('/api/projects/' + state.currentProjectId + '/rewrite', {
       method: 'POST',
@@ -1276,29 +1383,51 @@ el('rewrite-btn').addEventListener('click', async () => {
       }),
     });
     for await (const ev of readSSE(res)) {
-      if (ev.error) { output.textContent += '\n[Error: ' + ev.error + ']'; break; }
-      if (ev.text) { state.draftOutput += ev.text; output.textContent = state.draftOutput; output.scrollTop = output.scrollHeight; }
+      if (ev.error) { rewriteText += '\n[Error: ' + ev.error + ']'; break; }
+      if (ev.text) {
+        rewriteText += ev.text;
+        const span = document.getElementById(rewriteId);
+        if (span) span.textContent = rewriteText;
+      }
       if (ev.done) break;
     }
   } catch (e) {
-    output.textContent = 'Error: ' + e.message;
+    const span = document.getElementById(rewriteId);
+    if (span) span.textContent = 'Error: ' + e.message;
   } finally {
+    // Add end marker
+    const span = document.getElementById(rewriteId);
+    if (span) {
+      const endMarker = document.createElement('span');
+      endMarker.className = 'ai-rewrite-end';
+      endMarker.textContent = '=========================================';
+      span.after(endMarker);
+    }
     el('rewrite-btn').disabled = false;
     el('rewrite-btn').textContent = 'Rewrite Selection';
+    state.isDirty = true;
+    clearTimeout(state.autosaveTimer);
+    state.autosaveTimer = setTimeout(saveChapterContent, 2000);
   }
 });
 
 el('insert-btn').addEventListener('click', () => {
   if (!state.draftOutput) return;
   const editor = el('editor');
-  const pos = editor.selectionEnd;
-  const before = editor.value.substring(0, pos);
-  const after = editor.value.substring(pos);
-  const insert = (before && !before.endsWith('\n\n')) ? '\n\n' + state.draftOutput : state.draftOutput;
-  editor.value = before + insert + after;
-  editor.selectionStart = editor.selectionEnd = pos + insert.length;
+  editor.focus();
+  // Move caret to end if no selection
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) {
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  const insert = '\n\n' + state.draftOutput;
+  document.execCommand('insertText', false, insert);
   state.isDirty = true;
-  el('word-count').textContent = countWords(editor.value) + ' words';
+  el('word-count').textContent = countWords(editor.innerText) + ' words';
   setStatus('Saving...');
   clearTimeout(state.autosaveTimer);
   state.autosaveTimer = setTimeout(saveChapterContent, 2000);
@@ -1668,6 +1797,102 @@ el('save-persona-btn').addEventListener('click', async () => {
   } finally {
     el('save-persona-btn').disabled = false;
   }
+});
+
+// ── Format toolbar ──────────────────────────────────────────────────────────
+document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn => {
+  btn.addEventListener('mousedown', (e) => {
+    e.preventDefault(); // keep focus in editor
+    document.execCommand(btn.dataset.cmd, false, null);
+  });
+});
+
+el('font-size-pick').addEventListener('change', (e) => {
+  document.execCommand('fontSize', false, '7'); // placeholder
+  // execCommand fontSize uses 1-7; we override with CSS instead
+  const spans = el('editor').querySelectorAll('font[size="7"]');
+  spans.forEach(s => {
+    s.removeAttribute('size');
+    s.style.fontSize = e.target.value + 'px';
+  });
+});
+
+// ── Beats ───────────────────────────────────────────────────────────────────
+async function loadBeats(chapterId) {
+  try {
+    const data = await apiFetch('/api/chapters/' + chapterId + '/beats');
+    el('beats-editor').value = data.beats || '';
+  } catch (e) { console.error('Failed to load beats:', e); }
+}
+
+el('save-beats-btn').addEventListener('click', async () => {
+  if (!state.currentChapterId) return;
+  try {
+    await apiFetch('/api/chapters/' + state.currentChapterId + '/beats', {
+      method: 'PUT', body: { beats: el('beats-editor').value },
+    });
+    setStatus('Beats saved', 2000);
+  } catch (e) { alert('Failed to save beats: ' + e.message); }
+});
+
+// Beats generate modal
+el('gen-beats-btn').addEventListener('click', () => {
+  el('beats-gen-output').style.display = 'none';
+  el('beats-gen-output').textContent = '';
+  el('beats-gen-accept').style.display = 'none';
+  el('beats-desc').value = '';
+  el('beats-gen-modal').style.display = 'flex';
+});
+el('beats-gen-cancel').addEventListener('click', () => { el('beats-gen-modal').style.display = 'none'; });
+el('beats-gen-modal').addEventListener('click', e => { if (e.target === el('beats-gen-modal')) el('beats-gen-modal').style.display = 'none'; });
+
+el('beats-gen-run').addEventListener('click', async () => {
+  const desc = el('beats-desc').value.trim();
+  if (!desc) { alert('Please describe the chapter first.'); return; }
+  if (!state.currentChapterId) { alert('Select a chapter first.'); return; }
+  el('beats-gen-output').style.display = 'block';
+  el('beats-gen-output').textContent = 'Generating\u2026';
+  el('beats-gen-run').disabled = true;
+  el('beats-gen-accept').style.display = 'none';
+  let result = '';
+  try {
+    const res = await fetch('/api/chapters/' + state.currentChapterId + '/beats/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: desc, language: el('draft-lang').value || 'en' }),
+    });
+    for await (const ev of readSSE(res)) {
+      if (ev.error) { el('beats-gen-output').textContent += '\n[Error: ' + ev.error + ']'; break; }
+      if (ev.text) { result += ev.text; el('beats-gen-output').textContent = result; }
+      if (ev.done) { el('beats-gen-accept').style.display = 'inline-block'; break; }
+    }
+  } catch (e) {
+    el('beats-gen-output').textContent = 'Error: ' + e.message;
+  } finally {
+    el('beats-gen-run').disabled = false;
+  }
+});
+
+el('beats-gen-accept').addEventListener('click', () => {
+  el('beats-editor').value = el('beats-gen-output').textContent;
+  el('beats-gen-modal').style.display = 'none';
+  // auto-save
+  apiFetch('/api/chapters/' + state.currentChapterId + '/beats', {
+    method: 'PUT', body: { beats: el('beats-editor').value },
+  }).catch(() => {});
+});
+
+// Beats required modal
+el('beats-req-dismiss').addEventListener('click', () => {
+  el('beats-required-modal').style.display = 'none';
+  // focus beats editor
+  el('beats-editor').focus();
+});
+let _pendingContinue = false;
+el('beats-req-skip').addEventListener('click', () => {
+  el('beats-required-modal').style.display = 'none';
+  _pendingContinue = true;
+  el('continue-btn').click();
 });
 
 // ── Utilities ──────────────────────────────────────────────────────────────

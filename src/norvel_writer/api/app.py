@@ -429,6 +429,11 @@ async def continue_draft(project_id: str, body: ContinueRequest):
         try:
             from norvel_writer.core.draft_engine import DraftEngine
             engine = DraftEngine(project_manager=get_pm())
+            # Load beats for this chapter from DB
+            from norvel_writer.storage.repositories.project_repo import ProjectRepo
+            from norvel_writer.storage.db import get_db
+            ch_row = ProjectRepo(get_db()).get_chapter(body.chapter_id)
+            chapter_beats = (ch_row.get("beats") or "").strip() if ch_row else ""
             stream = await engine.continue_draft(
                 project_id=project_id,
                 chapter_id=body.chapter_id,
@@ -437,6 +442,7 @@ async def continue_draft(project_id: str, body: ContinueRequest):
                 style_mode=body.style_mode,
                 language=body.language,
                 active_doc_types=body.active_doc_types,
+                beats=chapter_beats,
             )
             async for chunk in stream:
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
@@ -522,6 +528,68 @@ async def summarise_chapter(chapter_id: str, language: str = Query(default="en")
         return {"summary": summary}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Chapter beats ──────────────────────────────────────────────────────────
+
+@app.get("/api/chapters/{chapter_id}/beats")
+async def get_beats(chapter_id: str):
+    try:
+        from norvel_writer.storage.repositories.project_repo import ProjectRepo
+        from norvel_writer.storage.db import get_db
+        row = ProjectRepo(get_db()).get_chapter(chapter_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Chapter not found")
+        return {"beats": row.get("beats") or ""}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class BeatsUpdate(BaseModel):
+    beats: str
+
+
+@app.put("/api/chapters/{chapter_id}/beats")
+async def save_beats(chapter_id: str, body: BeatsUpdate):
+    try:
+        get_pm().update_chapter(chapter_id, beats=body.beats)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class BeatsGenRequest(BaseModel):
+    description: str
+    language: str = "en"
+
+
+@app.post("/api/chapters/{chapter_id}/beats/generate")
+async def generate_beats(chapter_id: str, body: BeatsGenRequest):
+    async def _gen():
+        try:
+            from norvel_writer.llm.ollama_client import get_client
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a story structure expert. Generate a numbered chapter beats outline. "
+                        "Each beat is one sentence describing a key story event or turning point. "
+                        f"Write in {body.language}. Format as:\n1. [beat]\n2. [beat]\n..."
+                    ),
+                },
+                {"role": "user", "content": f"Generate beats for this chapter:\n{body.description}"},
+            ]
+            from norvel_writer.config.settings import get_config
+            model = get_config().default_chat_model
+            client = get_client()
+            async for chunk in await client.chat_stream(model, messages):
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+    return StreamingResponse(_gen(), media_type="text/event-stream")
 
 
 # ── Style ──────────────────────────────────────────────────────────────────
