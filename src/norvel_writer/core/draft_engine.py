@@ -85,7 +85,7 @@ class DraftEngine:
         )
 
         client = get_client()
-        return client.chat_stream(self._model, messages)
+        return await client.chat_stream(self._model, messages)
 
     async def rewrite_passage(
         self,
@@ -133,7 +133,7 @@ class DraftEngine:
         )
 
         client = get_client()
-        return client.chat_stream(self._model, messages)
+        return await client.chat_stream(self._model, messages)
 
     async def summarise_chapter(
         self,
@@ -235,7 +235,7 @@ class DraftEngine:
         messages.append({"role": "user", "content": question})
 
         client = get_client()
-        return client.chat_stream(self._model, messages)
+        return await client.chat_stream(self._model, messages)
 
 
 def _last_paragraphs(text: str, n_tokens: int = 512) -> str:

@@ -9,11 +9,64 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import FastAPI, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
+from html.parser import HTMLParser
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="Norvel Writer", version="0.1.0")
+
+
+# ── HTML → plain-text helper ───────────────────────────────────────────────
+
+class _HTMLStripper(HTMLParser):
+    """Minimal HTML-to-text converter that preserves paragraph breaks."""
+
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+        self._block_tags = {
+            "p", "div", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+            "tr", "blockquote",
+        }
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._block_tags:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self._block_tags:
+            self._parts.append("\n")
+
+    def handle_data(self, data):
+        self._parts.append(data)
+
+    def handle_entityref(self, name):
+        import html
+        self._parts.append(html.unescape(f"&{name};"))
+
+    def handle_charref(self, name):
+        import html
+        self._parts.append(html.unescape(f"&#{name};"))
+
+    def get_text(self) -> str:
+        import re
+        text = "".join(self._parts)
+        # Collapse 3+ newlines to 2
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+
+def _strip_html(html_content: str) -> str:
+    """Strip HTML tags and return clean plain text."""
+    if not html_content:
+        return ""
+    # Fast path: if there are no tags at all, return as-is
+    if "<" not in html_content:
+        return html_content.strip()
+    stripper = _HTMLStripper()
+    stripper.feed(html_content)
+    return stripper.get_text()
 
 # ── Singleton ProjectManager ───────────────────────────────────────────────
 
@@ -519,7 +572,9 @@ async def summarise_chapter(chapter_id: str, language: str = Query(default="en")
     try:
         pm = get_pm()
         draft = pm.get_accepted_draft(chapter_id)
-        content = draft["content"] if draft else ""
+        raw_content = draft["content"] if draft else ""
+        # Strip HTML tags — the editor stores innerHTML; LLMs need plain text
+        content = _strip_html(raw_content)
         if not content.strip():
             return {"summary": ""}
         from norvel_writer.core.draft_engine import DraftEngine
@@ -574,12 +629,14 @@ async def generate_beats(chapter_id: str, body: BeatsGenRequest):
                 {
                     "role": "system",
                     "content": (
-                        "You are a story structure expert. Generate a numbered chapter beats outline. "
+                        "You are a story structure expert. "
+                        "Analyse the provided chapter draft and extract its key story beats. "
                         "Each beat is one sentence describing a key story event or turning point. "
-                        f"Write in {body.language}. Format as:\n1. [beat]\n2. [beat]\n..."
+                        f"Write in {body.language}. "
+                        "Output ONLY a numbered list, no other commentary. Format:\n1. [beat]\n2. [beat]\n..."
                     ),
                 },
-                {"role": "user", "content": f"Generate beats for this chapter:\n{body.description}"},
+                {"role": "user", "content": f"Analyse this chapter and extract the story beats:\n\n{body.description}"},
             ]
             from norvel_writer.config.settings import get_config
             model = get_config().default_chat_model
