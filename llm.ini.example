@@ -43,6 +43,13 @@ embed_model = text-embedding-3-small
 # base_url defaults to https://api.openai.com/v1
 # Set this to use Azure OpenAI or a compatible API (e.g. LM Studio)
 # base_url =
+#
+# OpenAI Assistants API (optional)
+# When use_assistant = true, a persistent "Norvel Writer" assistant is created
+# in your OpenAI account (one-time setup).  All project documents remain in
+# your LOCAL ChromaDB — nothing is ever uploaded to OpenAI.  RAG context is
+# retrieved locally and injected into each request automatically.
+use_assistant = false
 
 
 # ── Anthropic (Claude) ───────────────────────────────────────────────────────

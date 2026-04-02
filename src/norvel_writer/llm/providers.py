@@ -73,9 +73,10 @@ embed_model = nomic-embed-text
 vision_model =
 
 [openai]
-api_key    =
-chat_model = gpt-4o-mini
-embed_model = text-embedding-3-small
+api_key       =
+chat_model    = gpt-4o-mini
+embed_model   = text-embedding-3-small
+use_assistant = false
 
 [anthropic]
 api_key    =
@@ -136,14 +137,15 @@ class ProviderRouter:
             return OllamaClient(base_url=url), model
 
         if provider == "openai":
+            api_key = cfg.get("api_key", "")
+            base_url = cfg.get("base_url", "")
+            model = cfg.get("chat_model", "gpt-4o-mini")
+            use_assistant = cfg.get("use_assistant", "false").strip().lower() == "true"
+            if use_assistant:
+                from norvel_writer.llm.openai_assistant import OpenAIAssistantClient
+                return OpenAIAssistantClient(api_key=api_key, base_url=base_url), model
             from norvel_writer.llm.openai_client import OpenAIClient
-            return (
-                OpenAIClient(
-                    api_key=cfg.get("api_key", ""),
-                    base_url=cfg.get("base_url", ""),
-                ),
-                cfg.get("chat_model", "gpt-4o-mini"),
-            )
+            return OpenAIClient(api_key=api_key, base_url=base_url), model
 
         if provider == "anthropic":
             from norvel_writer.llm.anthropic_client import AnthropicClient
