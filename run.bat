@@ -1,50 +1,60 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: Norvel Writer - Quick Launcher
-:: Double-click this file to install dependencies and start the app.
-
 echo ============================================================
 echo  Norvel Writer - Local Writing Assistant
 echo ============================================================
 echo.
 
-:: Check Python
-python --version >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Python not found.
-    echo Please install Python 3.11 or newer from https://python.org
-    echo Make sure to check "Add Python to PATH" during installation.
+:: ── Find uv ───────────────────────────────────────────────────────────────
+:: uv manages Python automatically — no separate Python install required.
+:: https://astral.sh/uv
+
+set "UV="
+
+:: Check PATH first
+where uv >nul 2>&1 && set "UV=uv"
+
+:: Common install locations on Windows
+if "!UV!"=="" if exist "%APPDATA%\uv\bin\uv.exe"        set "UV=%APPDATA%\uv\bin\uv.exe"
+if "!UV!"=="" if exist "%USERPROFILE%\.local\bin\uv.exe" set "UV=%USERPROFILE%\.local\bin\uv.exe"
+if "!UV!"=="" if exist "%USERPROFILE%\.cargo\bin\uv.exe" set "UV=%USERPROFILE%\.cargo\bin\uv.exe"
+
+:: If still not found, download and install uv automatically
+if "!UV!"=="" (
+    echo uv not found. Downloading uv ^(one-time setup, ~15 MB^)...
+    echo uv manages Python automatically so you do not need to install Python separately.
+    echo.
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+    :: Re-check after install
+    if exist "%APPDATA%\uv\bin\uv.exe"        set "UV=%APPDATA%\uv\bin\uv.exe"
+    if exist "%USERPROFILE%\.local\bin\uv.exe" set "UV=%USERPROFILE%\.local\bin\uv.exe"
+)
+
+if "!UV!"=="" (
+    echo.
+    echo ERROR: Could not install uv automatically.
+    echo Please install it manually from: https://astral.sh/uv
+    echo   Or install Python 3.11+ from: https://python.org
     pause
     exit /b 1
 )
 
-for /f "tokens=2 delims= " %%v in ('python --version 2^>^&1') do set PYVER=%%v
-echo Found Python %PYVER%
+echo.
 
-:: Install dependencies (only if not already installed)
-python -c "import norvel_writer" >nul 2>&1
-if errorlevel 1 (
-    echo Installing Norvel Writer dependencies... (first run only, may take a few minutes)
-    echo.
-    pip install -e "%~dp0." --quiet
-    if errorlevel 1 (
-        echo.
-        echo ERROR: Failed to install dependencies.
-        echo Try running: pip install -e .
-        pause
-        exit /b 1
-    )
-    echo Dependencies installed successfully.
-    echo.
-)
+:: ── Launch app ────────────────────────────────────────────────────────────
+:: uv will auto-install Python 3.11 and all dependencies on first run.
+:: Subsequent runs skip already-installed packages and start in seconds.
+cd /d "%~dp0"
 
-:: Launch the app
 echo Starting Norvel Writer...
-python -m norvel_writer
+echo ^(First run installs Python 3.11 + dependencies — this may take a few minutes^)
+echo.
+
+"!UV!" run --python 3.11 python -m norvel_writer
 
 if errorlevel 1 (
     echo.
-    echo App exited with an error. Check logs in %%APPDATA%%\NorvelWriter\logs\
+    echo App exited with an error. Check logs in %APPDATA%\NorvelWriter\logs\
     pause
 )
