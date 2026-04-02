@@ -149,28 +149,36 @@ class OllamaClient:
         messages: List[Dict[str, str]],
         options: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[str]:
-        """Stream chat completion, yielding string chunks."""
-        try:
-            import ollama
-            client = self._get_client()
-            async for chunk in await client.chat(
-                model=model,
-                messages=messages,
-                stream=True,
-                options=options or {},
-            ):
-                content = chunk.message.content
-                if content:
-                    yield content
-        except Exception as exc:
-            err_str = str(exc).lower()
-            if "not found" in err_str or "pull" in err_str:
-                raise OllamaModelNotFoundError(
-                    f"Model {model!r} not found. Pull it first."
+        """Stream chat completion. Returns an async generator of string chunks.
+
+        Uses the same ``return _gen()`` pattern as the other clients so that
+        ``await client.chat_stream(...)`` always resolves to an async generator,
+        regardless of which backend is active.
+        """
+        ollama_client = self._get_client()
+
+        async def _gen():
+            try:
+                async for chunk in await ollama_client.chat(
+                    model=model,
+                    messages=messages,
+                    stream=True,
+                    options=options or {},
+                ):
+                    content = chunk.message.content
+                    if content:
+                        yield content
+            except Exception as exc:
+                err_str = str(exc).lower()
+                if "not found" in err_str or "pull" in err_str:
+                    raise OllamaModelNotFoundError(
+                        f"Model {model!r} not found. Pull it first."
+                    ) from exc
+                raise OllamaConnectionError(
+                    f"Ollama error during chat: {exc}"
                 ) from exc
-            raise OllamaConnectionError(
-                f"Ollama error during chat: {exc}"
-            ) from exc
+
+        return _gen()
 
     async def chat_complete(
         self,
