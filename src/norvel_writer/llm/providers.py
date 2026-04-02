@@ -62,26 +62,133 @@ def ensure_ini_exists() -> Path:
 
 
 _DEFAULT_INI = """\
+# ══════════════════════════════════════════════════════════════════════════════
+# Norvel Writer — LLM configuration  (llm.ini)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# This file controls which AI backend Norvel Writer uses.
+# Edit it with any text editor, then restart the app (or click Save in
+# Settings → LLM Config) for changes to take effect.
+#
+# Supported providers
+#   ollama    — local models via Ollama  (free, offline, private)
+#   openai    — OpenAI API              (requires API key, sends data online)
+#   anthropic — Anthropic Claude API    (requires API key, sends data online)
+#   gemini    — Google Gemini API       (requires API key, sends data online)
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
 [provider]
+# Which backend to use for chat/writing generation.
+# Valid values: ollama | openai | anthropic | gemini
 chat = ollama
+
+# Which backend to use for embeddings (RAG / similarity search).
+# Currently only "ollama" and "openai" support embeddings.
+# If you use a cloud provider for chat but want free local embeddings,
+# set chat = anthropic (or gemini) and embeddings = ollama.
 embeddings = ollama
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# [ollama]  Local models via Ollama  (https://ollama.com)
+# ──────────────────────────────────────────────────────────────────────────────
+# Install Ollama from https://ollama.com/download, then pull models with:
+#
+#   ollama pull gemma3:4b          # recommended chat model (~2.5 GB)
+#   ollama pull nomic-embed-text   # required for embeddings (~274 MB)
+#
+# Other good chat models to try:
+#   gemma3:1b      (lightweight, ~800 MB)
+#   llama3.2:3b    (Meta, ~2 GB)
+#   llama3.1:8b    (Meta, ~4.7 GB)
+#   mistral:7b     (Mistral AI, ~4.1 GB)
+#   phi3:mini      (Microsoft, ~2.3 GB)
+#
+# Vision models (for image description, optional):
+#   llava:7b           (~4.5 GB)
+#   llama3.2-vision    (~7.9 GB)
+#   moondream          (~1.7 GB)
+#
 [ollama]
-base_url    = http://127.0.0.1:11434
-chat_model  = gemma3:4b
-embed_model = nomic-embed-text
+# URL of the Ollama HTTP service.  Change only if you run Ollama on a
+# non-standard port or on a remote machine.
+base_url     = http://127.0.0.1:11434
+
+# Model used for all writing/chat generation.
+chat_model   = gemma3:4b
+
+# Model used for embedding (RAG).  nomic-embed-text is strongly recommended.
+embed_model  = nomic-embed-text
+
+# Optional vision model for image description.  Leave blank to disable.
 vision_model =
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# [openai]  OpenAI API  (https://platform.openai.com)
+# ──────────────────────────────────────────────────────────────────────────────
+# Get your API key at: https://platform.openai.com/api-keys
+# To use OpenAI set [provider] chat = openai
+#
+# Chat model options (as of 2025):
+#   gpt-4o             (most capable)
+#   gpt-4o-mini        (fast & cheap, recommended default)
+#   gpt-4-turbo
+#   o3-mini            (reasoning model)
+#
+# Embedding model options:
+#   text-embedding-3-small   (default, cheap)
+#   text-embedding-3-large   (higher quality)
+#
+# base_url: leave blank for the official OpenAI endpoint.
+#           Set to a custom URL to use any OpenAI-compatible API
+#           (e.g. LM Studio, vLLM, Together AI, Groq, Fireworks …).
+#
+# use_assistant: set to true to use the Assistants API instead of Chat
+#                Completions (advanced — useful for persistent threads).
+#
 [openai]
 api_key       =
 chat_model    = gpt-4o-mini
 embed_model   = text-embedding-3-small
+base_url      =
 use_assistant = false
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# [anthropic]  Anthropic Claude API  (https://www.anthropic.com)
+# ──────────────────────────────────────────────────────────────────────────────
+# Get your API key at: https://console.anthropic.com
+# To use Anthropic set [provider] chat = anthropic
+#
+# Note: Anthropic does NOT provide an embeddings API.
+#       Keep [provider] embeddings = ollama when using Anthropic for chat.
+#
+# Chat model options (as of 2025):
+#   claude-3-5-haiku-20241022    (fast & cheap, recommended default)
+#   claude-3-5-sonnet-20241022   (balanced)
+#   claude-3-opus-20240229       (most capable)
+#
 [anthropic]
 api_key    =
 chat_model = claude-3-5-haiku-20241022
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# [gemini]  Google Gemini API  (https://ai.google.dev)
+# ──────────────────────────────────────────────────────────────────────────────
+# Get your API key at: https://aistudio.google.com/app/apikey
+# To use Gemini set [provider] chat = gemini
+#
+# Note: Gemini embeddings are not yet integrated.
+#       Keep [provider] embeddings = ollama when using Gemini for chat.
+#
+# Chat model options (as of 2025):
+#   gemini-1.5-flash     (fast & cheap, recommended default)
+#   gemini-1.5-pro       (most capable)
+#   gemini-2.0-flash     (next-gen flash)
+#
 [gemini]
 api_key    =
 chat_model = gemini-1.5-flash

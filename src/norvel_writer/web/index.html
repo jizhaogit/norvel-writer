@@ -760,18 +760,6 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         <input type="text" id="cfg-vision-model" placeholder="llava:7b" list="ollama-models-datalist">
       </div>
       <datalist id="ollama-models-datalist"></datalist>
-      <div class="form-group">
-        <label style="display:flex;align-items:center;gap:8px;">
-          Installed Models
-          <span id="models-refresh-btn" style="cursor:pointer;font-size:11px;color:var(--subtext);border:1px solid var(--border);border-radius:4px;padding:1px 6px;">↻ Refresh</span>
-        </label>
-        <div id="settings-models-list" style="font-size:12px;color:var(--subtext);min-height:22px;margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">—</div>
-      </div>
-      <div class="form-group">
-        <label>Pull Models</label>
-        <div id="pull-models-list" style="display:flex;flex-direction:column;gap:5px;margin-top:4px;"></div>
-        <div id="pull-progress" style="margin-top:8px;font-size:12px;color:var(--subtext);display:none;"></div>
-      </div>
     </div>
 
     <!-- Anthropic fields -->
@@ -852,19 +840,18 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     </div>
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;">
-        LLM Provider Config
-        <code id="llm-ini-path" style="font-size:10px;color:var(--subtext);font-weight:normal;"></code>
+        LLM Provider Config (.env)
+        <code id="llm-env-path" style="font-size:10px;color:var(--subtext);font-weight:normal;"></code>
       </label>
       <div style="font-size:11px;color:var(--subtext);margin-bottom:4px;">
-        ⚠ This file takes priority over the Chat/Embed Model fields above.
-        Change <code>chat_model</code> here to switch models.
+        Edit this file directly or use the fields above. Changes take effect immediately on Save.
       </div>
-      <textarea id="llm-ini-editor" rows="10" spellcheck="false"
+      <textarea id="llm-env-editor" rows="10" spellcheck="false"
         style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-family:monospace;font-size:12px;resize:vertical;"></textarea>
       <div style="display:flex;justify-content:flex-end;margin-top:6px;">
-        <button class="btn primary" id="llm-ini-save-btn" style="font-size:12px;padding:5px 14px;">Save llm.ini</button>
+        <button class="btn primary" id="llm-env-save-btn" style="font-size:12px;padding:5px 14px;">Save .env</button>
       </div>
-      <div id="llm-ini-status" style="font-size:11px;color:var(--subtext);margin-top:4px;min-height:14px;"></div>
+      <div id="llm-env-status" style="font-size:11px;color:var(--subtext);margin-top:4px;min-height:14px;"></div>
     </div>
     <div class="form-group">
       <label>Default Content Language</label>
@@ -1279,10 +1266,8 @@ async function* readSSE(response) {
 async function loadSettings() {
   try {
     state.settings = await apiFetch('/api/settings');
-    el('cfg-ollama-url').value = state.settings.ollama_base_url || '';
-    el('cfg-chat-model').value = state.settings.default_chat_model || '';
-    el('cfg-embed-model').value = state.settings.default_embed_model || '';
-    el('cfg-vision-model').value = state.settings.vision_model || '';
+    // LLM fields (chat model, embed model, base url, vision model) are now
+    // loaded from .env by loadDotEnv() — not from settings.toml.
     el('cfg-theme').value = state.settings.theme || 'dark';
     populateLangSelect(el('cfg-content-lang'), state.settings.default_content_language || 'en');
     populateLangSelect(el('cfg-project-lang'), state.settings.default_project_language || 'en');
@@ -1296,120 +1281,18 @@ async function loadSettings() {
   }
 }
 
-// ── Ollama model list + pull ────────────────────────────────────────────────
-const RECOMMENDED_MODELS = [
-  { name: 'gemma3:4b',          desc: 'Google Gemma 3 · 4B  (default chat)' },
-  { name: 'gemma3:1b',          desc: 'Google Gemma 3 · 1B  (lightweight)' },
-  { name: 'llama3.2:3b',        desc: 'Meta Llama 3.2 · 3B' },
-  { name: 'llama3.1:8b',        desc: 'Meta Llama 3.1 · 8B' },
-  { name: 'mistral:7b',         desc: 'Mistral AI · 7B' },
-  { name: 'phi3:mini',          desc: 'Microsoft Phi-3 Mini' },
-  { name: 'nomic-embed-text',   desc: 'Nomic · embed model (required)' },
-];
-
-function renderPullModelsList(installedNames) {
-  const container = el('pull-models-list');
-  if (!container) return;
-  container.innerHTML = '';
-  for (const m of RECOMMENDED_MODELS) {
-    const installed = installedNames.some(n => n === m.name || n.startsWith(m.name.split(':')[0] + ':'));
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;';
-
-    const nameSpan = document.createElement('code');
-    nameSpan.style.cssText = 'flex:0 0 auto;font-size:12px;min-width:160px;';
-    nameSpan.textContent = m.name;
-
-    const descSpan = document.createElement('span');
-    descSpan.style.cssText = 'flex:1;font-size:11px;color:var(--subtext);';
-    descSpan.textContent = m.desc;
-
-    const btn = document.createElement('button');
-    btn.className = 'btn';
-    btn.style.cssText = 'font-size:11px;padding:3px 12px;white-space:nowrap;flex:0 0 auto;';
-    if (installed) {
-      btn.textContent = '✓ Installed';
-      btn.disabled = true;
-      btn.style.color = 'var(--green)';
-      btn.style.borderColor = 'var(--green)';
-    } else {
-      btn.textContent = 'Pull';
-      btn.onclick = () => pullModel(m.name, btn);
-    }
-
-    row.appendChild(nameSpan);
-    row.appendChild(descSpan);
-    row.appendChild(btn);
-    container.appendChild(row);
-  }
-}
-
-async function pullModel(name, btn) {
-  const prog = el('pull-progress');
-  btn.disabled = true;
-  btn.textContent = 'Pulling…';
-  prog.style.display = 'block';
-  prog.style.color = 'var(--subtext)';
-  prog.textContent = 'Starting ' + name + '…';
-
-  // Heartbeat ticker — shows elapsed seconds so the user knows it hasn't frozen
-  let lastMsg = 'Downloading…';
-  let elapsed = 0;
-  const ticker = setInterval(() => {
-    elapsed++;
-    prog.textContent = name + ': ' + lastMsg + ' — ' + elapsed + 's';
-  }, 1000);
-
-  try {
-    const res = await fetch('/api/ollama/pull/' + encodeURIComponent(name), { method: 'POST' });
-    for await (const ev of readSSE(res)) {
-      if (ev.error) {
-        prog.textContent = '✗ ' + ev.error;
-        prog.style.color = 'var(--red)';
-        btn.textContent = 'Pull'; btn.disabled = false;
-        break;
-      }
-      if (ev.done) {
-        prog.textContent = '✓ ' + name + ' pulled successfully.';
-        prog.style.color = 'var(--green)';
-        await loadOllamaModels();
-        break;
-      }
-      if (ev.status !== undefined) {
-        lastMsg = (ev.status || 'Downloading…') + (ev.pct > 0 ? ' (' + ev.pct + '%)' : '');
-        elapsed = 0; // reset elapsed on each real progress event
-        prog.textContent = name + ': ' + lastMsg;
-      }
-    }
-  } catch (e) {
-    prog.textContent = '✗ ' + e.message;
-    prog.style.color = 'var(--red)';
-    btn.textContent = 'Pull'; btn.disabled = false;
-  } finally {
-    clearInterval(ticker);
-  }
-}
-
+// ── Ollama model autocomplete ───────────────────────────────────────────────
 async function loadOllamaModels() {
-  const listEl = el('settings-models-list');
   const datalist = el('ollama-models-datalist');
+  if (!datalist) return;
   try {
     const data = await apiFetch('/api/ollama/status');
     const models = (data.models || []).map(m => m.name);
-    if (datalist) datalist.innerHTML = models.map(n => `<option value="${n}">`).join('');
-    if (listEl) {
-      listEl.innerHTML = models.length === 0
-        ? 'No models installed yet.'
-        : models.map(n => `<span style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;">${n}</span>`).join('');
-    }
-    renderPullModelsList(models);
+    datalist.innerHTML = models.map(n => `<option value="${n}">`).join('');
   } catch (e) {
-    if (listEl) listEl.textContent = 'Could not load models.';
-    renderPullModelsList([]);
+    // datalist stays empty — not critical
   }
 }
-
-el('models-refresh-btn').addEventListener('click', loadOllamaModels);
 
 // ── AI error display helper ─────────────────────────────────────────────────
 // Detects model-not-found errors and appends a "Open Settings to Pull" button.
@@ -1427,7 +1310,7 @@ function showAiError(container, msg, append = false) {
     const btn = document.createElement('button');
     btn.textContent = '⚙ Open Settings to Pull';
     btn.style.cssText = 'margin-left:8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;color:var(--text);vertical-align:middle;';
-    btn.onclick = () => { loadSettings(); loadOllamaModels(); el('modal-overlay').classList.add('visible'); };
+    btn.onclick = () => { loadSettings(); loadDotEnv(); el('modal-overlay').classList.add('visible'); };
     wrap.appendChild(btn);
     container.appendChild(wrap);
   } else {
@@ -1449,100 +1332,96 @@ el('cfg-chat-provider').addEventListener('change', () => {
   showProviderFields(el('cfg-chat-provider').value);
 });
 
-function loadProviderFromIni(iniContent) {
-  // Parse [provider] chat = ... from the raw ini text
-  const providerMatch = iniContent.match(/^\[provider\][^\[]*chat\s*=\s*(\w+)/im);
-  const provider = providerMatch ? providerMatch[1].toLowerCase() : 'ollama';
-  el('cfg-chat-provider').value = PROVIDER_FIELDS.includes(provider) ? provider : 'ollama';
-  showProviderFields(el('cfg-chat-provider').value);
-
-  // Parse individual sections
-  const get = (section, key) => {
-    const re = new RegExp(`\\[${section}\\][^\\[]*?^${key}\\s*=\\s*(.+)$`, 'im');
-    const m = iniContent.match(re);
+function loadProviderFromEnv(envContent) {
+  // Parse flat KEY=VALUE lines from .env content
+  const get = (key) => {
+    const re = new RegExp('^' + key + '\\s*=\\s*(.*)$', 'im');
+    const m = envContent.match(re);
     return m ? m[1].trim() : '';
   };
 
+  const provider = (get('LLM_PROVIDER') || 'ollama').toLowerCase();
+  el('cfg-chat-provider').value = PROVIDER_FIELDS.includes(provider) ? provider : 'ollama';
+  showProviderFields(el('cfg-chat-provider').value);
+
   // Ollama
-  const ollamaUrl = get('ollama', 'base_url');
+  const ollamaUrl = get('OLLAMA_BASE_URL');
   if (ollamaUrl) el('cfg-ollama-url').value = ollamaUrl;
-  const chatModel = get('ollama', 'chat_model');
+  const chatModel = get('OLLAMA_CHAT_MODEL');
   if (chatModel) el('cfg-chat-model').value = chatModel;
-  const embedModel = get('ollama', 'embed_model');
+  const embedModel = get('OLLAMA_EMBED_MODEL');
   if (embedModel) el('cfg-embed-model').value = embedModel;
-  const visionModel = get('ollama', 'vision_model');
-  el('cfg-vision-model').value = visionModel;
+  el('cfg-vision-model').value = get('OLLAMA_VISION_MODEL');
 
   // Anthropic
-  el('cfg-anthropic-key').value   = get('anthropic', 'api_key');
-  el('cfg-anthropic-model').value = get('anthropic', 'chat_model');
+  el('cfg-anthropic-key').value   = get('ANTHROPIC_API_KEY');
+  el('cfg-anthropic-model').value = get('ANTHROPIC_CHAT_MODEL');
 
   // OpenAI
-  el('cfg-openai-key').value        = get('openai', 'api_key');
-  el('cfg-openai-model').value      = get('openai', 'chat_model');
-  el('cfg-openai-base-url').value   = get('openai', 'base_url');
-  el('cfg-openai-embed-model').value= get('openai', 'embed_model');
+  el('cfg-openai-key').value         = get('OPENAI_API_KEY');
+  el('cfg-openai-model').value       = get('OPENAI_CHAT_MODEL');
+  el('cfg-openai-base-url').value    = get('OPENAI_BASE_URL');
+  el('cfg-openai-embed-model').value = get('OPENAI_EMBED_MODEL');
 
   // Gemini
-  el('cfg-gemini-key').value   = get('gemini', 'api_key');
-  el('cfg-gemini-model').value = get('gemini', 'chat_model');
+  el('cfg-gemini-key').value   = get('GEMINI_API_KEY');
+  el('cfg-gemini-model').value = get('GEMINI_CHAT_MODEL');
 }
 
-function buildIniFromFields(existingIni) {
+function buildEnvFromFields(existingEnv) {
   const provider = el('cfg-chat-provider').value;
-  let ini = existingIni;
+  let env = existingEnv;
 
-  // Update [provider] section
-  ini = updateIniValue(ini, 'provider', 'chat', provider);
+  env = updateEnvValue(env, 'LLM_PROVIDER', provider);
   // Embeddings stay on ollama unless openai is chosen
-  ini = updateIniValue(ini, 'provider', 'embeddings', provider === 'openai' ? 'openai' : 'ollama');
+  env = updateEnvValue(env, 'EMBEDDINGS_PROVIDER', provider === 'openai' ? 'openai' : 'ollama');
 
   // Always sync ollama fields (needed for embeddings even with cloud chat)
-  ini = updateIniValue(ini, 'ollama', 'base_url',    el('cfg-ollama-url').value   || 'http://127.0.0.1:11434');
-  ini = updateIniValue(ini, 'ollama', 'chat_model',  el('cfg-chat-model').value   || 'gemma3:4b');
-  ini = updateIniValue(ini, 'ollama', 'embed_model', el('cfg-embed-model').value  || 'nomic-embed-text');
-  ini = updateIniValue(ini, 'ollama', 'vision_model',el('cfg-vision-model').value || '');
+  env = updateEnvValue(env, 'OLLAMA_BASE_URL',    el('cfg-ollama-url').value   || 'http://127.0.0.1:11434');
+  env = updateEnvValue(env, 'OLLAMA_CHAT_MODEL',  el('cfg-chat-model').value   || 'gemma3:4b');
+  env = updateEnvValue(env, 'OLLAMA_EMBED_MODEL', el('cfg-embed-model').value  || 'nomic-embed-text');
+  env = updateEnvValue(env, 'OLLAMA_VISION_MODEL',el('cfg-vision-model').value || '');
 
   if (provider === 'anthropic') {
-    ini = updateIniValue(ini, 'anthropic', 'api_key',    el('cfg-anthropic-key').value);
-    ini = updateIniValue(ini, 'anthropic', 'chat_model', el('cfg-anthropic-model').value || 'claude-3-5-haiku-20241022');
+    env = updateEnvValue(env, 'ANTHROPIC_API_KEY',    el('cfg-anthropic-key').value);
+    env = updateEnvValue(env, 'ANTHROPIC_CHAT_MODEL', el('cfg-anthropic-model').value || 'claude-3-5-haiku-20241022');
   }
   if (provider === 'openai') {
-    ini = updateIniValue(ini, 'openai', 'api_key',    el('cfg-openai-key').value);
-    ini = updateIniValue(ini, 'openai', 'chat_model', el('cfg-openai-model').value    || 'gpt-4o-mini');
-    ini = updateIniValue(ini, 'openai', 'base_url',   el('cfg-openai-base-url').value || '');
-    ini = updateIniValue(ini, 'openai', 'embed_model',el('cfg-openai-embed-model').value || 'text-embedding-3-small');
+    env = updateEnvValue(env, 'OPENAI_API_KEY',    el('cfg-openai-key').value);
+    env = updateEnvValue(env, 'OPENAI_CHAT_MODEL', el('cfg-openai-model').value    || 'gpt-4o-mini');
+    env = updateEnvValue(env, 'OPENAI_BASE_URL',   el('cfg-openai-base-url').value || '');
+    env = updateEnvValue(env, 'OPENAI_EMBED_MODEL',el('cfg-openai-embed-model').value || 'text-embedding-3-small');
   }
   if (provider === 'gemini') {
-    ini = updateIniValue(ini, 'gemini', 'api_key',    el('cfg-gemini-key').value);
-    ini = updateIniValue(ini, 'gemini', 'chat_model', el('cfg-gemini-model').value || 'gemini-1.5-flash');
+    env = updateEnvValue(env, 'GEMINI_API_KEY',    el('cfg-gemini-key').value);
+    env = updateEnvValue(env, 'GEMINI_CHAT_MODEL', el('cfg-gemini-model').value || 'gemini-1.5-flash');
   }
 
-  return ini;
+  return env;
 }
 
-// ── llm.ini editor ─────────────────────────────────────────────────────────
-async function loadLlmIni() {
+// ── .env editor ─────────────────────────────────────────────────────────────
+async function loadDotEnv() {
   try {
     const data = await apiFetch('/api/llm/config');
     const content = data.content || '';
-    el('llm-ini-editor').value = content;
-    el('llm-ini-path').textContent = data.path ? '(' + data.path + ')' : '';
-    loadProviderFromIni(content);
+    el('llm-env-editor').value = content;
+    el('llm-env-path').textContent = data.path ? '(' + data.path + ')' : '';
+    loadProviderFromEnv(content);
   } catch (e) {
-    console.error('Failed to load llm.ini:', e);
+    console.error('Failed to load .env:', e);
   }
 }
 
-el('llm-ini-save-btn').addEventListener('click', async () => {
-  const status = el('llm-ini-status');
+el('llm-env-save-btn').addEventListener('click', async () => {
+  const status = el('llm-env-status');
   status.textContent = 'Saving…';
   try {
     await apiFetch('/api/llm/config', {
       method: 'PUT',
-      body: { content: el('llm-ini-editor').value },
+      body: { content: el('llm-env-editor').value },
     });
-    status.textContent = '✓ Saved. Restart the app or reload for changes to take effect.';
+    status.textContent = '✓ Saved. Changes take effect immediately.';
     status.style.color = 'var(--green)';
   } catch (e) {
     status.textContent = '✗ ' + e.message;
@@ -1553,52 +1432,39 @@ el('llm-ini-save-btn').addEventListener('click', async () => {
 el('settings-btn').addEventListener('click', () => {
   loadSettings();
   loadOllamaModels();
-  loadLlmIni();
+  loadDotEnv();
   el('modal-overlay').classList.add('visible');
 });
 el('settings-cancel-btn').addEventListener('click', () => el('modal-overlay').classList.remove('visible'));
 el('modal-overlay').addEventListener('click', (e) => { if (e.target === el('modal-overlay')) el('modal-overlay').classList.remove('visible'); });
 
-// ── llm.ini line updater ────────────────────────────────────────────────────
-// Replaces `key = <value>` inside [section] without touching the rest of the file.
-function updateIniValue(content, section, key, value) {
+// ── .env key updater ────────────────────────────────────────────────────────
+// Replaces KEY=value lines without touching comments or other keys.
+function updateEnvValue(content, key, value) {
   const lines = content.split('\n');
-  let inSection = false;
   let found = false;
   const out = lines.map(line => {
     const trimmed = line.trim();
-    if (trimmed.startsWith('[')) {
-      inSection = trimmed.toLowerCase() === '[' + section.toLowerCase() + ']';
-    }
-    if (inSection && new RegExp('^' + key + '\\s*=', 'i').test(trimmed)) {
+    if (trimmed.startsWith('#')) return line;  // preserve comment lines
+    const eqIdx = line.indexOf('=');
+    if (eqIdx > 0 && line.substring(0, eqIdx).trim().toUpperCase() === key.toUpperCase()) {
       found = true;
-      return key + ' = ' + value;
+      return key + '=' + value;
     }
     return line;
   });
   if (!found) {
-    // Append the key right after the [section] header
-    const idx = out.findIndex(l => l.trim().toLowerCase() === '[' + section.toLowerCase() + ']');
-    if (idx >= 0) out.splice(idx + 1, 0, key + ' = ' + value);
+    out.push(key + '=' + value);
   }
   return out.join('\n');
 }
 
 el('settings-save-btn').addEventListener('click', async () => {
   try {
-    const chatModel   = el('cfg-chat-model').value.trim();
-    const embedModel  = el('cfg-embed-model').value.trim();
-    const visionModel = el('cfg-vision-model').value.trim();
-    const ollamaUrl   = el('cfg-ollama-url').value.trim();
-
-    // 1. Save to settings.toml
+    // 1. Save non-LLM settings to settings.toml
     await apiFetch('/api/settings', {
       method: 'PUT',
       body: {
-        ollama_base_url: ollamaUrl,
-        default_chat_model: chatModel,
-        default_embed_model: embedModel,
-        vision_model: visionModel,
         theme: el('cfg-theme').value,
         default_content_language: el('cfg-content-lang').value,
         default_project_language: el('cfg-project-lang').value,
@@ -1606,14 +1472,14 @@ el('settings-save-btn').addEventListener('click', async () => {
       },
     });
 
-    // 2. Build and save llm.ini from all provider fields
+    // 2. Build and save .env from all provider fields
     try {
-      const llmData = await apiFetch('/api/llm/config');
-      const ini = buildIniFromFields(llmData.content || '');
-      await apiFetch('/api/llm/config', { method: 'PUT', body: { content: ini } });
-      el('llm-ini-editor').value = ini;
-    } catch (iniErr) {
-      console.warn('Could not sync llm.ini:', iniErr);
+      const envData = await apiFetch('/api/llm/config');
+      const env = buildEnvFromFields(envData.content || '');
+      await apiFetch('/api/llm/config', { method: 'PUT', body: { content: env } });
+      el('llm-env-editor').value = env;
+    } catch (envErr) {
+      console.warn('Could not sync .env:', envErr);
     }
 
     applyI18n(el('cfg-ui-lang').value);

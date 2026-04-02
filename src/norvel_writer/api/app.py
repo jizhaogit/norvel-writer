@@ -137,7 +137,7 @@ async def ollama_pull(model: str):
     """Stream model pull progress as SSE.
 
     Uses httpx directly against the configured Ollama REST API so that:
-    - The correct host/port (from llm.ini / OLLAMA_HOST) is always used
+    - The correct host/port (from .env OLLAMA_BASE_URL / OLLAMA_HOST) is used
     - No SDK-level timeout kills a slow download
     - A keepalive comment is sent every ~5 seconds so the browser SSE
       connection stays alive during long pauses between progress events
@@ -146,22 +146,16 @@ async def ollama_pull(model: str):
         import asyncio
         import httpx
         import os
-        import urllib.parse
 
-        # Resolve Ollama base URL (same priority as OllamaClient.ping)
-        ollama_host = os.environ.get("OLLAMA_HOST", "").strip()
-        if ollama_host:
-            if "://" not in ollama_host:
-                ollama_host = "http://" + ollama_host
-            base_url = ollama_host.rstrip("/")
-        else:
-            try:
-                from norvel_writer.llm.providers import get_section
-                ini = get_section("ollama")
-                base_url = ini.get("base_url", "http://127.0.0.1:11434").rstrip("/")
-            except Exception:
-                from norvel_writer.config.settings import get_config
-                base_url = get_config().ollama_base_url.rstrip("/")
+        # Resolve Ollama base URL: OLLAMA_HOST (legacy) → OLLAMA_BASE_URL → default
+        base_url = (
+            os.environ.get("OLLAMA_HOST", "").strip()
+            or os.environ.get("OLLAMA_BASE_URL", "").strip()
+            or "http://127.0.0.1:11434"
+        )
+        if "://" not in base_url:
+            base_url = "http://" + base_url
+        base_url = base_url.rstrip("/")
 
         try:
             # timeout=None — large models can take many minutes to download
@@ -677,7 +671,7 @@ class BeatsGenRequest(BaseModel):
 async def generate_beats(chapter_id: str, body: BeatsGenRequest):
     async def _gen():
         try:
-            from norvel_writer.llm.ollama_client import get_client
+            from norvel_writer.llm.langchain_bridge import chat_stream
             messages = [
                 {
                     "role": "system",
@@ -691,10 +685,7 @@ async def generate_beats(chapter_id: str, body: BeatsGenRequest):
                 },
                 {"role": "user", "content": f"Analyse this chapter and extract the story beats:\n\n{body.description}"},
             ]
-            from norvel_writer.config.settings import get_config
-            model = get_config().default_chat_model
-            client = get_client()
-            async for chunk in await client.chat_stream(model, messages):
+            async for chunk in await chat_stream(messages):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as exc:
@@ -801,31 +792,18 @@ async def update_settings(body: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# ── LLM provider config (llm.ini) ─────────────────────────────────────────────
+# ── LLM provider config (.env) ────────────────────────────────────────────────
 
 @app.get("/api/llm/config")
 async def get_llm_config():
-    """Return the current llm.ini path, raw content, and active provider."""
+    """Return the current .env path and raw content."""
     try:
-        from norvel_writer.llm.providers import (
-            find_ini_path, read_ini, chat_provider, embeddings_provider,
-            ensure_ini_exists, _DEFAULT_INI,
-        )
-        # Ensure llm.ini exists so there is always something to edit
-        path = ensure_ini_exists()
-        raw = path.read_text(encoding="utf-8") if path.exists() else _DEFAULT_INI
-        cfg = read_ini()
-        sections = {s: dict(cfg[s]) for s in cfg.sections()}
-        # Mask API keys for display only (raw content is shown unmasked in editor)
-        for sec in sections.values():
-            if "api_key" in sec and sec["api_key"]:
-                sec["api_key"] = sec["api_key"][:6] + "…"
+        from norvel_writer.llm.langchain_bridge import ensure_env_exists, find_env_path
+        path = ensure_env_exists()
+        raw = path.read_text(encoding="utf-8") if path.exists() else ""
         return {
-            "path": str(path) if path else None,
+            "path": str(path),
             "content": raw,
-            "chat_provider": chat_provider(),
-            "embeddings_provider": embeddings_provider(),
-            "sections": sections,
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -834,14 +812,15 @@ async def get_llm_config():
 @app.put("/api/llm/config")
 async def save_llm_config(body: Dict[str, Any]):
     """
-    Write llm.ini.  Body: { "content": "<full ini text>" }
-    The file is written to the user config dir.
+    Write .env.  Body: { "content": "<full env text>" }
+    After saving, resets the LLM singletons so the next request picks up changes.
     """
     try:
-        from norvel_writer.llm.providers import _config_dir, _INI_FILENAME
-        dest = _config_dir() / _INI_FILENAME
+        from norvel_writer.llm.langchain_bridge import env_dest, reset_singletons
+        dest = env_dest()
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(body.get("content", ""), encoding="utf-8")
+        reset_singletons()
         return {"ok": True, "path": str(dest)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

@@ -35,6 +35,7 @@ src/norvel_writer/llm/__init__.py
 src/norvel_writer/llm/anthropic_client.py
 src/norvel_writer/llm/embedder.py
 src/norvel_writer/llm/gemini_client.py
+src/norvel_writer/llm/langchain_bridge.py
 src/norvel_writer/llm/model_manager.py
 src/norvel_writer/llm/ollama_client.py
 src/norvel_writer/llm/openai_assistant.py

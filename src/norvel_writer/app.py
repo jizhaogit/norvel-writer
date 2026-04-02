@@ -28,11 +28,11 @@ def run() -> int:
     except Exception:
         pass
 
-    # Create llm.ini from example if it doesn't exist yet
+    # Create .env from template if it doesn't exist yet
     try:
-        from norvel_writer.llm.providers import ensure_ini_exists
-        ini_path = ensure_ini_exists()
-        log.info("LLM config: %s", ini_path)
+        from norvel_writer.llm.langchain_bridge import ensure_env_exists
+        env_path = ensure_env_exists()
+        log.info("LLM config: %s", env_path)
     except Exception:
         pass
 

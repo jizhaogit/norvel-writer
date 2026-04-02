@@ -81,12 +81,11 @@ class StyleProfileEngine:
         """
         from norvel_writer.storage.repositories.document_repo import DocumentRepo
         from norvel_writer.storage.repositories.style_repo import StyleRepo
-        from norvel_writer.llm.ollama_client import get_client
+        from norvel_writer.llm.langchain_bridge import chat_complete
         from norvel_writer.llm.prompt_builder import build_style_extraction_messages
 
         doc_repo = DocumentRepo(self._db)
         style_repo = StyleRepo(self._db)
-        client = get_client()
 
         docs = doc_repo.list_documents(project_id, doc_type="style_sample")
         if not docs:
@@ -111,7 +110,7 @@ class StyleProfileEngine:
                 batch = sample_texts[i : i + batch_size]
                 messages = build_style_extraction_messages(batch)
                 try:
-                    response = await client.chat_complete(self._model, messages)
+                    response = await chat_complete(messages)
                     all_notes.append(response)
                 except Exception as exc:
                     log.error("Style extraction failed for batch %d: %s", i, exc)
@@ -122,7 +121,7 @@ class StyleProfileEngine:
                     progress_cb(pct)
 
             # Synthesise notes into structured profile
-            profile = await self._synthesise_profile(all_notes, client)
+            profile = await self._synthesise_profile(all_notes)
 
         if progress_cb:
             progress_cb(90)
@@ -141,7 +140,7 @@ class StyleProfileEngine:
         return profile_id
 
     async def _synthesise_profile(
-        self, notes: List[str], client
+        self, notes: List[str]
     ) -> StyleProfile:
         """Merge multiple style analysis notes into one structured profile."""
         if not notes:
@@ -164,7 +163,8 @@ class StyleProfileEngine:
             {"role": "user", "content": combined},
         ]
         try:
-            response = await client.chat_complete(self._model, messages)
+            from norvel_writer.llm.langchain_bridge import chat_complete
+            response = await chat_complete(messages)
             # Strip any markdown code fences
             text = response.strip()
             if text.startswith("```"):

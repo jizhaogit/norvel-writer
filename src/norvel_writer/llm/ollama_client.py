@@ -294,19 +294,37 @@ class OllamaClient:
 _client: Optional[OllamaClient] = None
 
 
-def get_client():
+def get_client() -> OllamaClient:
     """
-    Return the active LLM provider router.
-    Reads llm.ini on first call; returns a ProviderRouter that dispatches
-    to Ollama, OpenAI, Anthropic, or Gemini depending on configuration.
-    Falls back to a direct OllamaClient if the provider system is unavailable.
+    Return a direct OllamaClient for Ollama-specific operations
+    (ping, list models, pull model, image description).
+
+    Base URL is read from the OLLAMA_BASE_URL env var (loaded from .env),
+    falling back to the app config default.
     """
-    try:
-        from norvel_writer.llm.providers import get_router
-        return get_router()
-    except Exception:
-        global _client
-        if _client is None:
+    global _client
+    if _client is None:
+        import os
+        from pathlib import Path
+
+        # Try to ensure .env is loaded (in case langchain_bridge hasn't been
+        # imported yet, e.g. during Ollama status checks at startup).
+        base_url = os.environ.get("OLLAMA_BASE_URL", "").strip()
+        if not base_url:
+            try:
+                from dotenv import load_dotenv
+                app_root = Path(__file__).parent.parent.parent.parent.parent
+                for candidate in [app_root / ".env"]:
+                    if candidate.exists():
+                        load_dotenv(candidate, override=False)
+                        break
+                base_url = os.environ.get("OLLAMA_BASE_URL", "").strip()
+            except Exception:
+                pass
+
+        if not base_url:
             from norvel_writer.config.settings import get_config
-            _client = OllamaClient(get_config().ollama_base_url)
-        return _client
+            base_url = get_config().ollama_base_url
+
+        _client = OllamaClient(base_url)
+    return _client
