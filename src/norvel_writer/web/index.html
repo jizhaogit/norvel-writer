@@ -729,34 +729,126 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 <div id="modal-overlay">
   <div id="settings-modal">
     <h2>Settings</h2>
+
+    <!-- ── Chat Provider ── -->
     <div class="form-group">
-      <label>Ollama Base URL</label>
-      <input type="url" id="cfg-ollama-url" placeholder="http://127.0.0.1:11434">
+      <label>Chat Provider</label>
+      <select id="cfg-chat-provider" style="width:100%;">
+        <option value="ollama">Ollama (local — no API key needed)</option>
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="openai">OpenAI / Compatible</option>
+        <option value="gemini">Google Gemini</option>
+      </select>
     </div>
-    <div class="form-group">
-      <label>Chat Model</label>
-      <input type="text" id="cfg-chat-model" placeholder="gemma3:4b" list="ollama-models-datalist">
+
+    <!-- Ollama fields -->
+    <div id="provider-ollama-fields">
+      <div class="form-group">
+        <label>Ollama Base URL</label>
+        <input type="url" id="cfg-ollama-url" placeholder="http://127.0.0.1:11434">
+      </div>
+      <div class="form-group">
+        <label>Chat Model</label>
+        <input type="text" id="cfg-chat-model" placeholder="gemma3:4b" list="ollama-models-datalist">
+      </div>
+      <div class="form-group">
+        <label>Embed Model</label>
+        <input type="text" id="cfg-embed-model" placeholder="nomic-embed-text" list="ollama-models-datalist">
+      </div>
+      <div class="form-group">
+        <label>Vision Model (optional)</label>
+        <input type="text" id="cfg-vision-model" placeholder="llava:7b" list="ollama-models-datalist">
+      </div>
+      <datalist id="ollama-models-datalist"></datalist>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;">
+          Installed Models
+          <span id="models-refresh-btn" style="cursor:pointer;font-size:11px;color:var(--subtext);border:1px solid var(--border);border-radius:4px;padding:1px 6px;">↻ Refresh</span>
+        </label>
+        <div id="settings-models-list" style="font-size:12px;color:var(--subtext);min-height:22px;margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">—</div>
+      </div>
+      <div class="form-group">
+        <label>Pull Models</label>
+        <div id="pull-models-list" style="display:flex;flex-direction:column;gap:5px;margin-top:4px;"></div>
+        <div id="pull-progress" style="margin-top:8px;font-size:12px;color:var(--subtext);display:none;"></div>
+      </div>
     </div>
-    <div class="form-group">
-      <label>Embed Model</label>
-      <input type="text" id="cfg-embed-model" placeholder="nomic-embed-text" list="ollama-models-datalist">
+
+    <!-- Anthropic fields -->
+    <div id="provider-anthropic-fields" style="display:none;">
+      <div class="form-group">
+        <label>Anthropic API Key</label>
+        <input type="password" id="cfg-anthropic-key" placeholder="sk-ant-…" style="width:100%;box-sizing:border-box;">
+      </div>
+      <div class="form-group">
+        <label>Claude Model</label>
+        <input type="text" id="cfg-anthropic-model" placeholder="claude-3-5-haiku-20241022" list="anthropic-models-datalist">
+        <datalist id="anthropic-models-datalist">
+          <option value="claude-opus-4-5">
+          <option value="claude-sonnet-4-5">
+          <option value="claude-haiku-4-5">
+          <option value="claude-3-5-sonnet-20241022">
+          <option value="claude-3-5-haiku-20241022">
+          <option value="claude-3-opus-20240229">
+        </datalist>
+      </div>
+      <div class="form-group">
+        <label>Embed Provider (Anthropic has no embeddings)</label>
+        <select id="cfg-anthropic-embed-fallback" style="width:100%;">
+          <option value="ollama">Use Ollama for embeddings</option>
+        </select>
+        <div style="font-size:11px;color:var(--subtext);margin-top:4px;">Ollama must still be running for RAG/search to work.</div>
+      </div>
     </div>
-    <div class="form-group">
-      <label>Vision Model (optional)</label>
-      <input type="text" id="cfg-vision-model" placeholder="llava:7b" list="ollama-models-datalist">
+
+    <!-- OpenAI fields -->
+    <div id="provider-openai-fields" style="display:none;">
+      <div class="form-group">
+        <label>OpenAI API Key</label>
+        <input type="password" id="cfg-openai-key" placeholder="sk-…" style="width:100%;box-sizing:border-box;">
+      </div>
+      <div class="form-group">
+        <label>Chat Model</label>
+        <input type="text" id="cfg-openai-model" placeholder="gpt-4o-mini" list="openai-models-datalist">
+        <datalist id="openai-models-datalist">
+          <option value="gpt-4o">
+          <option value="gpt-4o-mini">
+          <option value="gpt-4-turbo">
+          <option value="gpt-3.5-turbo">
+        </datalist>
+      </div>
+      <div class="form-group">
+        <label>Base URL (optional — for compatible APIs)</label>
+        <input type="url" id="cfg-openai-base-url" placeholder="https://api.openai.com/v1">
+      </div>
+      <div class="form-group">
+        <label>Embed Model</label>
+        <input type="text" id="cfg-openai-embed-model" placeholder="text-embedding-3-small">
+      </div>
     </div>
-    <datalist id="ollama-models-datalist"></datalist>
-    <div class="form-group">
-      <label style="display:flex;align-items:center;gap:8px;">
-        Installed Models
-        <span id="models-refresh-btn" style="cursor:pointer;font-size:11px;color:var(--subtext);border:1px solid var(--border);border-radius:4px;padding:1px 6px;">↻ Refresh</span>
-      </label>
-      <div id="settings-models-list" style="font-size:12px;color:var(--subtext);min-height:22px;margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">—</div>
-    </div>
-    <div class="form-group">
-      <label>Pull Models</label>
-      <div id="pull-models-list" style="display:flex;flex-direction:column;gap:5px;margin-top:4px;"></div>
-      <div id="pull-progress" style="margin-top:8px;font-size:12px;color:var(--subtext);display:none;"></div>
+
+    <!-- Gemini fields -->
+    <div id="provider-gemini-fields" style="display:none;">
+      <div class="form-group">
+        <label>Gemini API Key</label>
+        <input type="password" id="cfg-gemini-key" placeholder="AIza…" style="width:100%;box-sizing:border-box;">
+      </div>
+      <div class="form-group">
+        <label>Gemini Model</label>
+        <input type="text" id="cfg-gemini-model" placeholder="gemini-1.5-flash" list="gemini-models-datalist">
+        <datalist id="gemini-models-datalist">
+          <option value="gemini-2.0-flash">
+          <option value="gemini-1.5-pro">
+          <option value="gemini-1.5-flash">
+        </datalist>
+      </div>
+      <div class="form-group">
+        <label>Embed Provider (Gemini has no embeddings API in this app)</label>
+        <select style="width:100%;">
+          <option>Use Ollama for embeddings</option>
+        </select>
+        <div style="font-size:11px;color:var(--subtext);margin-top:4px;">Ollama must still be running for RAG/search to work.</div>
+      </div>
     </div>
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;">
@@ -1343,12 +1435,100 @@ function showAiError(container, msg, append = false) {
   }
 }
 
+// ── Provider switcher ───────────────────────────────────────────────────────
+const PROVIDER_FIELDS = ['ollama', 'anthropic', 'openai', 'gemini'];
+
+function showProviderFields(provider) {
+  for (const p of PROVIDER_FIELDS) {
+    const el_ = el('provider-' + p + '-fields');
+    if (el_) el_.style.display = p === provider ? '' : 'none';
+  }
+}
+
+el('cfg-chat-provider').addEventListener('change', () => {
+  showProviderFields(el('cfg-chat-provider').value);
+});
+
+function loadProviderFromIni(iniContent) {
+  // Parse [provider] chat = ... from the raw ini text
+  const providerMatch = iniContent.match(/^\[provider\][^\[]*chat\s*=\s*(\w+)/im);
+  const provider = providerMatch ? providerMatch[1].toLowerCase() : 'ollama';
+  el('cfg-chat-provider').value = PROVIDER_FIELDS.includes(provider) ? provider : 'ollama';
+  showProviderFields(el('cfg-chat-provider').value);
+
+  // Parse individual sections
+  const get = (section, key) => {
+    const re = new RegExp(`\\[${section}\\][^\\[]*?^${key}\\s*=\\s*(.+)$`, 'im');
+    const m = iniContent.match(re);
+    return m ? m[1].trim() : '';
+  };
+
+  // Ollama
+  const ollamaUrl = get('ollama', 'base_url');
+  if (ollamaUrl) el('cfg-ollama-url').value = ollamaUrl;
+  const chatModel = get('ollama', 'chat_model');
+  if (chatModel) el('cfg-chat-model').value = chatModel;
+  const embedModel = get('ollama', 'embed_model');
+  if (embedModel) el('cfg-embed-model').value = embedModel;
+  const visionModel = get('ollama', 'vision_model');
+  el('cfg-vision-model').value = visionModel;
+
+  // Anthropic
+  el('cfg-anthropic-key').value   = get('anthropic', 'api_key');
+  el('cfg-anthropic-model').value = get('anthropic', 'chat_model');
+
+  // OpenAI
+  el('cfg-openai-key').value        = get('openai', 'api_key');
+  el('cfg-openai-model').value      = get('openai', 'chat_model');
+  el('cfg-openai-base-url').value   = get('openai', 'base_url');
+  el('cfg-openai-embed-model').value= get('openai', 'embed_model');
+
+  // Gemini
+  el('cfg-gemini-key').value   = get('gemini', 'api_key');
+  el('cfg-gemini-model').value = get('gemini', 'chat_model');
+}
+
+function buildIniFromFields(existingIni) {
+  const provider = el('cfg-chat-provider').value;
+  let ini = existingIni;
+
+  // Update [provider] section
+  ini = updateIniValue(ini, 'provider', 'chat', provider);
+  // Embeddings stay on ollama unless openai is chosen
+  ini = updateIniValue(ini, 'provider', 'embeddings', provider === 'openai' ? 'openai' : 'ollama');
+
+  // Always sync ollama fields (needed for embeddings even with cloud chat)
+  ini = updateIniValue(ini, 'ollama', 'base_url',    el('cfg-ollama-url').value   || 'http://127.0.0.1:11434');
+  ini = updateIniValue(ini, 'ollama', 'chat_model',  el('cfg-chat-model').value   || 'gemma3:4b');
+  ini = updateIniValue(ini, 'ollama', 'embed_model', el('cfg-embed-model').value  || 'nomic-embed-text');
+  ini = updateIniValue(ini, 'ollama', 'vision_model',el('cfg-vision-model').value || '');
+
+  if (provider === 'anthropic') {
+    ini = updateIniValue(ini, 'anthropic', 'api_key',    el('cfg-anthropic-key').value);
+    ini = updateIniValue(ini, 'anthropic', 'chat_model', el('cfg-anthropic-model').value || 'claude-3-5-haiku-20241022');
+  }
+  if (provider === 'openai') {
+    ini = updateIniValue(ini, 'openai', 'api_key',    el('cfg-openai-key').value);
+    ini = updateIniValue(ini, 'openai', 'chat_model', el('cfg-openai-model').value    || 'gpt-4o-mini');
+    ini = updateIniValue(ini, 'openai', 'base_url',   el('cfg-openai-base-url').value || '');
+    ini = updateIniValue(ini, 'openai', 'embed_model',el('cfg-openai-embed-model').value || 'text-embedding-3-small');
+  }
+  if (provider === 'gemini') {
+    ini = updateIniValue(ini, 'gemini', 'api_key',    el('cfg-gemini-key').value);
+    ini = updateIniValue(ini, 'gemini', 'chat_model', el('cfg-gemini-model').value || 'gemini-1.5-flash');
+  }
+
+  return ini;
+}
+
 // ── llm.ini editor ─────────────────────────────────────────────────────────
 async function loadLlmIni() {
   try {
     const data = await apiFetch('/api/llm/config');
-    el('llm-ini-editor').value = data.content || '';
+    const content = data.content || '';
+    el('llm-ini-editor').value = content;
     el('llm-ini-path').textContent = data.path ? '(' + data.path + ')' : '';
+    loadProviderFromIni(content);
   } catch (e) {
     console.error('Failed to load llm.ini:', e);
   }
@@ -1426,14 +1606,10 @@ el('settings-save-btn').addEventListener('click', async () => {
       },
     });
 
-    // 2. Sync model fields into llm.ini so they take effect immediately
+    // 2. Build and save llm.ini from all provider fields
     try {
       const llmData = await apiFetch('/api/llm/config');
-      let ini = llmData.content || '';
-      if (chatModel)   ini = updateIniValue(ini, 'ollama', 'chat_model',  chatModel);
-      if (embedModel)  ini = updateIniValue(ini, 'ollama', 'embed_model', embedModel);
-                       ini = updateIniValue(ini, 'ollama', 'vision_model', visionModel);
-      if (ollamaUrl)   ini = updateIniValue(ini, 'ollama', 'base_url',    ollamaUrl);
+      const ini = buildIniFromFields(llmData.content || '');
       await apiFetch('/api/llm/config', { method: 'PUT', body: { content: ini } });
       el('llm-ini-editor').value = ini;
     } catch (iniErr) {
