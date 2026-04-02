@@ -735,15 +735,32 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     </div>
     <div class="form-group">
       <label>Chat Model</label>
-      <input type="text" id="cfg-chat-model" placeholder="llama3.2:3b">
+      <input type="text" id="cfg-chat-model" placeholder="llama3.2:3b" list="ollama-models-datalist">
     </div>
     <div class="form-group">
       <label>Embed Model</label>
-      <input type="text" id="cfg-embed-model" placeholder="nomic-embed-text">
+      <input type="text" id="cfg-embed-model" placeholder="nomic-embed-text" list="ollama-models-datalist">
     </div>
     <div class="form-group">
       <label>Vision Model (optional)</label>
-      <input type="text" id="cfg-vision-model" placeholder="llava:7b">
+      <input type="text" id="cfg-vision-model" placeholder="llava:7b" list="ollama-models-datalist">
+    </div>
+    <datalist id="ollama-models-datalist"></datalist>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;">
+        Installed Models
+        <span id="models-refresh-btn" style="cursor:pointer;font-size:11px;color:var(--subtext);border:1px solid var(--border);border-radius:4px;padding:1px 6px;">↻ Refresh</span>
+      </label>
+      <div id="settings-models-list" style="font-size:12px;color:var(--subtext);min-height:22px;margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">—</div>
+    </div>
+    <div class="form-group">
+      <label>Pull a Model</label>
+      <div style="display:flex;gap:6px;">
+        <input type="text" id="pull-model-input" placeholder="e.g. llama3.2:3b" style="flex:1;">
+        <button class="btn" id="pull-model-btn" style="white-space:nowrap;">Pull</button>
+      </div>
+      <div id="pull-progress" style="margin-top:6px;font-size:12px;color:var(--subtext);display:none;"></div>
+    </div>
     </div>
     <div class="form-group">
       <label>Default Content Language</label>
@@ -1175,8 +1192,85 @@ async function loadSettings() {
   }
 }
 
+// ── Ollama model list + pull ────────────────────────────────────────────────
+async function loadOllamaModels() {
+  const listEl = el('settings-models-list');
+  const datalist = el('ollama-models-datalist');
+  if (!listEl || !datalist) return;
+  try {
+    const data = await apiFetch('/api/ollama/status');
+    const models = (data.models || []).map(m => m.name);
+    datalist.innerHTML = models.map(n => `<option value="${n}">`).join('');
+    if (models.length === 0) {
+      listEl.textContent = 'No models installed yet.';
+    } else {
+      listEl.innerHTML = models.map(n =>
+        `<span style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;">${n}</span>`
+      ).join('');
+    }
+  } catch (e) {
+    if (listEl) listEl.textContent = 'Could not load models.';
+  }
+}
+
+el('models-refresh-btn').addEventListener('click', loadOllamaModels);
+
+el('pull-model-btn').addEventListener('click', async () => {
+  const name = el('pull-model-input').value.trim();
+  if (!name) return;
+  const btn = el('pull-model-btn');
+  const prog = el('pull-progress');
+  btn.disabled = true; btn.textContent = 'Pulling…';
+  prog.style.display = 'block'; prog.textContent = 'Starting…';
+  try {
+    const res = await fetch('/api/ollama/pull/' + encodeURIComponent(name));
+    for await (const ev of readSSE(res)) {
+      if (ev.error) { prog.textContent = '✗ ' + ev.error; break; }
+      if (ev.done) {
+        prog.textContent = '✓ Done! Model pulled.';
+        el('pull-model-input').value = '';
+        if (!el('cfg-chat-model').value) el('cfg-chat-model').value = name;
+        await loadOllamaModels();
+        break;
+      }
+      if (ev.status !== undefined) {
+        prog.textContent = (ev.status || 'Downloading…') + (ev.pct > 0 ? ` (${ev.pct}%)` : '');
+      }
+    }
+  } catch (e) {
+    prog.textContent = '✗ ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Pull';
+  }
+});
+
+// ── AI error display helper ─────────────────────────────────────────────────
+// Detects model-not-found errors and appends a "Open Settings to Pull" button.
+function showAiError(container, msg, append = false) {
+  const isModelErr = /not found|pull it first/i.test(msg || '');
+  if (!append) container.textContent = '';
+  else {
+    const br = document.createElement('br');
+    container.appendChild(br);
+  }
+  if (isModelErr) {
+    const wrap = document.createElement('span');
+    wrap.style.color = 'var(--red)';
+    wrap.textContent = '⚠ ' + msg;
+    const btn = document.createElement('button');
+    btn.textContent = '⚙ Open Settings to Pull';
+    btn.style.cssText = 'margin-left:8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;color:var(--text);vertical-align:middle;';
+    btn.onclick = () => { loadSettings(); loadOllamaModels(); el('modal-overlay').classList.add('visible'); };
+    wrap.appendChild(btn);
+    container.appendChild(wrap);
+  } else {
+    container.appendChild(document.createTextNode((append ? '[Error: ' : 'Error: ') + msg + (append ? ']' : '')));
+  }
+}
+
 el('settings-btn').addEventListener('click', () => {
   loadSettings();
+  loadOllamaModels();
   el('modal-overlay').classList.add('visible');
 });
 el('settings-cancel-btn').addEventListener('click', () => el('modal-overlay').classList.remove('visible'));
@@ -1541,12 +1635,12 @@ el('continue-btn').addEventListener('click', async () => {
       }),
     });
     for await (const ev of readSSE(res)) {
-      if (ev.error) { output.textContent += '\n[Error: ' + ev.error + ']'; break; }
+      if (ev.error) { showAiError(output, ev.error, true); break; }
       if (ev.text) { state.draftOutput += ev.text; output.textContent = state.draftOutput; output.scrollTop = output.scrollHeight; }
       if (ev.done) break;
     }
   } catch (e) {
-    output.textContent = 'Error: ' + e.message;
+    showAiError(output, e.message);
   } finally {
     el('continue-btn').disabled = false;
     el('continue-btn').textContent = 'Continue Writing';
@@ -1594,7 +1688,11 @@ el('rewrite-btn').addEventListener('click', async () => {
       }),
     });
     for await (const ev of readSSE(res)) {
-      if (ev.error) { rewriteText += '\n[Error: ' + ev.error + ']'; break; }
+      if (ev.error) {
+        const span = document.getElementById(rewriteId);
+        if (span) showAiError(span, ev.error, !!rewriteText);
+        break;
+      }
       if (ev.text) {
         rewriteText += ev.text;
         const span = document.getElementById(rewriteId);
@@ -1659,7 +1757,7 @@ el('summarise-btn').addEventListener('click', async () => {
     const data = await apiFetch('/api/chapters/' + state.currentChapterId + '/summary?language=' + lang);
     out.textContent = data.summary || '(Chapter is empty — nothing to summarise.)';
   } catch (e) {
-    out.textContent = 'Error: ' + e.message;
+    showAiError(out, e.message);
   } finally {
     el('summarise-btn').disabled = false;
   }
@@ -1703,13 +1801,13 @@ async function sendChat() {
     });
     assistantBubble.textContent = '';
     for await (const ev of readSSE(res)) {
-      if (ev.error) { assistantBubble.textContent += '[Error: ' + ev.error + ']'; break; }
+      if (ev.error) { showAiError(assistantBubble, ev.error, !!fullText); break; }
       if (ev.text) { fullText += ev.text; assistantBubble.textContent = fullText; el('chat-history').scrollTop = el('chat-history').scrollHeight; }
       if (ev.done) break;
     }
     state.chatHistory.push({ role: 'assistant', content: fullText });
   } catch (e) {
-    assistantBubble.textContent = 'Error: ' + e.message;
+    showAiError(assistantBubble, e.message);
   } finally {
     el('chat-send-btn').disabled = false;
   }
@@ -2076,12 +2174,12 @@ el('beats-gen-run').addEventListener('click', async () => {
       body: JSON.stringify({ description: chapterText, language: el('draft-lang').value || 'en' }),
     });
     for await (const ev of readSSE(res)) {
-      if (ev.error) { el('beats-gen-output').textContent += '\n[Error: ' + ev.error + ']'; break; }
+      if (ev.error) { showAiError(el('beats-gen-output'), ev.error, !!result); break; }
       if (ev.text) { result += ev.text; el('beats-gen-output').textContent = result; }
       if (ev.done) { el('beats-gen-accept').style.display = 'inline-block'; break; }
     }
   } catch (e) {
-    el('beats-gen-output').textContent = 'Error: ' + e.message;
+    showAiError(el('beats-gen-output'), e.message);
   } finally {
     el('beats-gen-run').disabled = false;
   }
