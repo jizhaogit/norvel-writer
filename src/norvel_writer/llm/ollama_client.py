@@ -49,14 +49,30 @@ class OllamaClient:
         Uses urllib directly (same approach as working apps) rather than the
         ollama SDK, which can fail silently on Windows due to IPv6/IPv4 issues.
         Tries 127.0.0.1 explicitly to bypass localhost DNS resolution problems.
+        Also respects the OLLAMA_HOST environment variable.
         """
+        import os
         import urllib.request
         import urllib.parse
 
-        port = urllib.parse.urlparse(self._base_url).port or 11434
+        candidates = []
 
-        # Try 127.0.0.1 first (avoids localhost→::1 IPv6 issue on Windows)
-        for host in ("127.0.0.1", "localhost"):
+        # 1. OLLAMA_HOST env var (e.g. "127.0.0.1:11434" or "0.0.0.0:11435")
+        ollama_host = os.environ.get("OLLAMA_HOST", "").strip()
+        if ollama_host:
+            if "://" not in ollama_host:
+                ollama_host = "http://" + ollama_host
+            parsed = urllib.parse.urlparse(ollama_host)
+            env_port = parsed.port or 11434
+            candidates.append(("127.0.0.1", env_port))
+            candidates.append(("localhost", env_port))
+
+        # 2. Port from llm.ini / configured base_url
+        cfg_port = urllib.parse.urlparse(self._base_url).port or 11434
+        candidates.append(("127.0.0.1", cfg_port))
+        candidates.append(("localhost", cfg_port))
+
+        for host, port in candidates:
             try:
                 url = f"http://{host}:{port}/"
                 req = urllib.request.urlopen(url, timeout=3)
@@ -69,13 +85,28 @@ class OllamaClient:
 
     async def list_models(self) -> List[ModelInfo]:
         import json
+        import os
         import urllib.request
         import urllib.parse
 
-        port = urllib.parse.urlparse(self._base_url).port or 11434
+        candidates = []
+
+        ollama_host = os.environ.get("OLLAMA_HOST", "").strip()
+        if ollama_host:
+            if "://" not in ollama_host:
+                ollama_host = "http://" + ollama_host
+            parsed = urllib.parse.urlparse(ollama_host)
+            env_port = parsed.port or 11434
+            candidates.append(("127.0.0.1", env_port))
+            candidates.append(("localhost", env_port))
+
+        cfg_port = urllib.parse.urlparse(self._base_url).port or 11434
+        candidates.append(("127.0.0.1", cfg_port))
+        candidates.append(("localhost", cfg_port))
+
         last_exc: Exception = RuntimeError("No hosts tried")
 
-        for host in ("127.0.0.1", "localhost"):
+        for host, port in candidates:
             try:
                 url = f"http://{host}:{port}/api/tags"
                 with urllib.request.urlopen(url, timeout=5) as resp:
