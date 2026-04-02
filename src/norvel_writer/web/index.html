@@ -543,11 +543,11 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   <!-- Right panel -->
   <div id="right-panel">
     <div id="tabs">
-      <button class="tab-btn active" data-tab="draft">Draft AI</button>
-      <button class="tab-btn" data-tab="chat">Chat</button>
-      <button class="tab-btn" data-tab="memory">Memory</button>
-      <button class="tab-btn" data-tab="style">Style</button>
-      <button class="tab-btn" data-tab="persona">Persona</button>
+      <button class="tab-btn active" data-tab="draft" data-i18n="tab.draft">Draft AI</button>
+      <button class="tab-btn" data-tab="chat" data-i18n="tab.chat">Chat</button>
+      <button class="tab-btn" data-tab="memory" data-i18n="tab.memory">Memory</button>
+      <button class="tab-btn" data-tab="style" data-i18n="tab.style">Style</button>
+      <button class="tab-btn" data-tab="persona" data-i18n="tab.persona">Persona</button>
     </div>
 
     <!-- Draft AI tab -->
@@ -569,8 +569,8 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         <label style="display:flex;align-items:center;justify-content:space-between;">
           <span>Chapter Beats</span>
           <span style="display:flex;gap:4px;">
-            <button class="btn" id="gen-beats-btn" style="padding:2px 8px;font-size:11px;">AI Generate</button>
-            <button class="btn primary" id="save-beats-btn" style="padding:2px 8px;font-size:11px;">Save</button>
+            <button class="btn" id="gen-beats-btn" data-i18n="draft.ai_generate" style="padding:2px 8px;font-size:11px;">AI Generate</button>
+            <button class="btn primary" id="save-beats-btn" data-i18n="draft.save" style="padding:2px 8px;font-size:11px;">Save</button>
           </span>
         </label>
         <textarea id="beats-editor" rows="5" class="ctrl" placeholder="Enter chapter beats (e.g.)&#10;1. Hero discovers the letter&#10;2. Confronts the villain&#10;3. Escapes the castle"></textarea>
@@ -580,19 +580,19 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         <textarea class="ctrl" id="draft-instruction" rows="2" placeholder="Continue the story..."></textarea>
       </div>
       <div class="btn-row">
-        <button class="btn primary" id="continue-btn">Continue Writing</button>
-        <button class="btn" id="rewrite-btn">Rewrite Selection</button>
+        <button class="btn primary" id="continue-btn" data-i18n="draft.continue">Continue Writing</button>
+        <button class="btn" id="rewrite-btn" data-i18n="draft.rewrite">Rewrite Selection</button>
       </div>
       <label>Output</label>
       <div id="draft-output"></div>
       <div class="btn-row">
-        <button class="btn primary" id="insert-btn">Insert into Editor</button>
-        <button class="btn" id="clear-draft-btn">Clear</button>
+        <button class="btn primary" id="insert-btn" data-i18n="draft.insert">Insert into Editor</button>
+        <button class="btn" id="clear-draft-btn" data-i18n="draft.clear">Clear</button>
       </div>
       <hr style="border-color:var(--border);margin:12px 0 8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
         <label style="margin:0;">Chapter Summary</label>
-        <button class="btn" id="summarise-btn" style="padding:3px 12px;font-size:12px;">Summarise</button>
+        <button class="btn" id="summarise-btn" data-i18n="draft.summarise" style="padding:3px 12px;font-size:12px;">Summarise</button>
       </div>
       <div id="summary-output" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:13px;line-height:1.6;color:var(--subtext);min-height:36px;white-space:pre-wrap;"></div>
     </div>
@@ -638,9 +638,9 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         </div>
       </div>
       <div class="btn-row" style="margin-top:6px;">
-        <button class="btn primary" id="add-files-btn">+ Add Files</button>
-        <button class="btn" id="edit-doc-btn">Edit</button>
-        <button class="btn danger" id="remove-doc-btn">Remove</button>
+        <button class="btn primary" id="add-files-btn" data-i18n="memory.add_files">+ Add Files</button>
+        <button class="btn" id="edit-doc-btn" data-i18n="memory.edit">Edit</button>
+        <button class="btn danger" id="remove-doc-btn" data-i18n="memory.remove">Remove</button>
       </div>
       <input type="file" id="file-input" style="display:none" multiple
         accept=".txt,.md,.docx,.odt,.pdf,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp">
@@ -654,14 +654,14 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       </div>
       <div id="style-sample-list" style="max-height:180px;overflow-y:auto;margin-bottom:8px;"></div>
       <div style="display:flex;gap:6px;margin-bottom:8px;">
-        <button class="btn primary" id="add-style-sample-btn">+ Add Style Sample</button>
-        <button class="btn danger" id="remove-style-sample-btn">Remove</button>
+        <button class="btn primary" id="add-style-sample-btn" data-i18n="style.add_sample">+ Add Style Sample</button>
+        <button class="btn danger" id="remove-style-sample-btn" data-i18n="style.remove">Remove</button>
       </div>
       <input type="file" id="style-sample-input" style="display:none" multiple
         accept=".txt,.md,.docx,.odt,.pdf">
       <div id="style-upload-progress" style="font-size:12px;color:var(--muted);display:none;margin-bottom:6px;">Uploading…</div>
       <hr style="border-color:var(--border);margin:10px 0;">
-      <button class="btn primary" id="build-style-btn" style="width:100%;">Build Style Profile</button>
+      <button class="btn primary" id="build-style-btn" style="width:100%;" data-i18n="style.build">Build Style Profile</button>
       <div id="style-result" style="font-size:12px;color:var(--muted);margin-top:6px;"></div>
       <div id="style-summary" style="font-size:12px;color:var(--subtext);margin-top:6px;white-space:pre-wrap;"></div>
     </div>
@@ -676,7 +676,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         placeholder="Examples:&#10;- Write in a dark, gritty tone similar to George R.R. Martin.&#10;- Use short punchy sentences for action scenes.&#10;- Always write in third-person limited POV from the protagonist.&#10;- Avoid purple prose. Favour showing over telling."
         style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);font-size:13px;line-height:1.6;resize:vertical;font-family:inherit;"></textarea>
       <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
-        <button class="btn primary" id="save-persona-btn">Save Persona</button>
+        <button class="btn primary" id="save-persona-btn" data-i18n="persona.save">Save Persona</button>
         <span id="persona-status" style="font-size:12px;color:var(--muted);"></span>
       </div>
     </div>
@@ -702,15 +702,13 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 <!-- Beats Generate Modal -->
 <div id="beats-gen-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;">
   <div style="background:var(--surface1);border:1px solid var(--border);border-radius:10px;padding:24px;width:520px;max-width:95vw;display:flex;flex-direction:column;gap:12px;">
-    <h3 style="margin:0;font-size:15px;">Generate Chapter Beats with AI</h3>
-    <label style="font-size:13px;color:var(--subtext);">Describe what happens in this chapter
-      <textarea id="beats-desc" rows="4" style="margin-top:4px;width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-size:13px;resize:vertical;" placeholder="e.g. The hero finds the villain's hideout, they fight, hero barely escapes but learns the villain's plan"></textarea>
-    </label>
-    <div id="beats-gen-output" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:13px;min-height:60px;white-space:pre-wrap;display:none;"></div>
+    <h3 id="beats-gen-title" style="margin:0;font-size:15px;" data-i18n="beats.gen_title">Generate Chapter Beats with AI</h3>
+    <p id="beats-gen-hint" style="margin:0;font-size:13px;color:var(--subtext);" data-i18n="beats.gen_hint">AI will read the current chapter content and extract story beats.</p>
+    <div id="beats-gen-output" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:13px;min-height:80px;white-space:pre-wrap;display:none;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
-      <button id="beats-gen-cancel" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;">Cancel</button>
-      <button id="beats-gen-run" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;">Generate</button>
-      <button id="beats-gen-accept" style="padding:7px 16px;background:var(--accent);border:none;border-radius:6px;color:#1e1e2e;font-weight:600;cursor:pointer;display:none;">Use These Beats</button>
+      <button id="beats-gen-cancel" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;" data-i18n="beats.gen_cancel">Cancel</button>
+      <button id="beats-gen-run" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;" data-i18n="beats.gen_run">Generate from Chapter</button>
+      <button id="beats-gen-accept" style="padding:7px 16px;background:var(--accent);border:none;border-radius:6px;color:#1e1e2e;font-weight:600;cursor:pointer;display:none;" data-i18n="beats.gen_accept">Use These Beats</button>
     </div>
   </div>
 </div>
@@ -756,15 +754,27 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <select id="cfg-project-lang"></select>
     </div>
     <div class="form-group">
-      <label>Theme</label>
+      <label data-i18n="settings.ui_lang">App UI Language</label>
+      <select id="cfg-ui-lang">
+        <option value="en">English</option>
+        <option value="zh">中文 (Chinese)</option>
+        <option value="ja">日本語 (Japanese)</option>
+        <option value="ko">한국어 (Korean)</option>
+        <option value="fr">Français (French)</option>
+        <option value="de">Deutsch (German)</option>
+        <option value="es">Español (Spanish)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label data-i18n="settings.theme">Theme</label>
       <select id="cfg-theme">
         <option value="dark">Dark</option>
         <option value="light">Light</option>
       </select>
     </div>
     <div class="modal-footer">
-      <button class="btn" id="settings-cancel-btn">Cancel</button>
-      <button class="btn primary" id="settings-save-btn">Save</button>
+      <button class="btn" id="settings-cancel-btn" data-i18n="settings.cancel">Cancel</button>
+      <button class="btn primary" id="settings-save-btn" data-i18n="settings.save">Save</button>
     </div>
   </div>
 </div>
@@ -783,9 +793,9 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 
 <!-- Context menu -->
 <div id="ctx-menu">
-  <div class="ctx-item" id="ctx-edit-project">Edit Project</div>
-  <div class="ctx-item" id="ctx-add-chapter">Add Chapter</div>
-  <div class="ctx-item danger" id="ctx-delete-project">Delete Project</div>
+  <div class="ctx-item" id="ctx-edit-project" data-i18n="ctx.edit_project">Edit Project</div>
+  <div class="ctx-item" id="ctx-add-chapter" data-i18n="ctx.add_chapter">Add Chapter</div>
+  <div class="ctx-item danger" id="ctx-delete-project" data-i18n="ctx.delete_project">Delete Project</div>
 </div>
 
 <!-- Edit Project dialog -->
@@ -845,6 +855,195 @@ const LANGUAGES = {
   "th":    "Thai (ภาษาไทย)",
 };
 
+// ── i18n ───────────────────────────────────────────────────────────────────
+const TRANSLATIONS = {
+  en: {
+    'tab.draft':'Draft AI','tab.chat':'Chat','tab.memory':'Memory','tab.style':'Style','tab.persona':'Persona',
+    'draft.continue':'Continue Writing','draft.rewrite':'Rewrite Selection','draft.insert':'Insert into Editor',
+    'draft.clear':'Clear','draft.summarise':'Summarise','draft.save':'Save','draft.ai_generate':'AI Generate',
+    'draft.chapter_beats':'Chapter Beats','draft.chapter_summary':'Chapter Summary',
+    'draft.instruction_ph':'Continue the story...',
+    'draft.beats_ph':'Enter chapter beats (e.g.)\n1. Hero discovers the letter\n2. Confronts the villain',
+    'memory.add_files':'+ Add Files','memory.edit':'Edit','memory.remove':'Remove',
+    'style.add_sample':'+ Add Style Sample','style.remove':'Remove','style.build':'Build Style Profile',
+    'style.hint':'Upload sample novels or passages to teach the AI your desired writing style.',
+    'persona.save':'Save Persona',
+    'persona.hint':'Describe the writing style, tone, and voice you want the AI to use.\nThis is injected into every generation as a standing instruction.',
+    'settings.title':'Settings','settings.cancel':'Cancel','settings.save':'Save',
+    'settings.ui_lang':'App UI Language','settings.theme':'Theme',
+    'settings.ollama_url':'Ollama Base URL','settings.chat_model':'Chat Model',
+    'settings.embed_model':'Embed Model','settings.vision_model':'Vision Model (optional)',
+    'settings.content_lang':'Default Content Language','settings.project_lang':'Default Project Language',
+    'ctx.edit_project':'Edit Project','ctx.add_chapter':'Add Chapter','ctx.delete_project':'Delete Project',
+    'beats.gen_title':'Generate Chapter Beats with AI',
+    'beats.gen_hint':'AI will read the current chapter content and extract story beats.',
+    'beats.gen_cancel':'Cancel','beats.gen_run':'Generate from Chapter','beats.gen_accept':'Use These Beats',
+    'beats.req_title':'Chapter Beats Required',
+    'beats.req_hint':'This chapter has no beats yet. The AI writes based on beats to stay on track.',
+    'beats.req_write':'Write Beats Now','beats.req_skip':'Continue Anyway',
+    'chat.send':'Send','chat.clear':'Clear Chat',
+    'chat.ph':'Ask about your project... (Enter to send, Shift+Enter for newline)',
+  },
+  zh: {
+    'tab.draft':'草稿 AI','tab.chat':'对话','tab.memory':'记忆库','tab.style':'风格','tab.persona':'人设',
+    'draft.continue':'继续写作','draft.rewrite':'改写选中','draft.insert':'插入编辑器',
+    'draft.clear':'清除','draft.summarise':'生成摘要','draft.save':'保存','draft.ai_generate':'AI 生成',
+    'draft.chapter_beats':'章节节拍','draft.chapter_summary':'章节摘要',
+    'draft.instruction_ph':'继续故事...',
+    'draft.beats_ph':'输入章节节拍（例）\n1. 英雄发现信件\n2. 与反派对峙',
+    'memory.add_files':'+ 添加文件','memory.edit':'编辑','memory.remove':'删除',
+    'style.add_sample':'+ 添加风格样本','style.remove':'删除','style.build':'构建风格档案',
+    'style.hint':'上传样本小说或段落，让 AI 学习你想要的写作风格。',
+    'persona.save':'保存人设',
+    'persona.hint':'描述你希望 AI 使用的写作风格、语气和声音。\n这将作为常驻指令注入每次生成中。',
+    'settings.title':'设置','settings.cancel':'取消','settings.save':'保存',
+    'settings.ui_lang':'界面语言','settings.theme':'主题',
+    'settings.ollama_url':'Ollama 地址','settings.chat_model':'对话模型',
+    'settings.embed_model':'嵌入模型','settings.vision_model':'视觉模型（可选）',
+    'settings.content_lang':'默认内容语言','settings.project_lang':'默认项目语言',
+    'ctx.edit_project':'编辑项目','ctx.add_chapter':'添加章节','ctx.delete_project':'删除项目',
+    'beats.gen_title':'用 AI 生成章节节拍',
+    'beats.gen_hint':'AI 将读取当前章节内容并提取故事节拍。',
+    'beats.gen_cancel':'取消','beats.gen_run':'从章节生成','beats.gen_accept':'使用这些节拍',
+    'beats.req_title':'需要章节节拍',
+    'beats.req_hint':'此章节尚无节拍。AI 根据节拍写作以保持故事方向。',
+    'beats.req_write':'现在写节拍','beats.req_skip':'仍然继续',
+    'chat.send':'发送','chat.clear':'清除对话',
+    'chat.ph':'询问关于你的项目... (Enter 发送, Shift+Enter 换行)',
+  },
+  ja: {
+    'tab.draft':'AI ドラフト','tab.chat':'チャット','tab.memory':'メモリ','tab.style':'スタイル','tab.persona':'ペルソナ',
+    'draft.continue':'執筆を続ける','draft.rewrite':'選択を書き直す','draft.insert':'エディタに挿入',
+    'draft.clear':'クリア','draft.summarise':'要約','draft.save':'保存','draft.ai_generate':'AI生成',
+    'draft.chapter_beats':'チャプタービート','draft.chapter_summary':'章の要約',
+    'memory.add_files':'+ ファイル追加','memory.edit':'編集','memory.remove':'削除',
+    'style.add_sample':'+ スタイルサンプル追加','style.remove':'削除','style.build':'スタイルプロファイル構築',
+    'persona.save':'ペルソナを保存',
+    'settings.title':'設定','settings.cancel':'キャンセル','settings.save':'保存',
+    'settings.ui_lang':'UI言語','settings.theme':'テーマ',
+    'ctx.edit_project':'プロジェクトを編集','ctx.add_chapter':'チャプター追加','ctx.delete_project':'プロジェクト削除',
+    'beats.gen_title':'AIでチャプタービートを生成',
+    'beats.gen_hint':'AIが現在の章内容を読み、ストーリービートを抽出します。',
+    'beats.gen_cancel':'キャンセル','beats.gen_run':'章から生成','beats.gen_accept':'このビートを使用',
+    'beats.req_title':'チャプタービートが必要です',
+    'beats.req_hint':'このチャプターにはまだビートがありません。',
+    'beats.req_write':'今すぐビートを書く','beats.req_skip':'続けて',
+    'chat.send':'送信','chat.clear':'チャットをクリア',
+  },
+  ko: {
+    'tab.draft':'AI 초안','tab.chat':'채팅','tab.memory':'메모리','tab.style':'스타일','tab.persona':'페르소나',
+    'draft.continue':'계속 쓰기','draft.rewrite':'선택 다시 쓰기','draft.insert':'편집기에 삽입',
+    'draft.clear':'지우기','draft.summarise':'요약','draft.save':'저장','draft.ai_generate':'AI 생성',
+    'draft.chapter_beats':'챕터 비트','draft.chapter_summary':'챕터 요약',
+    'memory.add_files':'+ 파일 추가','memory.edit':'편집','memory.remove':'삭제',
+    'style.add_sample':'+ 스타일 샘플 추가','style.remove':'삭제','style.build':'스타일 프로필 구축',
+    'persona.save':'페르소나 저장',
+    'settings.title':'설정','settings.cancel':'취소','settings.save':'저장',
+    'settings.ui_lang':'UI 언어','settings.theme':'테마',
+    'ctx.edit_project':'프로젝트 편집','ctx.add_chapter':'챕터 추가','ctx.delete_project':'프로젝트 삭제',
+    'beats.gen_title':'AI로 챕터 비트 생성',
+    'beats.gen_hint':'AI가 현재 챕터 내용을 읽고 스토리 비트를 추출합니다.',
+    'beats.gen_cancel':'취소','beats.gen_run':'챕터에서 생성','beats.gen_accept':'이 비트 사용',
+    'beats.req_title':'챕터 비트 필요',
+    'beats.req_hint':'이 챕터에는 아직 비트가 없습니다.',
+    'beats.req_write':'지금 비트 작성','beats.req_skip':'계속 진행',
+    'chat.send':'보내기','chat.clear':'채팅 지우기',
+  },
+  fr: {
+    'tab.draft':'IA Brouillon','tab.chat':'Chat','tab.memory':'Mémoire','tab.style':'Style','tab.persona':'Persona',
+    'draft.continue':'Continuer à écrire','draft.rewrite':'Réécrire la sélection','draft.insert':'Insérer dans l\'éditeur',
+    'draft.clear':'Effacer','draft.summarise':'Résumer','draft.save':'Enregistrer','draft.ai_generate':'Générer IA',
+    'draft.chapter_beats':'Beats du chapitre','draft.chapter_summary':'Résumé du chapitre',
+    'memory.add_files':'+ Ajouter fichiers','memory.edit':'Modifier','memory.remove':'Supprimer',
+    'style.add_sample':'+ Ajouter un style','style.remove':'Supprimer','style.build':'Construire le profil',
+    'persona.save':'Enregistrer le persona',
+    'settings.title':'Paramètres','settings.cancel':'Annuler','settings.save':'Enregistrer',
+    'settings.ui_lang':'Langue de l\'interface','settings.theme':'Thème',
+    'ctx.edit_project':'Modifier le projet','ctx.add_chapter':'Ajouter un chapitre','ctx.delete_project':'Supprimer le projet',
+    'beats.gen_title':'Générer des beats avec l\'IA',
+    'beats.gen_hint':'L\'IA lira le contenu du chapitre et extraira les beats de l\'histoire.',
+    'beats.gen_cancel':'Annuler','beats.gen_run':'Générer depuis le chapitre','beats.gen_accept':'Utiliser ces beats',
+    'beats.req_title':'Beats requis','beats.req_hint':'Ce chapitre n\'a pas encore de beats.',
+    'beats.req_write':'Écrire les beats','beats.req_skip':'Continuer quand même',
+    'chat.send':'Envoyer','chat.clear':'Effacer le chat',
+  },
+  de: {
+    'tab.draft':'KI-Entwurf','tab.chat':'Chat','tab.memory':'Speicher','tab.style':'Stil','tab.persona':'Persona',
+    'draft.continue':'Weiterschreiben','draft.rewrite':'Auswahl umschreiben','draft.insert':'In Editor einfügen',
+    'draft.clear':'Löschen','draft.summarise':'Zusammenfassen','draft.save':'Speichern','draft.ai_generate':'KI-Generierung',
+    'draft.chapter_beats':'Kapitel-Beats','draft.chapter_summary':'Kapitelzusammenfassung',
+    'memory.add_files':'+ Dateien hinzufügen','memory.edit':'Bearbeiten','memory.remove':'Entfernen',
+    'style.add_sample':'+ Stilprobe hinzufügen','style.remove':'Entfernen','style.build':'Stilprofil erstellen',
+    'persona.save':'Persona speichern',
+    'settings.title':'Einstellungen','settings.cancel':'Abbrechen','settings.save':'Speichern',
+    'settings.ui_lang':'UI-Sprache','settings.theme':'Design',
+    'ctx.edit_project':'Projekt bearbeiten','ctx.add_chapter':'Kapitel hinzufügen','ctx.delete_project':'Projekt löschen',
+    'beats.gen_title':'Kapitel-Beats mit KI generieren',
+    'beats.gen_hint':'Die KI liest den Kapitelinhalt und extrahiert die Story-Beats.',
+    'beats.gen_cancel':'Abbrechen','beats.gen_run':'Aus Kapitel generieren','beats.gen_accept':'Diese Beats verwenden',
+    'beats.req_title':'Kapitel-Beats erforderlich','beats.req_hint':'Dieses Kapitel hat noch keine Beats.',
+    'beats.req_write':'Beats jetzt schreiben','beats.req_skip':'Trotzdem fortfahren',
+    'chat.send':'Senden','chat.clear':'Chat löschen',
+  },
+  es: {
+    'tab.draft':'IA Borrador','tab.chat':'Chat','tab.memory':'Memoria','tab.style':'Estilo','tab.persona':'Persona',
+    'draft.continue':'Continuar escribiendo','draft.rewrite':'Reescribir selección','draft.insert':'Insertar en editor',
+    'draft.clear':'Limpiar','draft.summarise':'Resumir','draft.save':'Guardar','draft.ai_generate':'Generar IA',
+    'draft.chapter_beats':'Beats del capítulo','draft.chapter_summary':'Resumen del capítulo',
+    'memory.add_files':'+ Agregar archivos','memory.edit':'Editar','memory.remove':'Eliminar',
+    'style.add_sample':'+ Agregar muestra de estilo','style.remove':'Eliminar','style.build':'Construir perfil de estilo',
+    'persona.save':'Guardar persona',
+    'settings.title':'Configuración','settings.cancel':'Cancelar','settings.save':'Guardar',
+    'settings.ui_lang':'Idioma de la interfaz','settings.theme':'Tema',
+    'ctx.edit_project':'Editar proyecto','ctx.add_chapter':'Añadir capítulo','ctx.delete_project':'Eliminar proyecto',
+    'beats.gen_title':'Generar beats con IA',
+    'beats.gen_hint':'La IA leerá el contenido del capítulo y extraerá los beats de la historia.',
+    'beats.gen_cancel':'Cancelar','beats.gen_run':'Generar desde capítulo','beats.gen_accept':'Usar estos beats',
+    'beats.req_title':'Se requieren beats','beats.req_hint':'Este capítulo aún no tiene beats.',
+    'beats.req_write':'Escribir beats ahora','beats.req_skip':'Continuar de todos modos',
+    'chat.send':'Enviar','chat.clear':'Limpiar chat',
+  },
+};
+
+let _currentLang = 'en';
+
+function t(key) {
+  const lang = TRANSLATIONS[_currentLang] || {};
+  return lang[key] || TRANSLATIONS['en'][key] || key;
+}
+
+function applyI18n(lang) {
+  _currentLang = lang || 'en';
+  // Apply data-i18n text content
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.dataset.i18n;
+    const val = t(key);
+    if (val) el.textContent = val;
+  });
+  // Apply placeholder translations
+  const ph = {
+    'draft-instruction': 'draft.instruction_ph',
+    'beats-editor':      'draft.beats_ph',
+    'chat-input':        'chat.ph',
+  };
+  for (const [id, key] of Object.entries(ph)) {
+    const el = document.getElementById(id);
+    if (el) el.placeholder = t(key);
+  }
+  // Settings modal h2
+  const h2 = document.querySelector('#settings-modal h2');
+  if (h2) h2.textContent = t('settings.title');
+  // Beats required modal
+  const brt = document.querySelector('#beats-required-modal h3');
+  if (brt) brt.textContent = t('beats.req_title');
+  const brp = document.querySelector('#beats-required-modal p');
+  if (brp) brp.textContent = t('beats.req_hint');
+  const brd = document.getElementById('beats-req-dismiss');
+  if (brd) brd.textContent = t('beats.req_write');
+  const brs = document.getElementById('beats-req-skip');
+  if (brs) brs.textContent = t('beats.req_skip');
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 function el(id) { return document.getElementById(id); }
 
@@ -876,6 +1075,7 @@ async function init() {
 
   await checkOllamaStatus();
   await loadSettings();
+  applyI18n(_currentLang);
   await loadProjects();
 
   const lastPid = localStorage.getItem('lastProjectId');
@@ -966,6 +1166,10 @@ async function loadSettings() {
     populateLangSelect(el('cfg-content-lang'), state.settings.default_content_language || 'en');
     populateLangSelect(el('cfg-project-lang'), state.settings.default_project_language || 'en');
     populateLangSelect(el('draft-lang'), state.settings.default_content_language || 'en');
+    if (s.ui_language) {
+      el('cfg-ui-lang').value = s.ui_language;
+      applyI18n(s.ui_language);
+    }
   } catch (e) {
     console.error('Failed to load settings:', e);
   }
@@ -990,8 +1194,10 @@ el('settings-save-btn').addEventListener('click', async () => {
         theme: el('cfg-theme').value,
         default_content_language: el('cfg-content-lang').value,
         default_project_language: el('cfg-project-lang').value,
+        ui_language: el('cfg-ui-lang').value,
       },
     });
+    applyI18n(el('cfg-ui-lang').value);
     await loadSettings();
     el('modal-overlay').classList.remove('visible');
   } catch (e) {
@@ -1845,18 +2051,21 @@ el('gen-beats-btn').addEventListener('click', () => {
   el('beats-gen-output').style.display = 'none';
   el('beats-gen-output').textContent = '';
   el('beats-gen-accept').style.display = 'none';
-  el('beats-desc').value = '';
   el('beats-gen-modal').style.display = 'flex';
 });
 el('beats-gen-cancel').addEventListener('click', () => { el('beats-gen-modal').style.display = 'none'; });
 el('beats-gen-modal').addEventListener('click', e => { if (e.target === el('beats-gen-modal')) el('beats-gen-modal').style.display = 'none'; });
 
 el('beats-gen-run').addEventListener('click', async () => {
-  const desc = el('beats-desc').value.trim();
-  if (!desc) { alert('Please describe the chapter first.'); return; }
-  if (!state.currentChapterId) { alert('Select a chapter first.'); return; }
+  if (!state.currentChapterId) { alert(t('beats.req_title') + ': select a chapter first.'); return; }
+  const chapterText = el('editor').innerText.trim();
+  if (!chapterText) {
+    el('beats-gen-output').style.display = 'block';
+    el('beats-gen-output').textContent = 'Chapter is empty — write some content first, then generate beats from it.';
+    return;
+  }
   el('beats-gen-output').style.display = 'block';
-  el('beats-gen-output').textContent = 'Generating\u2026';
+  el('beats-gen-output').textContent = 'Generating…';
   el('beats-gen-run').disabled = true;
   el('beats-gen-accept').style.display = 'none';
   let result = '';
@@ -1864,7 +2073,7 @@ el('beats-gen-run').addEventListener('click', async () => {
     const res = await fetch('/api/chapters/' + state.currentChapterId + '/beats/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: desc, language: el('draft-lang').value || 'en' }),
+      body: JSON.stringify({ description: chapterText, language: el('draft-lang').value || 'en' }),
     });
     for await (const ev of readSSE(res)) {
       if (ev.error) { el('beats-gen-output').textContent += '\n[Error: ' + ev.error + ']'; break; }
