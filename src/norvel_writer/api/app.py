@@ -1,0 +1,446 @@
+"""FastAPI application for Norvel Writer."""
+from __future__ import annotations
+
+import json
+import logging
+import tempfile
+from pathlib import Path
+from typing import Any, AsyncIterator, Dict, List, Optional
+
+from fastapi import FastAPI, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+
+log = logging.getLogger(__name__)
+
+app = FastAPI(title="Norvel Writer", version="0.1.0")
+
+# ── Singleton ProjectManager ───────────────────────────────────────────────
+
+_pm: Optional[Any] = None
+
+
+def get_pm():
+    global _pm
+    if _pm is None:
+        from norvel_writer.core.project import ProjectManager
+        _pm = ProjectManager()
+    return _pm
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+def _web_dir() -> Path:
+    return Path(__file__).parent.parent / "web"
+
+
+async def _sse_stream(gen: AsyncIterator[str]) -> AsyncIterator[str]:
+    try:
+        async for chunk in gen:
+            yield f"data: {json.dumps({'text': chunk})}\n\n"
+        yield f"data: {json.dumps({'done': True})}\n\n"
+    except Exception as exc:
+        log.error("SSE stream error: %s", exc)
+        yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+
+# ── Static ─────────────────────────────────────────────────────────────────
+
+@app.get("/")
+async def index():
+    html_path = _web_dir() / "index.html"
+    return FileResponse(str(html_path), media_type="text/html")
+
+
+# ── Ollama ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/ollama/status")
+async def ollama_status():
+    try:
+        from norvel_writer.llm.model_manager import get_ollama_status
+        status = await get_ollama_status()
+        return {
+            "installed": status.installed,
+            "running": status.running,
+            "version": status.version,
+            "models": [{"name": m.name, "size": getattr(m, "size", 0)} for m in status.models],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/ollama/start")
+async def ollama_start():
+    try:
+        from norvel_writer.llm.model_manager import start_ollama_serve
+        ok = await start_ollama_serve()
+        return {"ok": ok}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/ollama/pull/{model:path}")
+async def ollama_pull(model: str):
+    """Stream model pull progress as SSE."""
+    async def _gen():
+        try:
+            import ollama
+            async for progress in await ollama.AsyncClient().pull(model, stream=True):
+                status = getattr(progress, "status", "") or ""
+                completed = getattr(progress, "completed", None)
+                total = getattr(progress, "total", None)
+                pct = 0
+                if completed and total and total > 0:
+                    pct = int(completed / total * 100)
+                yield f"data: {json.dumps({'status': status, 'pct': pct})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+# ── Projects ───────────────────────────────────────────────────────────────
+
+@app.get("/api/projects")
+async def list_projects():
+    try:
+        return get_pm().list_projects()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class ProjectCreate(BaseModel):
+    name: str
+    description: str = ""
+    language: str = "en"
+
+
+@app.post("/api/projects")
+async def create_project(body: ProjectCreate):
+    try:
+        pid = get_pm().create_project(body.name, body.description, body.language)
+        return {"id": pid}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/projects/{project_id}")
+async def get_project(project_id: str):
+    try:
+        proj = get_pm().get_project(project_id)
+        if proj is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return proj
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: str):
+    try:
+        get_pm().delete_project(project_id)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Chapters ───────────────────────────────────────────────────────────────
+
+@app.get("/api/projects/{project_id}/chapters")
+async def list_chapters(project_id: str):
+    try:
+        return get_pm().list_chapters(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class ChapterCreate(BaseModel):
+    title: str
+
+
+@app.post("/api/projects/{project_id}/chapters")
+async def create_chapter(project_id: str, body: ChapterCreate):
+    try:
+        cid = get_pm().create_chapter(project_id, body.title)
+        return {"id": cid}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/chapters/{chapter_id}")
+async def get_chapter(chapter_id: str):
+    try:
+        ch = get_pm().get_chapter(chapter_id)
+        if ch is None:
+            raise HTTPException(status_code=404, detail="Chapter not found")
+        return ch
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.put("/api/chapters/{chapter_id}")
+async def update_chapter(chapter_id: str, body: Dict[str, Any]):
+    try:
+        get_pm().update_chapter(chapter_id, **body)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/chapters/{chapter_id}")
+async def delete_chapter(chapter_id: str):
+    try:
+        get_pm().delete_chapter(chapter_id)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/chapters/{chapter_id}/content")
+async def get_chapter_content(chapter_id: str):
+    try:
+        draft = get_pm().get_accepted_draft(chapter_id)
+        content = draft["content"] if draft else ""
+        return {"content": content}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class ContentUpdate(BaseModel):
+    content: str
+    model_used: str = "manual"
+
+
+@app.put("/api/chapters/{chapter_id}/content")
+async def update_chapter_content(chapter_id: str, body: ContentUpdate):
+    try:
+        pm = get_pm()
+        draft_id = pm.save_draft(chapter_id, body.content, body.model_used)
+        pm.accept_draft(draft_id)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Documents ──────────────────────────────────────────────────────────────
+
+@app.get("/api/projects/{project_id}/documents")
+async def list_documents(
+    project_id: str,
+    doc_type: Optional[str] = Query(default=None),
+):
+    try:
+        return get_pm().list_documents(project_id, doc_type)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/projects/{project_id}/ingest")
+async def ingest_document(
+    project_id: str,
+    file: UploadFile,
+    doc_type: str = Form("notes"),
+):
+    suffix = Path(file.filename or "upload").suffix or ".bin"
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = Path(tmp.name)
+            content = await file.read()
+            tmp.write(content)
+
+        from norvel_writer.ingestion.pipeline import IngestPipeline
+        pipeline = IngestPipeline()
+        doc_id = await pipeline.run(
+            file_path=tmp_path,
+            project_id=project_id,
+            doc_type=doc_type,
+        )
+        return {"id": doc_id, "ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if tmp_path and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+
+
+@app.delete("/api/documents/{doc_id}")
+async def delete_document(doc_id: str, project_id: str = Query(...)):
+    try:
+        get_pm().delete_document(doc_id, project_id)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── AI: Continue / Rewrite / Chat ──────────────────────────────────────────
+
+class ContinueRequest(BaseModel):
+    chapter_id: str
+    current_text: str = ""
+    user_instruction: str = "Continue the story from where it left off."
+    style_mode: str = "inspired_by"
+    language: str = "en"
+    active_doc_types: Optional[List[str]] = None
+
+
+@app.post("/api/projects/{project_id}/continue")
+async def continue_draft(project_id: str, body: ContinueRequest):
+    async def _gen():
+        try:
+            from norvel_writer.core.draft_engine import DraftEngine
+            engine = DraftEngine(project_manager=get_pm())
+            stream = await engine.continue_draft(
+                project_id=project_id,
+                chapter_id=body.chapter_id,
+                current_text=body.current_text,
+                user_instruction=body.user_instruction,
+                style_mode=body.style_mode,
+                language=body.language,
+                active_doc_types=body.active_doc_types,
+            )
+            async for chunk in stream:
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as exc:
+            log.error("continue_draft error: %s", exc)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+class RewriteRequest(BaseModel):
+    passage: str
+    user_instruction: str = "Rewrite this passage in the same style."
+    style_mode: str = "preserve_tone_rhythm"
+    language: str = "en"
+
+
+@app.post("/api/projects/{project_id}/rewrite")
+async def rewrite_passage(project_id: str, body: RewriteRequest):
+    async def _gen():
+        try:
+            from norvel_writer.core.draft_engine import DraftEngine
+            engine = DraftEngine(project_manager=get_pm())
+            stream = await engine.rewrite_passage(
+                project_id=project_id,
+                passage=body.passage,
+                user_instruction=body.user_instruction,
+                style_mode=body.style_mode,
+                language=body.language,
+            )
+            async for chunk in stream:
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as exc:
+            log.error("rewrite_passage error: %s", exc)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+class ChatRequest(BaseModel):
+    question: str
+    history: Optional[List[Dict[str, str]]] = None
+    language: str = "en"
+
+
+@app.post("/api/projects/{project_id}/chat")
+async def chat_with_context(project_id: str, body: ChatRequest):
+    async def _gen():
+        try:
+            from norvel_writer.core.draft_engine import DraftEngine
+            engine = DraftEngine(project_manager=get_pm())
+            stream = await engine.chat_with_context(
+                project_id=project_id,
+                question=body.question,
+                history=body.history,
+                language=body.language,
+            )
+            async for chunk in stream:
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as exc:
+            log.error("chat_with_context error: %s", exc)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+# ── Style ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/projects/{project_id}/style")
+async def get_style(project_id: str):
+    try:
+        profile = get_pm().get_active_style_profile(project_id)
+        return profile or {}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/projects/{project_id}/style/build")
+async def build_style(project_id: str):
+    async def _gen():
+        try:
+            from norvel_writer.core.style_profile import StyleProfileEngine
+
+            engine = StyleProfileEngine()
+            profile_id_holder: List[str] = []
+
+            def _progress(pct: int):
+                import asyncio
+                pass  # progress_cb is sync callback; we'll report done at end
+
+            profile_id = await engine.build_profile(
+                project_id=project_id,
+                progress_cb=_progress,
+            )
+            profile = get_pm().get_active_style_profile(project_id)
+            yield f"data: {json.dumps({'profile_id': profile_id, 'done': True, 'profile': profile or {}})}\n\n"
+        except Exception as exc:
+            log.error("build_style error: %s", exc)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+# ── Settings ───────────────────────────────────────────────────────────────
+
+@app.get("/api/settings")
+async def get_settings():
+    try:
+        from norvel_writer.config.settings import get_config
+        cfg = get_config()
+        return {
+            "ollama_base_url": cfg.ollama_base_url,
+            "default_chat_model": cfg.default_chat_model,
+            "default_embed_model": cfg.default_embed_model,
+            "vision_model": cfg.vision_model,
+            "default_content_language": cfg.default_content_language,
+            "default_project_language": cfg.default_project_language,
+            "theme": cfg.theme,
+            "ui_language": cfg.ui_language,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.put("/api/settings")
+async def update_settings(body: Dict[str, Any]):
+    try:
+        from norvel_writer.config.settings import get_config, set_config, AppConfig
+        cfg = get_config()
+        updated = cfg.model_copy(update=body)
+        set_config(updated)
+        updated.save()
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))

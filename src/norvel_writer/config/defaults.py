@@ -4,7 +4,7 @@ APP_NAME = "NorvelWriter"
 APP_AUTHOR = "NorvelWriter"
 
 # Ollama
-DEFAULT_OLLAMA_URL = "http://localhost:11434"
+DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_CHAT_MODEL = "llama3.2:3b"
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
 FALLBACK_CHAT_MODELS = [

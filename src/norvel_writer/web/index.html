@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Norvel Writer</title>
+<style>
+:root {
+  --bg: #1e1e2e;
+  --surface: #313244;
+  --surface2: #45475a;
+  --accent: #89b4fa;
+  --text: #cdd6f4;
+  --muted: #6c7086;
+  --green: #a6e3a1;
+  --red: #f38ba8;
+  --yellow: #f9e2af;
+  --border: #585b70;
+  --radius: 6px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Top bar ── */
+#topbar {
+  height: 48px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+#topbar .app-name {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+#topbar .project-name {
+  color: var(--muted);
+  font-size: 13px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#ollama-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+  cursor: pointer;
+  title: "Ollama status";
+}
+#ollama-dot.running { background: var(--green); }
+#settings-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+#settings-btn:hover { background: var(--surface2); }
+
+/* ── Banner ── */
+#ollama-banner {
+  background: var(--yellow);
+  color: #1e1e2e;
+  padding: 8px 16px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+#ollama-banner.visible { display: flex; }
+#ollama-banner button {
+  background: #1e1e2e;
+  color: var(--yellow);
+  border: none;
+  border-radius: var(--radius);
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+#ollama-banner button:hover { opacity: 0.85; }
+
+/* ── Main layout ── */
+#main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Sidebar ── */
+#sidebar {
+  width: 240px;
+  min-width: 180px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+#sidebar-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#sidebar-header span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+#new-project-btn {
+  background: var(--accent);
+  color: #1e1e2e;
+  border: none;
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+#new-project-btn:hover { opacity: 0.85; }
+#project-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.project-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  border-radius: 0;
+  position: relative;
+}
+.project-item:hover { background: var(--surface2); }
+.project-item.active { background: var(--surface2); color: var(--accent); }
+.project-item .expand-icon { color: var(--muted); font-size: 10px; transition: transform 0.15s; }
+.project-item.expanded .expand-icon { transform: rotate(90deg); }
+.project-item .proj-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chapter-item {
+  padding: 5px 12px 5px 28px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.chapter-item:hover { background: var(--surface2); color: var(--text); }
+.chapter-item.active { color: var(--accent); background: rgba(137,180,250,0.08); }
+
+/* ── Context menu ── */
+#ctx-menu {
+  position: fixed;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 0;
+  z-index: 1000;
+  min-width: 140px;
+  display: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+#ctx-menu.visible { display: block; }
+.ctx-item {
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ctx-item:hover { background: var(--surface); }
+.ctx-item.danger { color: var(--red); }
+
+/* ── Editor ── */
+#editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#editor-toolbar {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  background: var(--surface);
+}
+#chapter-title {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#save-status { font-size: 11px; color: var(--muted); }
+#word-count { font-size: 11px; color: var(--muted); }
+#editor {
+  flex: 1;
+  resize: none;
+  background: var(--bg);
+  color: var(--text);
+  border: none;
+  outline: none;
+  font-family: "Cascadia Code", "Fira Code", "Courier New", monospace;
+  font-size: 14px;
+  line-height: 1.7;
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+
+/* ── Right panel ── */
+#right-panel {
+  width: 320px;
+  min-width: 260px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+#tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tab-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 10px 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-pane { display: none; flex: 1; overflow-y: auto; padding: 12px; flex-direction: column; gap: 8px; }
+.tab-pane.active { display: flex; }
+
+/* ── Form elements ── */
+label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 3px; }
+select, input[type=text], input[type=url], textarea.ctrl {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-size: 12px;
+  outline: none;
+}
+select:focus, input:focus, textarea.ctrl:focus { border-color: var(--accent); }
+textarea.ctrl { resize: vertical; font-family: inherit; }
+
+.btn {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+}
+.btn:hover { background: var(--border); }
+.btn.primary { background: var(--accent); color: #1e1e2e; border-color: var(--accent); font-weight: 600; }
+.btn.primary:hover { opacity: 0.85; }
+.btn.danger { background: var(--red); color: #1e1e2e; border-color: var(--red); }
+.btn.danger:hover { opacity: 0.85; }
+.btn-row { display: flex; gap: 6px; }
+.btn-row .btn { flex: 1; }
+
+/* ── Draft AI tab ── */
+#draft-output {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  font-family: "Cascadia Code", "Fira Code", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  min-height: 120px;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Chat tab ── */
+#chat-history {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-bubble {
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 90%;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.chat-bubble.user { background: var(--accent); color: #1e1e2e; align-self: flex-end; }
+.chat-bubble.assistant { background: var(--surface2); color: var(--text); align-self: flex-start; }
+#chat-input { min-height: 60px; max-height: 120px; resize: vertical; }
+
+/* ── Memory tab ── */
+#doc-list {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 180px;
+  overflow-y: auto;
+}
+.doc-item {
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.doc-item:last-child { border-bottom: none; }
+.doc-item:hover { background: var(--surface2); }
+.doc-item.selected { background: rgba(137,180,250,0.1); }
+.doc-badge {
+  font-size: 10px;
+  background: var(--surface2);
+  color: var(--muted);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.doc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#upload-progress {
+  display: none;
+  background: var(--surface2);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+#upload-progress.visible { display: block; }
+
+/* ── Style tab ── */
+#style-summary {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  min-height: 80px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Settings modal ── */
+#modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 500;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+#modal-overlay.visible { display: flex; }
+#settings-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 440px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 20px;
+}
+#settings-modal h2 { font-size: 15px; margin-bottom: 16px; color: var(--accent); }
+.form-group { margin-bottom: 12px; }
+.modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+.modal-footer .btn { width: auto; }
+
+/* ── New project / chapter modal ── */
+#dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 500;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+#dialog-overlay.visible { display: flex; }
+#dialog-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 360px;
+  padding: 20px;
+}
+#dialog-box h3 { font-size: 14px; margin-bottom: 14px; }
+.dialog-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.dialog-footer .btn { width: auto; }
+
+/* ── Scrollbars ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border); }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div id="topbar">
+  <span class="app-name">Norvel Writer</span>
+  <span class="project-name" id="current-project-name">No project selected</span>
+  <div id="ollama-dot" title="Ollama status"></div>
+  <button id="settings-btn">⚙ Settings</button>
+</div>
+
+<!-- Ollama banner -->
+<div id="ollama-banner">
+  <span>Ollama is not running.</span>
+  <button id="banner-start-btn">Start Ollama</button>
+  <button id="banner-retry-btn">Retry</button>
+  <button id="banner-dismiss-btn">Dismiss</button>
+</div>
+
+<!-- Main -->
+<div id="main">
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <span>Projects</span>
+      <button id="new-project-btn">+ New</button>
+    </div>
+    <div id="project-tree"></div>
+  </div>
+
+  <!-- Editor -->
+  <div id="editor-area">
+    <div id="editor-toolbar">
+      <span id="chapter-title">Select a chapter to edit</span>
+      <span id="word-count">0 words</span>
+      <span id="save-status"></span>
+    </div>
+    <textarea id="editor" placeholder="Select a chapter from the sidebar to start writing..."></textarea>
+  </div>
+
+  <!-- Right panel -->
+  <div id="right-panel">
+    <div id="tabs">
+      <button class="tab-btn active" data-tab="draft">Draft AI</button>
+      <button class="tab-btn" data-tab="chat">Chat</button>
+      <button class="tab-btn" data-tab="memory">Memory</button>
+      <button class="tab-btn" data-tab="style">Style</button>
+    </div>
+
+    <!-- Draft AI tab -->
+    <div class="tab-pane active" id="tab-draft">
+      <div class="form-group">
+        <label>Language</label>
+        <select id="draft-lang"></select>
+      </div>
+      <div class="form-group">
+        <label>Style Mode</label>
+        <select id="draft-style-mode">
+          <option value="inspired_by">Inspired By</option>
+          <option value="imitate_closely">Imitate Closely</option>
+          <option value="preserve_tone_rhythm">Preserve Tone &amp; Rhythm</option>
+          <option value="avoid_exact_phrasing">Avoid Exact Phrasing</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Instruction</label>
+        <textarea class="ctrl" id="draft-instruction" rows="2" placeholder="Continue the story..."></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="continue-btn">Continue Writing</button>
+        <button class="btn" id="rewrite-btn">Rewrite Selection</button>
+      </div>
+      <label>Output</label>
+      <div id="draft-output"></div>
+      <div class="btn-row">
+        <button class="btn primary" id="insert-btn">Insert into Editor</button>
+        <button class="btn" id="clear-draft-btn">Clear</button>
+      </div>
+    </div>
+
+    <!-- Chat tab -->
+    <div class="tab-pane" id="tab-chat">
+      <div id="chat-history"></div>
+      <div class="form-group">
+        <textarea class="ctrl" id="chat-input" rows="3" placeholder="Ask about your project... (Enter to send, Shift+Enter for newline)"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="chat-send-btn">Send</button>
+        <button class="btn" id="chat-clear-btn">Clear Chat</button>
+      </div>
+    </div>
+
+    <!-- Memory tab -->
+    <div class="tab-pane" id="tab-memory">
+      <div class="form-group">
+        <label>Filter by Type</label>
+        <select id="doc-filter">
+          <option value="">All Types</option>
+          <option value="codex">Codex</option>
+          <option value="beats">Beats</option>
+          <option value="style_sample">Style Sample</option>
+          <option value="draft">Draft</option>
+          <option value="research">Research</option>
+          <option value="notes">Notes</option>
+          <option value="visual">Visual</option>
+        </select>
+      </div>
+      <div id="doc-list"></div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+        <div style="flex:1;">
+          <label>Import as</label>
+          <select id="import-doc-type">
+            <option value="codex">Codex</option>
+            <option value="beats">Beats</option>
+            <option value="style_sample">Style Sample</option>
+            <option value="draft">Draft</option>
+            <option value="research">Research</option>
+            <option value="notes" selected>Notes</option>
+            <option value="visual">Visual</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:6px;">
+        <button class="btn primary" id="add-files-btn">+ Add Files</button>
+        <button class="btn danger" id="remove-doc-btn">Remove</button>
+      </div>
+      <input type="file" id="file-input" style="display:none" multiple
+        accept=".txt,.md,.docx,.pdf,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp">
+      <div id="upload-progress">Uploading...</div>
+    </div>
+
+    <!-- Style tab -->
+    <div class="tab-pane" id="tab-style">
+      <label>Active Style Profile</label>
+      <div id="style-summary">No style profile yet. Add style_sample documents in Memory, then build a profile.</div>
+      <button class="btn primary" id="build-style-btn" style="margin-top:8px;">Build Style Profile</button>
+      <div id="style-result" style="font-size:12px;color:var(--muted);margin-top:6px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div id="modal-overlay">
+  <div id="settings-modal">
+    <h2>Settings</h2>
+    <div class="form-group">
+      <label>Ollama Base URL</label>
+      <input type="url" id="cfg-ollama-url" placeholder="http://127.0.0.1:11434">
+    </div>
+    <div class="form-group">
+      <label>Chat Model</label>
+      <input type="text" id="cfg-chat-model" placeholder="llama3.2:3b">
+    </div>
+    <div class="form-group">
+      <label>Embed Model</label>
+      <input type="text" id="cfg-embed-model" placeholder="nomic-embed-text">
+    </div>
+    <div class="form-group">
+      <label>Vision Model (optional)</label>
+      <input type="text" id="cfg-vision-model" placeholder="llava:7b">
+    </div>
+    <div class="form-group">
+      <label>Default Content Language</label>
+      <select id="cfg-content-lang"></select>
+    </div>
+    <div class="form-group">
+      <label>Default Project Language</label>
+      <select id="cfg-project-lang"></select>
+    </div>
+    <div class="form-group">
+      <label>Theme</label>
+      <select id="cfg-theme">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="settings-cancel-btn">Cancel</button>
+      <button class="btn primary" id="settings-save-btn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- New project / chapter dialog -->
+<div id="dialog-overlay">
+  <div id="dialog-box">
+    <h3 id="dialog-title">New Project</h3>
+    <div id="dialog-body"></div>
+    <div class="dialog-footer">
+      <button class="btn" id="dialog-cancel-btn">Cancel</button>
+      <button class="btn primary" id="dialog-ok-btn">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Context menu -->
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-add-chapter">Add Chapter</div>
+  <div class="ctx-item danger" id="ctx-delete-project">Delete Project</div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  projects: [],
+  currentProjectId: null,
+  currentChapterId: null,
+  currentChapterTitle: '',
+  chatHistory: [],   // [{role, content}]
+  selectedDocId: null,
+  draftOutput: '',
+  autosaveTimer: null,
+  isDirty: false,
+  settings: {},
+  ollamaRunning: false,
+};
+
+const LANGUAGES = {
+  "en":    "English",
+  "zh":    "Chinese (中文)",
+  "zh-tw": "Chinese Traditional (繁體中文)",
+  "ja":    "Japanese (日本語)",
+  "ko":    "Korean (한국어)",
+  "es":    "Spanish (Español)",
+  "fr":    "French (Français)",
+  "de":    "German (Deutsch)",
+  "ru":    "Russian (Русский)",
+  "pt":    "Portuguese (Português)",
+  "ar":    "Arabic (العربية)",
+  "hi":    "Hindi (हिन्दी)",
+  "it":    "Italian (Italiano)",
+  "nl":    "Dutch (Nederlands)",
+  "pl":    "Polish (Polski)",
+  "tr":    "Turkish (Türkçe)",
+  "vi":    "Vietnamese (Tiếng Việt)",
+  "th":    "Thai (ภาษาไทย)",
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function el(id) { return document.getElementById(id); }
+
+function setStatus(msg, timeout = 0) {
+  el('save-status').textContent = msg;
+  if (timeout) setTimeout(() => { el('save-status').textContent = ''; }, timeout);
+}
+
+function countWords(text) {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+function populateLangSelect(selectEl, selectedCode) {
+  selectEl.innerHTML = '';
+  for (const [code, label] of Object.entries(LANGUAGES)) {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = label;
+    if (code === selectedCode) opt.selected = true;
+    selectEl.appendChild(opt);
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  populateLangSelect(el('draft-lang'), 'en');
+  populateLangSelect(el('cfg-content-lang'), 'en');
+  populateLangSelect(el('cfg-project-lang'), 'en');
+
+  await checkOllamaStatus();
+  await loadSettings();
+  await loadProjects();
+
+  const lastPid = localStorage.getItem('lastProjectId');
+  if (lastPid && state.projects.find(p => p.id === lastPid)) {
+    await selectProject(lastPid);
+    const lastCid = localStorage.getItem('lastChapterId');
+    if (lastCid) await selectChapter(lastCid);
+  }
+}
+
+// ── Ollama ─────────────────────────────────────────────────────────────────
+async function checkOllamaStatus() {
+  try {
+    const data = await apiFetch('/api/ollama/status');
+    state.ollamaRunning = data.running;
+    el('ollama-dot').className = data.running ? 'running' : '';
+    if (!data.running) {
+      el('ollama-banner').classList.add('visible');
+    } else {
+      el('ollama-banner').classList.remove('visible');
+    }
+  } catch (e) {
+    el('ollama-dot').className = '';
+  }
+}
+
+el('banner-start-btn').addEventListener('click', async () => {
+  el('banner-start-btn').textContent = 'Starting...';
+  el('banner-start-btn').disabled = true;
+  try {
+    const res = await apiFetch('/api/ollama/start', { method: 'POST' });
+    if (res.ok) {
+      await checkOllamaStatus();
+    }
+  } finally {
+    el('banner-start-btn').textContent = 'Start Ollama';
+    el('banner-start-btn').disabled = false;
+  }
+});
+
+el('banner-retry-btn').addEventListener('click', () => checkOllamaStatus());
+el('banner-dismiss-btn').addEventListener('click', () => el('ollama-banner').classList.remove('visible'));
+el('ollama-dot').addEventListener('click', () => checkOllamaStatus());
+
+// ── API helpers ────────────────────────────────────────────────────────────
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+    body: opts.body && typeof opts.body !== 'string' ? JSON.stringify(opts.body) : opts.body,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || res.statusText);
+  }
+  return res.json();
+}
+
+async function* readSSE(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          yield JSON.parse(line.slice(6));
+        } catch (_) {}
+      }
+    }
+  }
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    state.settings = await apiFetch('/api/settings');
+    el('cfg-ollama-url').value = state.settings.ollama_base_url || '';
+    el('cfg-chat-model').value = state.settings.default_chat_model || '';
+    el('cfg-embed-model').value = state.settings.default_embed_model || '';
+    el('cfg-vision-model').value = state.settings.vision_model || '';
+    el('cfg-theme').value = state.settings.theme || 'dark';
+    populateLangSelect(el('cfg-content-lang'), state.settings.default_content_language || 'en');
+    populateLangSelect(el('cfg-project-lang'), state.settings.default_project_language || 'en');
+    populateLangSelect(el('draft-lang'), state.settings.default_content_language || 'en');
+  } catch (e) {
+    console.error('Failed to load settings:', e);
+  }
+}
+
+el('settings-btn').addEventListener('click', () => {
+  loadSettings();
+  el('modal-overlay').classList.add('visible');
+});
+el('settings-cancel-btn').addEventListener('click', () => el('modal-overlay').classList.remove('visible'));
+el('modal-overlay').addEventListener('click', (e) => { if (e.target === el('modal-overlay')) el('modal-overlay').classList.remove('visible'); });
+
+el('settings-save-btn').addEventListener('click', async () => {
+  try {
+    await apiFetch('/api/settings', {
+      method: 'PUT',
+      body: {
+        ollama_base_url: el('cfg-ollama-url').value,
+        default_chat_model: el('cfg-chat-model').value,
+        default_embed_model: el('cfg-embed-model').value,
+        vision_model: el('cfg-vision-model').value,
+        theme: el('cfg-theme').value,
+        default_content_language: el('cfg-content-lang').value,
+        default_project_language: el('cfg-project-lang').value,
+      },
+    });
+    await loadSettings();
+    el('modal-overlay').classList.remove('visible');
+  } catch (e) {
+    alert('Failed to save settings: ' + e.message);
+  }
+});
+
+// ── Projects ───────────────────────────────────────────────────────────────
+async function loadProjects() {
+  try {
+    state.projects = await apiFetch('/api/projects');
+    renderProjectTree();
+  } catch (e) {
+    console.error('Failed to load projects:', e);
+  }
+}
+
+function renderProjectTree() {
+  const tree = el('project-tree');
+  tree.innerHTML = '';
+  for (const proj of state.projects) {
+    const div = document.createElement('div');
+    div.className = 'project-item' + (proj.id === state.currentProjectId ? ' active' : '');
+    div.dataset.id = proj.id;
+    div.innerHTML = `<span class="expand-icon">▶</span><span class="proj-name">${escHtml(proj.name)}</span>`;
+    div.addEventListener('click', () => selectProject(proj.id));
+    div.addEventListener('contextmenu', (e) => showCtxMenu(e, proj.id));
+    tree.appendChild(div);
+
+    // Chapter list container
+    const chList = document.createElement('div');
+    chList.id = 'chapters-' + proj.id;
+    chList.style.display = 'none';
+    tree.appendChild(chList);
+  }
+  // Re-expand current project
+  if (state.currentProjectId) {
+    const pEl = tree.querySelector('[data-id="' + state.currentProjectId + '"]');
+    if (pEl) pEl.classList.add('active', 'expanded');
+    const cl = el('chapters-' + state.currentProjectId);
+    if (cl) cl.style.display = '';
+  }
+}
+
+async function selectProject(pid) {
+  state.currentProjectId = pid;
+  localStorage.setItem('lastProjectId', pid);
+  const proj = state.projects.find(p => p.id === pid);
+  el('current-project-name').textContent = proj ? proj.name : '';
+
+  // Update tree
+  document.querySelectorAll('.project-item').forEach(el => el.classList.remove('active', 'expanded'));
+  document.querySelectorAll('[id^="chapters-"]').forEach(el => el.style.display = 'none');
+
+  const pEl = document.querySelector('.project-item[data-id="' + pid + '"]');
+  if (pEl) pEl.classList.add('active', 'expanded');
+  const cl = el('chapters-' + pid);
+  if (cl) cl.style.display = '';
+
+  await loadChapters(pid);
+  await loadDocuments();
+  await loadStyleProfile();
+}
+
+async function loadChapters(pid) {
+  try {
+    const chapters = await apiFetch('/api/projects/' + pid + '/chapters');
+    const cl = el('chapters-' + pid);
+    if (!cl) return;
+    cl.innerHTML = '';
+    for (const ch of chapters) {
+      const div = document.createElement('div');
+      div.className = 'chapter-item' + (ch.id === state.currentChapterId ? ' active' : '');
+      div.dataset.id = ch.id;
+      div.textContent = ch.title || 'Untitled Chapter';
+      div.addEventListener('click', () => selectChapter(ch.id));
+      cl.appendChild(div);
+    }
+  } catch (e) {
+    console.error('Failed to load chapters:', e);
+  }
+}
+
+async function selectChapter(cid) {
+  if (state.isDirty) await saveChapterContent();
+  state.currentChapterId = cid;
+  localStorage.setItem('lastChapterId', cid);
+
+  document.querySelectorAll('.chapter-item').forEach(el => el.classList.remove('active'));
+  const cEl = document.querySelector('.chapter-item[data-id="' + cid + '"]');
+  if (cEl) {
+    cEl.classList.add('active');
+    state.currentChapterTitle = cEl.textContent;
+    el('chapter-title').textContent = cEl.textContent;
+  }
+
+  try {
+    const data = await apiFetch('/api/chapters/' + cid + '/content');
+    el('editor').value = data.content || '';
+    el('word-count').textContent = countWords(el('editor').value) + ' words';
+    state.isDirty = false;
+    setStatus('');
+  } catch (e) {
+    console.error('Failed to load chapter content:', e);
+  }
+}
+
+// ── Autosave ───────────────────────────────────────────────────────────────
+el('editor').addEventListener('input', () => {
+  state.isDirty = true;
+  el('word-count').textContent = countWords(el('editor').value) + ' words';
+  setStatus('Saving...');
+  clearTimeout(state.autosaveTimer);
+  state.autosaveTimer = setTimeout(saveChapterContent, 2000);
+});
+
+async function saveChapterContent() {
+  if (!state.currentChapterId || !state.isDirty) return;
+  try {
+    await apiFetch('/api/chapters/' + state.currentChapterId + '/content', {
+      method: 'PUT',
+      body: { content: el('editor').value, model_used: 'manual' },
+    });
+    state.isDirty = false;
+    setStatus('Saved ✓', 3000);
+  } catch (e) {
+    setStatus('Save failed!');
+  }
+}
+
+// ── Context menu ───────────────────────────────────────────────────────────
+let ctxProjectId = null;
+
+function showCtxMenu(e, pid) {
+  e.preventDefault();
+  ctxProjectId = pid;
+  const menu = el('ctx-menu');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.classList.add('visible');
+}
+
+document.addEventListener('click', () => el('ctx-menu').classList.remove('visible'));
+
+el('ctx-add-chapter').addEventListener('click', () => {
+  if (!ctxProjectId) return;
+  showDialog(
+    'Add Chapter',
+    `<div class="form-group"><label>Chapter Title</label><input type="text" id="dlg-ch-title" class="ctrl" placeholder="Chapter 1"></div>`,
+    async () => {
+      const title = el('dlg-ch-title').value.trim() || 'Untitled Chapter';
+      await apiFetch('/api/projects/' + ctxProjectId + '/chapters', {
+        method: 'POST', body: { title },
+      });
+      await loadChapters(ctxProjectId);
+    }
+  );
+});
+
+el('ctx-delete-project').addEventListener('click', () => {
+  if (!ctxProjectId) return;
+  const proj = state.projects.find(p => p.id === ctxProjectId);
+  if (!confirm('Delete project "' + (proj ? proj.name : ctxProjectId) + '"? This cannot be undone.')) return;
+  apiFetch('/api/projects/' + ctxProjectId, { method: 'DELETE' }).then(() => {
+    if (state.currentProjectId === ctxProjectId) {
+      state.currentProjectId = null;
+      state.currentChapterId = null;
+      el('current-project-name').textContent = 'No project selected';
+      el('editor').value = '';
+      el('chapter-title').textContent = 'Select a chapter to edit';
+    }
+    loadProjects();
+  }).catch(e => alert('Delete failed: ' + e.message));
+});
+
+// ── New project ────────────────────────────────────────────────────────────
+el('new-project-btn').addEventListener('click', () => {
+  showDialog(
+    'New Project',
+    `<div class="form-group"><label>Project Name</label><input type="text" id="dlg-proj-name" class="ctrl" placeholder="My Novel"></div>
+     <div class="form-group"><label>Description</label><textarea class="ctrl" id="dlg-proj-desc" rows="2" placeholder="Optional description"></textarea></div>
+     <div class="form-group"><label>Language</label><select id="dlg-proj-lang"></select></div>`,
+    async () => {
+      const name = el('dlg-proj-name').value.trim();
+      if (!name) { alert('Project name is required.'); return; }
+      const pid = await apiFetch('/api/projects', {
+        method: 'POST',
+        body: {
+          name,
+          description: el('dlg-proj-desc').value.trim(),
+          language: el('dlg-proj-lang').value,
+        },
+      });
+      await loadProjects();
+      await selectProject(pid.id);
+    },
+    () => populateLangSelect(el('dlg-proj-lang'), state.settings.default_project_language || 'en')
+  );
+});
+
+// ── Dialog helper ──────────────────────────────────────────────────────────
+function showDialog(title, bodyHtml, onOk, onOpen) {
+  el('dialog-title').textContent = title;
+  el('dialog-body').innerHTML = bodyHtml;
+  if (onOpen) onOpen();
+  el('dialog-overlay').classList.add('visible');
+
+  el('dialog-ok-btn').onclick = async () => {
+    try {
+      await onOk();
+      el('dialog-overlay').classList.remove('visible');
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+  el('dialog-cancel-btn').onclick = () => el('dialog-overlay').classList.remove('visible');
+}
+
+el('dialog-overlay').addEventListener('click', (e) => { if (e.target === el('dialog-overlay')) el('dialog-overlay').classList.remove('visible'); });
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    el('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Draft AI ───────────────────────────────────────────────────────────────
+el('continue-btn').addEventListener('click', async () => {
+  if (!state.currentProjectId || !state.currentChapterId) {
+    alert('Please select a chapter first.'); return;
+  }
+  const output = el('draft-output');
+  output.textContent = '';
+  state.draftOutput = '';
+  el('continue-btn').disabled = true;
+  el('continue-btn').textContent = 'Generating...';
+
+  try {
+    const res = await fetch('/api/projects/' + state.currentProjectId + '/continue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapter_id: state.currentChapterId,
+        current_text: el('editor').value,
+        user_instruction: el('draft-instruction').value || 'Continue the story from where it left off.',
+        style_mode: el('draft-style-mode').value,
+        language: el('draft-lang').value,
+      }),
+    });
+    for await (const ev of readSSE(res)) {
+      if (ev.error) { output.textContent += '\n[Error: ' + ev.error + ']'; break; }
+      if (ev.text) { state.draftOutput += ev.text; output.textContent = state.draftOutput; output.scrollTop = output.scrollHeight; }
+      if (ev.done) break;
+    }
+  } catch (e) {
+    output.textContent = 'Error: ' + e.message;
+  } finally {
+    el('continue-btn').disabled = false;
+    el('continue-btn').textContent = 'Continue Writing';
+  }
+});
+
+el('rewrite-btn').addEventListener('click', async () => {
+  if (!state.currentProjectId) { alert('Please select a project first.'); return; }
+  const editor = el('editor');
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  const passage = start !== end ? editor.value.substring(start, end) : editor.value;
+  if (!passage.trim()) { alert('Select text in the editor to rewrite, or the editor must have content.'); return; }
+
+  const output = el('draft-output');
+  output.textContent = '';
+  state.draftOutput = '';
+  el('rewrite-btn').disabled = true;
+  el('rewrite-btn').textContent = 'Rewriting...';
+
+  try {
+    const res = await fetch('/api/projects/' + state.currentProjectId + '/rewrite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        passage,
+        user_instruction: el('draft-instruction').value || 'Rewrite this passage in the same style.',
+        style_mode: el('draft-style-mode').value,
+        language: el('draft-lang').value,
+      }),
+    });
+    for await (const ev of readSSE(res)) {
+      if (ev.error) { output.textContent += '\n[Error: ' + ev.error + ']'; break; }
+      if (ev.text) { state.draftOutput += ev.text; output.textContent = state.draftOutput; output.scrollTop = output.scrollHeight; }
+      if (ev.done) break;
+    }
+  } catch (e) {
+    output.textContent = 'Error: ' + e.message;
+  } finally {
+    el('rewrite-btn').disabled = false;
+    el('rewrite-btn').textContent = 'Rewrite Selection';
+  }
+});
+
+el('insert-btn').addEventListener('click', () => {
+  if (!state.draftOutput) return;
+  const editor = el('editor');
+  const pos = editor.selectionEnd;
+  const before = editor.value.substring(0, pos);
+  const after = editor.value.substring(pos);
+  const insert = (before && !before.endsWith('\n\n')) ? '\n\n' + state.draftOutput : state.draftOutput;
+  editor.value = before + insert + after;
+  editor.selectionStart = editor.selectionEnd = pos + insert.length;
+  state.isDirty = true;
+  el('word-count').textContent = countWords(editor.value) + ' words';
+  setStatus('Saving...');
+  clearTimeout(state.autosaveTimer);
+  state.autosaveTimer = setTimeout(saveChapterContent, 2000);
+});
+
+el('clear-draft-btn').addEventListener('click', () => {
+  el('draft-output').textContent = '';
+  state.draftOutput = '';
+});
+
+// ── Chat ───────────────────────────────────────────────────────────────────
+function appendChatBubble(role, text) {
+  const hist = el('chat-history');
+  const div = document.createElement('div');
+  div.className = 'chat-bubble ' + role;
+  div.textContent = text;
+  hist.appendChild(div);
+  hist.scrollTop = hist.scrollHeight;
+  return div;
+}
+
+async function sendChat() {
+  if (!state.currentProjectId) { alert('Please select a project first.'); return; }
+  const input = el('chat-input');
+  const question = input.value.trim();
+  if (!question) return;
+  input.value = '';
+
+  appendChatBubble('user', question);
+  const assistantBubble = appendChatBubble('assistant', '...');
+  let fullText = '';
+
+  state.chatHistory.push({ role: 'user', content: question });
+  el('chat-send-btn').disabled = true;
+
+  try {
+    const historyToSend = state.chatHistory.slice(0, -1); // exclude current question (already in body)
+    const res = await fetch('/api/projects/' + state.currentProjectId + '/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        history: historyToSend,
+        language: el('draft-lang').value,
+      }),
+    });
+    assistantBubble.textContent = '';
+    for await (const ev of readSSE(res)) {
+      if (ev.error) { assistantBubble.textContent += '[Error: ' + ev.error + ']'; break; }
+      if (ev.text) { fullText += ev.text; assistantBubble.textContent = fullText; el('chat-history').scrollTop = el('chat-history').scrollHeight; }
+      if (ev.done) break;
+    }
+    state.chatHistory.push({ role: 'assistant', content: fullText });
+  } catch (e) {
+    assistantBubble.textContent = 'Error: ' + e.message;
+  } finally {
+    el('chat-send-btn').disabled = false;
+  }
+}
+
+el('chat-send-btn').addEventListener('click', sendChat);
+el('chat-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+el('chat-clear-btn').addEventListener('click', () => {
+  state.chatHistory = [];
+  el('chat-history').innerHTML = '';
+});
+
+// ── Memory ─────────────────────────────────────────────────────────────────
+async function loadDocuments() {
+  if (!state.currentProjectId) return;
+  try {
+    const filter = el('doc-filter').value;
+    const url = '/api/projects/' + state.currentProjectId + '/documents' + (filter ? '?doc_type=' + filter : '');
+    const docs = await apiFetch(url);
+    renderDocList(docs);
+  } catch (e) {
+    console.error('Failed to load documents:', e);
+  }
+}
+
+function renderDocList(docs) {
+  const list = el('doc-list');
+  list.innerHTML = '';
+  if (!docs.length) {
+    list.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--muted);">No documents yet.</div>';
+    return;
+  }
+  for (const doc of docs) {
+    const div = document.createElement('div');
+    div.className = 'doc-item' + (doc.id === state.selectedDocId ? ' selected' : '');
+    div.dataset.id = doc.id;
+    const name = doc.title || doc.file_path?.split(/[\\/]/).pop() || doc.id;
+    div.innerHTML = `<span class="doc-name">${escHtml(name)}</span><span class="doc-badge">${escHtml(doc.doc_type || '')}</span>`;
+    div.addEventListener('click', () => {
+      state.selectedDocId = doc.id;
+      document.querySelectorAll('.doc-item').forEach(d => d.classList.remove('selected'));
+      div.classList.add('selected');
+    });
+    list.appendChild(div);
+  }
+}
+
+el('doc-filter').addEventListener('change', loadDocuments);
+
+el('add-files-btn').addEventListener('click', () => el('file-input').click());
+
+el('file-input').addEventListener('change', async (e) => {
+  if (!state.currentProjectId) { alert('Please select a project first.'); return; }
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  el('upload-progress').classList.add('visible');
+  el('upload-progress').textContent = 'Uploading 0/' + files.length + '...';
+
+  const docType = el('import-doc-type').value;
+  let done = 0;
+  for (const file of files) {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('doc_type', docType);
+      const res = await fetch('/api/projects/' + state.currentProjectId + '/ingest', {
+        method: 'POST',
+        body: fd,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        console.error('Upload failed for', file.name, ':', err.detail);
+      }
+    } catch (err) {
+      console.error('Upload error for', file.name, ':', err);
+    }
+    done++;
+    el('upload-progress').textContent = 'Uploading ' + done + '/' + files.length + '...';
+  }
+
+  el('upload-progress').classList.remove('visible');
+  e.target.value = '';
+  await loadDocuments();
+});
+
+el('remove-doc-btn').addEventListener('click', async () => {
+  if (!state.selectedDocId || !state.currentProjectId) { alert('Select a document to remove.'); return; }
+  if (!confirm('Remove this document from the knowledge base?')) return;
+  try {
+    await apiFetch('/api/documents/' + state.selectedDocId + '?project_id=' + state.currentProjectId, { method: 'DELETE' });
+    state.selectedDocId = null;
+    await loadDocuments();
+  } catch (e) {
+    alert('Failed to remove document: ' + e.message);
+  }
+});
+
+// ── Style ──────────────────────────────────────────────────────────────────
+async function loadStyleProfile() {
+  if (!state.currentProjectId) return;
+  try {
+    const profile = await apiFetch('/api/projects/' + state.currentProjectId + '/style');
+    renderStyleProfile(profile);
+  } catch (e) {
+    console.error('Failed to load style profile:', e);
+  }
+}
+
+function renderStyleProfile(profile) {
+  if (!profile || !profile.profile_json) {
+    el('style-summary').textContent = 'No style profile yet. Add style_sample documents in Memory, then build a profile.';
+    return;
+  }
+  try {
+    const p = JSON.parse(profile.profile_json);
+    const lines = [];
+    if (p.avg_sentence_length) lines.push('Sentence length: ' + p.avg_sentence_length);
+    if (p.narrative_distance) lines.push('Narrative distance: ' + p.narrative_distance);
+    if (p.tense) lines.push('Tense: ' + p.tense);
+    if (p.pacing) lines.push('Pacing: ' + p.pacing);
+    if (p.tone_markers && p.tone_markers.length) lines.push('Tone: ' + p.tone_markers.join(', '));
+    if (p.dialogue_habits) lines.push('Dialogue: ' + p.dialogue_habits);
+    if (p.imagery_density) lines.push('Imagery: ' + p.imagery_density);
+    if (p.paragraph_rhythm) lines.push('Paragraph rhythm: ' + p.paragraph_rhythm);
+    if (p.raw_notes) lines.push('\nNotes: ' + p.raw_notes.substring(0, 200));
+    el('style-summary').textContent = lines.join('\n') || 'Style profile built (no details available).';
+  } catch (_) {
+    el('style-summary').textContent = 'Style profile exists but could not be parsed.';
+  }
+}
+
+el('build-style-btn').addEventListener('click', async () => {
+  if (!state.currentProjectId) { alert('Please select a project first.'); return; }
+  el('build-style-btn').disabled = true;
+  el('build-style-btn').textContent = 'Building...';
+  el('style-result').textContent = '';
+  el('style-summary').textContent = 'Building style profile...';
+
+  try {
+    const res = await fetch('/api/projects/' + state.currentProjectId + '/style/build', { method: 'POST' });
+    for await (const ev of readSSE(res)) {
+      if (ev.error) { el('style-result').textContent = 'Error: ' + ev.error; break; }
+      if (ev.done) {
+        el('style-result').textContent = 'Profile built successfully.';
+        renderStyleProfile(ev.profile || {});
+        break;
+      }
+    }
+  } catch (e) {
+    el('style-result').textContent = 'Error: ' + e.message;
+  } finally {
+    el('build-style-btn').disabled = false;
+    el('build-style-btn').textContent = 'Build Style Profile';
+  }
+});
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Start ──────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
