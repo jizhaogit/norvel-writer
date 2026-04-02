@@ -1259,6 +1259,15 @@ async function pullModel(name, btn) {
   prog.style.display = 'block';
   prog.style.color = 'var(--subtext)';
   prog.textContent = 'Starting ' + name + '…';
+
+  // Heartbeat ticker — shows elapsed seconds so the user knows it hasn't frozen
+  let lastMsg = 'Downloading…';
+  let elapsed = 0;
+  const ticker = setInterval(() => {
+    elapsed++;
+    prog.textContent = name + ': ' + lastMsg + ' — ' + elapsed + 's';
+  }, 1000);
+
   try {
     const res = await fetch('/api/ollama/pull/' + encodeURIComponent(name), { method: 'POST' });
     for await (const ev of readSSE(res)) {
@@ -1275,13 +1284,17 @@ async function pullModel(name, btn) {
         break;
       }
       if (ev.status !== undefined) {
-        prog.textContent = name + ': ' + (ev.status || 'Downloading…') + (ev.pct > 0 ? ' (' + ev.pct + '%)' : '');
+        lastMsg = (ev.status || 'Downloading…') + (ev.pct > 0 ? ' (' + ev.pct + '%)' : '');
+        elapsed = 0; // reset elapsed on each real progress event
+        prog.textContent = name + ': ' + lastMsg;
       }
     }
   } catch (e) {
     prog.textContent = '✗ ' + e.message;
     prog.style.color = 'var(--red)';
     btn.textContent = 'Pull'; btn.disabled = false;
+  } finally {
+    clearInterval(ticker);
   }
 }
 

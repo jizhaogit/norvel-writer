@@ -134,24 +134,71 @@ async def ollama_start():
 
 @app.post("/api/ollama/pull/{model:path}")
 async def ollama_pull(model: str):
-    """Stream model pull progress as SSE."""
+    """Stream model pull progress as SSE.
+
+    Uses httpx directly against the configured Ollama REST API so that:
+    - The correct host/port (from llm.ini / OLLAMA_HOST) is always used
+    - No SDK-level timeout kills a slow download
+    - A keepalive comment is sent every ~5 seconds so the browser SSE
+      connection stays alive during long pauses between progress events
+    """
     async def _gen():
+        import asyncio
+        import httpx
+        import os
+        import urllib.parse
+
+        # Resolve Ollama base URL (same priority as OllamaClient.ping)
+        ollama_host = os.environ.get("OLLAMA_HOST", "").strip()
+        if ollama_host:
+            if "://" not in ollama_host:
+                ollama_host = "http://" + ollama_host
+            base_url = ollama_host.rstrip("/")
+        else:
+            try:
+                from norvel_writer.llm.providers import get_section
+                ini = get_section("ollama")
+                base_url = ini.get("base_url", "http://127.0.0.1:11434").rstrip("/")
+            except Exception:
+                from norvel_writer.config.settings import get_config
+                base_url = get_config().ollama_base_url.rstrip("/")
+
         try:
-            import inspect
-            import ollama
-            result = ollama.AsyncClient().pull(model, stream=True)
-            # Depending on the ollama library version, pull(stream=True) may
-            # return a coroutine (needs await) or an async generator directly.
-            if inspect.isawaitable(result):
-                result = await result
-            async for progress in result:
-                status = getattr(progress, "status", "") or ""
-                completed = getattr(progress, "completed", None)
-                total = getattr(progress, "total", None)
-                pct = 0
-                if completed and total and total > 0:
-                    pct = int(completed / total * 100)
-                yield f"data: {json.dumps({'status': status, 'pct': pct})}\n\n"
+            # timeout=None — large models can take many minutes to download
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream(
+                    "POST",
+                    f"{base_url}/api/pull",
+                    json={"model": model, "stream": True},
+                ) as resp:
+                    if resp.status_code != 200:
+                        body = await resp.aread()
+                        yield f"data: {json.dumps({'error': f'Ollama returned {resp.status_code}: {body.decode()[:200]}'})}\n\n"
+                        return
+
+                    last_event = asyncio.get_event_loop().time()
+                    async for line in resp.aiter_lines():
+                        now = asyncio.get_event_loop().time()
+                        # Send SSE keepalive comment if silent for >4 s
+                        if now - last_event > 4:
+                            yield ": keepalive\n\n"
+                        last_event = now
+
+                        if not line.strip():
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+
+                        status = data.get("status", "")
+                        completed = data.get("completed")
+                        total = data.get("total")
+                        pct = 0
+                        if completed and total and total > 0:
+                            pct = int(completed / total * 100)
+                        yield f"data: {json.dumps({'status': status, 'pct': pct})}\n\n"
+
             yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
