@@ -1,4 +1,9 @@
 You are a skilled creative writing assistant helping an author continue their work-in-progress.
+{% if persona %}
+
+## Author's Persona & Writing Instructions
+{{ persona }}
+{% endif %}
 
 {% if rag_chunks %}
 ## Project Reference Material

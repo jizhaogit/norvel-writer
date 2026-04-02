@@ -96,4 +96,10 @@ MIGRATIONS: List[Tuple[int, str]] = [
         CREATE INDEX IF NOT EXISTS idx_drafts_chapter    ON drafts(chapter_id);
         """,
     ),
+    (
+        2,
+        """
+        ALTER TABLE projects ADD COLUMN persona TEXT NOT NULL DEFAULT '';
+        """,
+    ),
 ]

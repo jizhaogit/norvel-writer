@@ -543,6 +543,34 @@ async def build_style(project_id: str):
     return StreamingResponse(_gen(), media_type="text/event-stream")
 
 
+# ── Persona ────────────────────────────────────────────────────────────────
+
+@app.get("/api/projects/{project_id}/persona")
+async def get_persona(project_id: str):
+    try:
+        proj = get_pm().get_project(project_id)
+        if proj is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return {"persona": proj.get("persona") or ""}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class PersonaUpdate(BaseModel):
+    persona: str
+
+
+@app.put("/api/projects/{project_id}/persona")
+async def save_persona(project_id: str, body: PersonaUpdate):
+    try:
+        get_pm().update_project(project_id, persona=body.persona)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ── Settings ───────────────────────────────────────────────────────────────
 
 @app.get("/api/settings")

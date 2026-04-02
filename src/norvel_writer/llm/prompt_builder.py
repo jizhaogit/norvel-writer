@@ -59,6 +59,7 @@ def build_continuation_messages(
     language: str,
     style_mode: str,
     constraints: Optional[List[str]] = None,
+    persona: str = "",
 ) -> List[Dict[str, str]]:
     """Build the messages list for a continuation request."""
     system_prompt = render_template(
@@ -69,6 +70,7 @@ def build_continuation_messages(
         language=language,
         style_mode=style_mode,
         constraints=constraints or [],
+        persona=persona,
     )
     messages = [
         {"role": "system", "content": system_prompt},
@@ -88,6 +90,7 @@ def build_rewrite_messages(
     user_instruction: str,
     language: str,
     style_mode: str,
+    persona: str = "",
 ) -> List[Dict[str, str]]:
     system_prompt = render_template(
         "rewrite_passage.j2",
@@ -96,6 +99,7 @@ def build_rewrite_messages(
         style_profile=style_profile,
         language=language,
         style_mode=style_mode,
+        persona=persona,
     )
     messages = [
         {"role": "system", "content": system_prompt},

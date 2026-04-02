@@ -493,6 +493,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <button class="tab-btn" data-tab="chat">Chat</button>
       <button class="tab-btn" data-tab="memory">Memory</button>
       <button class="tab-btn" data-tab="style">Style</button>
+      <button class="tab-btn" data-tab="persona">Persona</button>
     </div>
 
     <!-- Draft AI tab -->
@@ -580,10 +581,36 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 
     <!-- Style tab -->
     <div class="tab-pane" id="tab-style">
-      <label>Active Style Profile</label>
-      <div id="style-summary">No style profile yet. Add style_sample documents in Memory, then build a profile.</div>
-      <button class="btn primary" id="build-style-btn" style="margin-top:8px;">Build Style Profile</button>
+      <div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">
+        Upload sample novels or passages to teach the AI your desired writing style.
+      </div>
+      <div id="style-sample-list" style="max-height:180px;overflow-y:auto;margin-bottom:8px;"></div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <button class="btn primary" id="add-style-sample-btn">+ Add Style Sample</button>
+        <button class="btn danger" id="remove-style-sample-btn">Remove</button>
+      </div>
+      <input type="file" id="style-sample-input" style="display:none" multiple
+        accept=".txt,.md,.docx,.odt,.pdf">
+      <div id="style-upload-progress" style="font-size:12px;color:var(--muted);display:none;margin-bottom:6px;">Uploading…</div>
+      <hr style="border-color:var(--border);margin:10px 0;">
+      <button class="btn primary" id="build-style-btn" style="width:100%;">Build Style Profile</button>
       <div id="style-result" style="font-size:12px;color:var(--muted);margin-top:6px;"></div>
+      <div id="style-summary" style="font-size:12px;color:var(--subtext);margin-top:6px;white-space:pre-wrap;"></div>
+    </div>
+
+    <!-- Persona tab -->
+    <div class="tab-pane" id="tab-persona">
+      <div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">
+        Describe the writing style, tone, and voice you want the AI to use.
+        This is injected into every generation as a standing instruction.
+      </div>
+      <textarea id="persona-text" rows="12"
+        placeholder="Examples:&#10;- Write in a dark, gritty tone similar to George R.R. Martin.&#10;- Use short punchy sentences for action scenes.&#10;- Always write in third-person limited POV from the protagonist.&#10;- Avoid purple prose. Favour showing over telling."
+        style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);font-size:13px;line-height:1.6;resize:vertical;font-family:inherit;"></textarea>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+        <button class="btn primary" id="save-persona-btn">Save Persona</button>
+        <span id="persona-status" style="font-size:12px;color:var(--muted);"></span>
+      </div>
     </div>
   </div>
 </div>
@@ -930,7 +957,8 @@ async function selectProject(pid) {
 
   await loadChapters(pid);
   await loadDocuments();
-  await loadStyleProfile();
+  await loadStyleTab();
+  await loadPersona();
 }
 
 async function loadChapters(pid) {
@@ -1430,19 +1458,55 @@ el('doc-editor-save').addEventListener('click', async () => {
 });
 
 // ── Style ──────────────────────────────────────────────────────────────────
+let selectedStyleDocId = null;
+
+async function loadStyleTab() {
+  if (!state.currentProjectId) return;
+  await Promise.all([loadStyleSamples(), loadStyleProfile()]);
+}
+
+async function loadStyleSamples() {
+  if (!state.currentProjectId) return;
+  try {
+    const docs = await apiFetch('/api/projects/' + state.currentProjectId + '/documents?doc_type=style_sample');
+    renderStyleSamples(docs);
+  } catch (e) { console.error('Failed to load style samples:', e); }
+}
+
+function renderStyleSamples(docs) {
+  const list = el('style-sample-list');
+  list.innerHTML = '';
+  if (!docs.length) {
+    list.innerHTML = '<div style="padding:6px;font-size:12px;color:var(--muted);">No style samples yet. Upload a novel or passage to begin.</div>';
+    return;
+  }
+  for (const doc of docs) {
+    const div = document.createElement('div');
+    div.className = 'doc-item' + (doc.id === selectedStyleDocId ? ' selected' : '');
+    div.dataset.id = doc.id;
+    const name = doc.title || doc.file_path?.split(/[\\/]/).pop() || doc.id;
+    div.innerHTML = `<span class="doc-name">${escHtml(name)}</span><span class="doc-badge">style</span>`;
+    div.addEventListener('click', () => {
+      selectedStyleDocId = doc.id;
+      list.querySelectorAll('.doc-item').forEach(d => d.classList.remove('selected'));
+      div.classList.add('selected');
+    });
+    list.appendChild(div);
+  }
+}
+
 async function loadStyleProfile() {
   if (!state.currentProjectId) return;
   try {
     const profile = await apiFetch('/api/projects/' + state.currentProjectId + '/style');
     renderStyleProfile(profile);
-  } catch (e) {
-    console.error('Failed to load style profile:', e);
-  }
+  } catch (e) { console.error('Failed to load style profile:', e); }
 }
 
 function renderStyleProfile(profile) {
   if (!profile || !profile.profile_json) {
-    el('style-summary').textContent = 'No style profile yet. Add style_sample documents in Memory, then build a profile.';
+    el('style-summary').textContent = '';
+    el('style-result').textContent = '';
     return;
   }
   try {
@@ -1457,34 +1521,91 @@ function renderStyleProfile(profile) {
     if (p.imagery_density) lines.push('Imagery: ' + p.imagery_density);
     if (p.paragraph_rhythm) lines.push('Paragraph rhythm: ' + p.paragraph_rhythm);
     if (p.raw_notes) lines.push('\nNotes: ' + p.raw_notes.substring(0, 200));
-    el('style-summary').textContent = lines.join('\n') || 'Style profile built (no details available).';
+    el('style-result').textContent = 'Profile active.';
+    el('style-summary').textContent = lines.join('\n') || 'Style profile built.';
   } catch (_) {
     el('style-summary').textContent = 'Style profile exists but could not be parsed.';
   }
 }
 
+// Upload style samples
+el('add-style-sample-btn').addEventListener('click', () => el('style-sample-input').click());
+
+el('style-sample-input').addEventListener('change', async (e) => {
+  if (!state.currentProjectId) { alert('Select a project first.'); return; }
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+  el('style-upload-progress').style.display = 'block';
+  for (const file of files) {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('doc_type', 'style_sample');
+    try {
+      await fetch('/api/projects/' + state.currentProjectId + '/ingest', { method: 'POST', body: fd });
+    } catch (err) {
+      alert('Failed to upload ' + file.name + ': ' + err.message);
+    }
+  }
+  el('style-upload-progress').style.display = 'none';
+  e.target.value = '';
+  await loadStyleSamples();
+});
+
+// Remove selected style sample
+el('remove-style-sample-btn').addEventListener('click', async () => {
+  if (!selectedStyleDocId) { alert('Select a style sample to remove.'); return; }
+  if (!confirm('Remove this style sample?')) return;
+  try {
+    await apiFetch('/api/documents/' + selectedStyleDocId + '?project_id=' + state.currentProjectId, { method: 'DELETE' });
+    selectedStyleDocId = null;
+    await loadStyleSamples();
+  } catch (e) { alert('Failed to remove: ' + e.message); }
+});
+
 el('build-style-btn').addEventListener('click', async () => {
   if (!state.currentProjectId) { alert('Please select a project first.'); return; }
   el('build-style-btn').disabled = true;
   el('build-style-btn').textContent = 'Building...';
-  el('style-result').textContent = '';
-  el('style-summary').textContent = 'Building style profile...';
-
+  el('style-result').textContent = 'Analysing style samples...';
+  el('style-summary').textContent = '';
   try {
     const res = await fetch('/api/projects/' + state.currentProjectId + '/style/build', { method: 'POST' });
     for await (const ev of readSSE(res)) {
       if (ev.error) { el('style-result').textContent = 'Error: ' + ev.error; break; }
-      if (ev.done) {
-        el('style-result').textContent = 'Profile built successfully.';
-        renderStyleProfile(ev.profile || {});
-        break;
-      }
+      if (ev.done) { renderStyleProfile(ev.profile || {}); break; }
     }
   } catch (e) {
     el('style-result').textContent = 'Error: ' + e.message;
   } finally {
     el('build-style-btn').disabled = false;
     el('build-style-btn').textContent = 'Build Style Profile';
+  }
+});
+
+// ── Persona ─────────────────────────────────────────────────────────────────
+async function loadPersona() {
+  if (!state.currentProjectId) return;
+  try {
+    const data = await apiFetch('/api/projects/' + state.currentProjectId + '/persona');
+    el('persona-text').value = data.persona || '';
+    el('persona-status').textContent = '';
+  } catch (e) { console.error('Failed to load persona:', e); }
+}
+
+el('save-persona-btn').addEventListener('click', async () => {
+  if (!state.currentProjectId) { alert('Select a project first.'); return; }
+  el('save-persona-btn').disabled = true;
+  try {
+    await apiFetch('/api/projects/' + state.currentProjectId + '/persona', {
+      method: 'PUT',
+      body: { persona: el('persona-text').value },
+    });
+    el('persona-status').textContent = 'Saved.';
+    setTimeout(() => { el('persona-status').textContent = ''; }, 2000);
+  } catch (e) {
+    el('persona-status').textContent = 'Error: ' + e.message;
+  } finally {
+    el('save-persona-btn').disabled = false;
   }
 });
 

@@ -66,6 +66,9 @@ class DraftEngine:
             except Exception:
                 pass
 
+        proj = self._pm.get_project(project_id)
+        persona = (proj.get("persona") or "").strip() if proj else ""
+
         context_text = truncate_to_tokens(current_text, max_tokens=2048)
         messages = build_continuation_messages(
             current_text=context_text,
@@ -76,6 +79,7 @@ class DraftEngine:
             language=language,
             style_mode=style_mode,
             constraints=constraints,
+            persona=persona,
         )
 
         client = get_client()
@@ -112,6 +116,9 @@ class DraftEngine:
             except Exception:
                 pass
 
+        proj = self._pm.get_project(project_id)
+        persona = (proj.get("persona") or "").strip() if proj else ""
+
         messages = build_rewrite_messages(
             passage=passage,
             rag_chunks=[r["text"] for r in rag_results],
@@ -120,6 +127,7 @@ class DraftEngine:
             user_instruction=user_instruction,
             language=language,
             style_mode=style_mode,
+            persona=persona,
         )
 
         client = get_client()
