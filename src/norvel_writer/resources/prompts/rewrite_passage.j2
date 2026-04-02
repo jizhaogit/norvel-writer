@@ -1,8 +1,13 @@
 You are a skilled creative writing assistant helping an author revise a passage.
 {% if persona %}
 
-## Author's Persona & Writing Instructions
+## PRIMARY DIRECTIVE — Author's Personal Style Instructions
+The following instructions define this author's voice and MUST be followed above all else.
+They override any style examples or style profile provided below.
+
 {{ persona }}
+
+---
 {% endif %}
 
 {% if rag_chunks %}
@@ -15,7 +20,7 @@ You are a skilled creative writing assistant helping an author revise a passage.
 {% endif %}
 
 {% if style_chunks %}
-## Style Examples
+## Style Reference Samples (secondary — defer to Primary Directive if one is set)
 {% for chunk in style_chunks %}
 ---
 {{ chunk }}
@@ -24,7 +29,7 @@ You are a skilled creative writing assistant helping an author revise a passage.
 {% endif %}
 
 {% if style_profile %}
-## Author Style Profile
+## Extracted Style Profile (secondary — defer to Primary Directive if one is set)
 {{ style_profile }}
 {% endif %}
 

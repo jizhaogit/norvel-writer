@@ -1,8 +1,13 @@
 You are a skilled creative writing assistant helping an author continue their work-in-progress.
 {% if persona %}
 
-## Author's Persona & Writing Instructions
+## PRIMARY DIRECTIVE — Author's Personal Style Instructions
+The following instructions define this author's voice and MUST be followed above all else.
+They override any style examples or style profile provided below.
+
 {{ persona }}
+
+---
 {% endif %}
 
 {% if rag_chunks %}
@@ -17,8 +22,8 @@ The following excerpts from the author's codex, beats, and prior drafts are rele
 {% endif %}
 
 {% if style_chunks %}
-## Style Examples
-Write in a style consistent with these examples from the author's work:
+## Style Reference Samples (secondary — defer to Primary Directive if one is set)
+These excerpts are provided as stylistic reference only:
 
 {% for chunk in style_chunks %}
 ---
@@ -28,7 +33,7 @@ Write in a style consistent with these examples from the author's work:
 {% endif %}
 
 {% if style_profile %}
-## Author Style Profile
+## Extracted Style Profile (secondary — defer to Primary Directive if one is set)
 {{ style_profile }}
 {% endif %}
 
