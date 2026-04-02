@@ -58,7 +58,6 @@ class AsyncWorker:
 
     def __init__(self) -> None:
         self._thread = _LoopThread()
-        self._thread.setDaemon(True)
         self._thread.start()
 
     @classmethod
