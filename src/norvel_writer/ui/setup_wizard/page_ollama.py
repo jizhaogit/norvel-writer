@@ -46,9 +46,14 @@ class OllamaPage(QWizardPage):
         self._btn_start.setVisible(False)
         self._btn_start.clicked.connect(self._start_ollama)
 
+        self._btn_skip = QPushButton("Skip (start Ollama manually later)")
+        self._btn_skip.setVisible(False)
+        self._btn_skip.clicked.connect(self._skip)
+
         btn_row.addWidget(self._btn_download)
         btn_row.addWidget(self._btn_start)
         btn_row.addWidget(self._btn_retry)
+        btn_row.addWidget(self._btn_skip)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
@@ -79,10 +84,12 @@ class OllamaPage(QWizardPage):
             elif not status.running:
                 self._status_label.setText(
                     "Ollama is installed but not running. "
-                    "Click 'Start Ollama' to launch it."
+                    "Click 'Start Ollama' to launch it, or start it manually "
+                    "from the Start menu and click Retry."
                 )
                 self._btn_start.setVisible(True)
                 self._btn_retry.setVisible(True)
+                self._btn_skip.setVisible(True)
             else:
                 model_count = len(status.models)
                 self._status_label.setText(
@@ -96,6 +103,7 @@ class OllamaPage(QWizardPage):
             self._progress.setRange(0, 1)
             self._status_label.setText(f"Error checking Ollama: {exc}")
             self._btn_retry.setVisible(True)
+            self._btn_skip.setVisible(True)
 
         self._worker.run(get_ollama_status(), on_result=_done, on_error=_error)
 
@@ -115,11 +123,21 @@ class OllamaPage(QWizardPage):
             else:
                 self._status_label.setText(
                     "Could not start Ollama automatically. "
-                    "Please start it manually, then click Retry."
+                    "Please start it from the Windows Start menu, then click Retry."
                 )
                 self._btn_retry.setVisible(True)
+                self._btn_skip.setVisible(True)
 
         self._worker.run(start_ollama_serve(), on_result=_done)
+
+    def _skip(self) -> None:
+        """Allow proceeding even if Ollama isn't confirmed running."""
+        self._ready = True
+        self._status_label.setText(
+            "Skipped. Make sure Ollama is running before using AI features.\n"
+            "You can start it from the Windows Start menu at any time."
+        )
+        self.completeChanged.emit()
 
     def isComplete(self) -> bool:
         return self._ready

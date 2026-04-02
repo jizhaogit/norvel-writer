@@ -88,21 +88,64 @@ def launch_ollama_download_page() -> None:
 
 
 async def start_ollama_serve() -> bool:
-    """Attempt to start 'ollama serve' as a background process."""
-    try:
-        subprocess.Popen(
-            ["ollama", "serve"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        # Give it a moment to start
-        for _ in range(10):
-            await asyncio.sleep(0.5)
-            client = get_client()
-            if await client.ping():
-                return True
-        return False
-    except Exception as exc:
-        log.warning("Could not start ollama serve: %s", exc)
-        return False
+    """Attempt to start Ollama as a background process.
+
+    On Windows, tries the Ollama tray app (Ollama.exe) first, which is the
+    standard installation. Falls back to 'ollama serve' on other platforms.
+    """
+    no_window = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+    if sys.platform == "win32":
+        # Windows: launch the Ollama tray app from common install locations
+        import os
+        candidates = [
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Ollama\Ollama.exe"),
+            os.path.expandvars(r"%PROGRAMFILES%\Ollama\Ollama.exe"),
+        ]
+        launched = False
+        for exe in candidates:
+            if os.path.exists(exe):
+                try:
+                    subprocess.Popen(
+                        [exe],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=no_window,
+                    )
+                    launched = True
+                    log.info("Launched Ollama tray app: %s", exe)
+                    break
+                except Exception as exc:
+                    log.warning("Could not launch %s: %s", exe, exc)
+
+        if not launched:
+            # Fall back to ollama serve
+            try:
+                subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=no_window,
+                )
+                launched = True
+            except Exception as exc:
+                log.warning("Could not start ollama serve: %s", exc)
+                return False
+    else:
+        try:
+            subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            log.warning("Could not start ollama serve: %s", exc)
+            return False
+
+    # Wait up to 15 seconds for the service to respond
+    client = get_client()
+    for _ in range(30):
+        await asyncio.sleep(0.5)
+        if await client.ping():
+            return True
+    return False
