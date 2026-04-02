@@ -570,6 +570,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       </div>
       <div class="btn-row" style="margin-top:6px;">
         <button class="btn primary" id="add-files-btn">+ Add Files</button>
+        <button class="btn" id="edit-doc-btn">Edit</button>
         <button class="btn danger" id="remove-doc-btn">Remove</button>
       </div>
       <input type="file" id="file-input" style="display:none" multiple
@@ -583,6 +584,22 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <div id="style-summary">No style profile yet. Add style_sample documents in Memory, then build a profile.</div>
       <button class="btn primary" id="build-style-btn" style="margin-top:8px;">Build Style Profile</button>
       <div id="style-result" style="font-size:12px;color:var(--muted);margin-top:6px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Document Editor Modal -->
+<div id="doc-editor-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:var(--surface1);border:1px solid var(--border);border-radius:10px;padding:24px;width:680px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;gap:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <h3 id="doc-editor-title" style="margin:0;font-size:15px;"></h3>
+      <span id="doc-editor-badge" style="font-size:11px;background:var(--surface2);padding:2px 8px;border-radius:4px;color:var(--subtext);"></span>
+    </div>
+    <textarea id="doc-editor-area" style="flex:1;min-height:400px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);font-size:13px;line-height:1.6;font-family:monospace;resize:vertical;"></textarea>
+    <div id="doc-editor-status" style="font-size:12px;color:var(--muted);min-height:16px;"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button id="doc-editor-cancel" style="padding:7px 18px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;">Cancel</button>
+      <button id="doc-editor-save" style="padding:7px 18px;background:var(--accent);border:none;border-radius:6px;color:#1e1e2e;font-weight:600;cursor:pointer;">Save & Re-index</button>
     </div>
   </div>
 </div>
@@ -1292,6 +1309,7 @@ async function loadDocuments() {
 }
 
 function renderDocList(docs) {
+  state._docs = docs;   // cache for editor meta lookup
   const list = el('doc-list');
   list.innerHTML = '';
   if (!docs.length) {
@@ -1360,6 +1378,54 @@ el('remove-doc-btn').addEventListener('click', async () => {
     await loadDocuments();
   } catch (e) {
     alert('Failed to remove document: ' + e.message);
+  }
+});
+
+// ── Document Editor ────────────────────────────────────────────────────────
+el('edit-doc-btn').addEventListener('click', async () => {
+  if (!state.selectedDocId) { alert('Select a document to edit.'); return; }
+  const docs = state.projects.length ? state._docs || [] : [];
+  // Find doc meta from cached list
+  const docMeta = (state._docs || []).find(d => d.id === state.selectedDocId);
+  try {
+    el('doc-editor-status').textContent = 'Loading…';
+    const modal = el('doc-editor-modal');
+    modal.style.display = 'flex';
+    el('doc-editor-title').textContent = docMeta ? (docMeta.title || docMeta.file_path?.split(/[\\/]/).pop() || 'Document') : 'Document';
+    el('doc-editor-badge').textContent = docMeta ? (docMeta.doc_type || '') : '';
+    el('doc-editor-area').value = '';
+    const res = await apiFetch('/api/documents/' + state.selectedDocId + '/content');
+    el('doc-editor-area').value = res.text || '';
+    el('doc-editor-status').textContent = '';
+  } catch (e) {
+    el('doc-editor-status').textContent = 'Failed to load: ' + e.message;
+  }
+});
+
+el('doc-editor-cancel').addEventListener('click', () => {
+  el('doc-editor-modal').style.display = 'none';
+});
+
+el('doc-editor-modal').addEventListener('click', (e) => {
+  if (e.target === el('doc-editor-modal')) el('doc-editor-modal').style.display = 'none';
+});
+
+el('doc-editor-save').addEventListener('click', async () => {
+  const text = el('doc-editor-area').value;
+  if (!text.trim()) { alert('Content cannot be empty.'); return; }
+  el('doc-editor-status').textContent = 'Saving and re-indexing…';
+  el('doc-editor-save').disabled = true;
+  try {
+    const res = await apiFetch('/api/documents/' + state.selectedDocId + '/content', {
+      method: 'PUT',
+      body: { text, project_id: state.currentProjectId },
+    });
+    el('doc-editor-status').textContent = 'Saved. ' + (res.chunks || 0) + ' chunks indexed.';
+    el('doc-editor-save').disabled = false;
+    setTimeout(() => { el('doc-editor-modal').style.display = 'none'; }, 800);
+  } catch (e) {
+    el('doc-editor-status').textContent = 'Error: ' + e.message;
+    el('doc-editor-save').disabled = false;
   }
 });
 

@@ -310,6 +310,108 @@ async def delete_document(doc_id: str, project_id: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get("/api/documents/{doc_id}/content")
+async def get_document_content(doc_id: str):
+    """Return the full text of a document by joining its stored chunks."""
+    try:
+        from norvel_writer.storage.repositories.document_repo import DocumentRepo
+        from norvel_writer.storage.db import get_db
+        repo = DocumentRepo(get_db())
+        chunks = repo.list_chunks(doc_id)
+        if not chunks:
+            raise HTTPException(status_code=404, detail="Document has no content")
+        text = "\n\n".join(c["text"] for c in chunks)
+        doc = repo.get_document(doc_id)
+        return {"text": text, "title": doc["title"] if doc else "", "doc_type": doc["doc_type"] if doc else ""}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class DocumentContentUpdate(BaseModel):
+    text: str
+    project_id: str
+
+
+@app.put("/api/documents/{doc_id}/content")
+async def update_document_content(doc_id: str, body: DocumentContentUpdate):
+    """Re-chunk and re-embed edited document text, replacing the old content."""
+    try:
+        from norvel_writer.storage.repositories.document_repo import DocumentRepo
+        from norvel_writer.storage.db import get_db
+        from norvel_writer.storage.vector_store import get_vector_store
+        from norvel_writer.llm.embedder import EmbeddingService
+        from norvel_writer.utils.chunker import chunk_text
+
+        db = get_db()
+        vs = get_vector_store()
+        repo = DocumentRepo(db)
+
+        doc = repo.get_document(doc_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        project_id = body.project_id
+        doc_type = doc["doc_type"]
+
+        # 1. Remove old chunks from vector store and SQLite
+        vs.delete_by_document(f"project_{project_id}", doc_id)
+        if doc_type == "style_sample":
+            vs.delete_by_document(f"style_{project_id}", doc_id)
+        repo.delete_chunks(doc_id)
+
+        # 2. Re-chunk
+        chunks = chunk_text(body.text, language="english")
+        if not chunks:
+            repo.update_document_status(doc_id, "ready", chunk_count=0)
+            return {"ok": True, "chunks": 0}
+
+        # 3. Insert new chunks into SQLite
+        chunk_ids = repo.insert_chunks(doc_id, chunks)
+
+        # 4. Re-embed
+        embedder = EmbeddingService()
+        embeddings = await embedder.embed_texts(chunks)
+
+        # 5. Upsert into vector store
+        metadatas = [
+            {
+                "document_id": doc_id,
+                "doc_type": doc_type,
+                "chapter_id": doc.get("chapter_id") or "",
+                "position": str(i),
+                "language": doc.get("language") or "",
+                "title": doc.get("title") or "",
+                "project_id": project_id,
+                "is_image": "False",
+            }
+            for i in range(len(chunk_ids))
+        ]
+        vs.upsert_chunks(
+            collection_name=f"project_{project_id}",
+            ids=chunk_ids,
+            embeddings=embeddings,
+            documents=chunks,
+            metadatas=metadatas,
+        )
+        if doc_type == "style_sample":
+            vs.upsert_chunks(
+                collection_name=f"style_{project_id}",
+                ids=chunk_ids,
+                embeddings=embeddings,
+                documents=chunks,
+                metadatas=metadatas,
+            )
+
+        repo.update_document_status(doc_id, "ready", chunk_count=len(chunks))
+        return {"ok": True, "chunks": len(chunks)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ── AI: Continue / Rewrite / Chat ──────────────────────────────────────────
 
 class ContinueRequest(BaseModel):
