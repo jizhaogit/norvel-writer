@@ -21,14 +21,14 @@ if "!UV!"=="" (
     if exist "%USERPROFILE%\.cargo\bin\uv.exe" set "UV=%USERPROFILE%\.cargo\bin\uv.exe"
 )
 
-if "!UV!"=="" (
-    echo uv not found. Downloading uv (one-time setup, ~15 MB)...
-    echo uv manages Python automatically - no separate Python install needed.
-    echo.
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
-    if exist "%APPDATA%\uv\bin\uv.exe" set "UV=%APPDATA%\uv\bin\uv.exe"
-    if exist "%USERPROFILE%\.local\bin\uv.exe" set "UV=%USERPROFILE%\.local\bin\uv.exe"
-)
+if not "!UV!"=="" goto :launch
+
+echo uv not found. Downloading uv ^(one-time setup, ~15 MB^)...
+echo uv manages Python automatically - no separate Python install needed.
+echo.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+if exist "%APPDATA%\uv\bin\uv.exe" set "UV=%APPDATA%\uv\bin\uv.exe"
+if exist "%USERPROFILE%\.local\bin\uv.exe" set "UV=%USERPROFILE%\.local\bin\uv.exe"
 
 if "!UV!"=="" (
     echo.
@@ -38,12 +38,11 @@ if "!UV!"=="" (
     exit /b 1
 )
 
-echo.
-
+:launch
 cd /d "%~dp0"
 
 echo Starting Norvel Writer...
-echo (First run installs Python 3.11 + packages - may take a few minutes)
+echo ^(First run installs Python 3.11 + packages - may take a few minutes^)
 echo.
 
 "!UV!" run --python 3.11 python -m norvel_writer
