@@ -44,10 +44,33 @@ class OllamaClient:
         return self._client
 
     async def ping(self) -> bool:
-        """Return True if the Ollama service responds."""
+        """Return True if the Ollama service responds.
+
+        Uses a TCP port check first to avoid localhost IPv6/IPv4 resolution
+        issues on Windows where 'localhost' may resolve to ::1 but Ollama
+        only listens on 127.0.0.1.
+        """
+        import urllib.parse
+        port = urllib.parse.urlparse(self._base_url).port or 11434
+
+        # Reliable TCP check on 127.0.0.1 directly
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection("127.0.0.1", port), timeout=3.0
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return True
+        except Exception:
+            pass
+
+        # Fallback: SDK call
         try:
             client = self._get_client()
-            await client.list()
+            await asyncio.wait_for(client.list(), timeout=5.0)
             return True
         except Exception:
             return False
