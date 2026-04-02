@@ -1,0 +1,20 @@
+# Enforce CRLF line endings for Windows batch files
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+# Unix LF for everything else
+*         text=auto
+*.py      text eol=lf
+*.html    text eol=lf
+*.css     text eol=lf
+*.js      text eol=lf
+*.json    text eol=lf
+*.toml    text eol=lf
+*.ini     text eol=lf
+*.md      text eol=lf
+
+# Binaries
+*.png     binary
+*.jpg     binary
+*.ico     binary
+*.woff2   binary
