@@ -211,7 +211,7 @@ class ProviderRouter:
 
     async def chat_stream(self, model: str, messages, options=None) -> AsyncIterator[str]:
         client, active_model = self._chat_backend()
-        return client.chat_stream(active_model, messages, options)
+        return await client.chat_stream(active_model, messages, options)
 
     async def chat_complete(self, model: str, messages, options=None) -> str:
         client, active_model = self._chat_backend()

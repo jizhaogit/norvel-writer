@@ -180,7 +180,7 @@ class OllamaClient:
     ) -> str:
         """Non-streaming chat completion. Returns full response text."""
         parts: List[str] = []
-        async for chunk in self.chat_stream(model, messages, options):
+        async for chunk in await self.chat_stream(model, messages, options):
             parts.append(chunk)
         return "".join(parts)
 
