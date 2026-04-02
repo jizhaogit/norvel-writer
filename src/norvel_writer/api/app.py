@@ -138,6 +138,24 @@ async def get_project(project_id: str):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    language: Optional[str] = None
+
+
+@app.put("/api/projects/{project_id}")
+async def update_project(project_id: str, body: ProjectUpdate):
+    try:
+        updates = {k: v for k, v in body.model_dump().items() if v is not None}
+        if not updates:
+            return {"ok": True}
+        get_pm().update_project(project_id, **updates)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.delete("/api/projects/{project_id}")
 async def delete_project(project_id: str):
     try:

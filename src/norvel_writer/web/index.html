@@ -643,8 +643,29 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 
 <!-- Context menu -->
 <div id="ctx-menu">
+  <div class="ctx-item" id="ctx-edit-project">Edit Project</div>
   <div class="ctx-item" id="ctx-add-chapter">Add Chapter</div>
   <div class="ctx-item danger" id="ctx-delete-project">Delete Project</div>
+</div>
+
+<!-- Edit Project dialog -->
+<div id="edit-project-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:var(--surface1);border:1px solid var(--border);border-radius:10px;padding:28px;width:360px;display:flex;flex-direction:column;gap:14px;">
+    <h3 style="margin:0;font-size:15px;">Edit Project</h3>
+    <label style="font-size:13px;color:var(--subtext);">Name
+      <input id="ep-name" type="text" style="margin-top:4px;width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
+    </label>
+    <label style="font-size:13px;color:var(--subtext);">Description
+      <textarea id="ep-desc" rows="3" style="margin-top:4px;width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;resize:vertical;"></textarea>
+    </label>
+    <label style="font-size:13px;color:var(--subtext);">Language code (e.g. en, zh, fr)
+      <input id="ep-lang" type="text" maxlength="10" style="margin-top:4px;width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
+    </label>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button id="ep-cancel" style="padding:7px 18px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;">Cancel</button>
+      <button id="ep-save" style="padding:7px 18px;background:var(--accent);border:none;border-radius:6px;color:#1e1e2e;font-weight:600;cursor:pointer;">Save</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -974,6 +995,48 @@ function showCtxMenu(e, pid) {
 }
 
 document.addEventListener('click', () => el('ctx-menu').classList.remove('visible'));
+
+// ── Edit Project ────────────────────────────────────────────────────────────
+el('ctx-edit-project').addEventListener('click', async () => {
+  if (!ctxProjectId) return;
+  const proj = state.projects.find(p => p.id === ctxProjectId);
+  if (!proj) return;
+  el('ep-name').value = proj.name || '';
+  el('ep-desc').value = proj.description || '';
+  el('ep-lang').value = proj.language || 'en';
+  const modal = el('edit-project-modal');
+  modal.style.display = 'flex';
+});
+
+el('ep-cancel').addEventListener('click', () => {
+  el('edit-project-modal').style.display = 'none';
+});
+
+el('ep-save').addEventListener('click', async () => {
+  const name = el('ep-name').value.trim();
+  if (!name) { alert('Project name cannot be empty.'); return; }
+  const body = {
+    name,
+    description: el('ep-desc').value.trim(),
+    language: el('ep-lang').value.trim() || 'en',
+  };
+  try {
+    await apiFetch('/api/projects/' + ctxProjectId, { method: 'PUT', body });
+    el('edit-project-modal').style.display = 'none';
+    // Refresh project list and update sidebar label
+    await loadProjects();
+    if (state.currentProjectId === ctxProjectId) {
+      el('current-project-name').textContent = name;
+    }
+  } catch (e) {
+    alert('Failed to save: ' + e.message);
+  }
+});
+
+// Close modal on backdrop click
+el('edit-project-modal').addEventListener('click', (e) => {
+  if (e.target === el('edit-project-modal')) el('edit-project-modal').style.display = 'none';
+});
 
 el('ctx-add-chapter').addEventListener('click', () => {
   if (!ctxProjectId) return;

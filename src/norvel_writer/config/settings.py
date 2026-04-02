@@ -105,7 +105,9 @@ class AppConfig(BaseSettings):
             "default_project_language": self.default_project_language,
             "vision_model": self.vision_model,
             "first_run_complete": self.first_run_complete,
-            "last_opened_project_id": self.last_opened_project_id,
+            # TOML has no null — omit None values entirely
+            **({"last_opened_project_id": self.last_opened_project_id}
+               if self.last_opened_project_id is not None else {}),
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
