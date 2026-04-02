@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=72", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "norvel-writer"
+version = "0.1.0"
+description = "Local writing assistant powered by Ollama"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.7,<6.8",
+    "ollama>=0.2,<0.4",
+    "chromadb>=0.5,<0.6",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.3,<3",
+    "python-docx>=1.1,<2",
+    "pdfplumber>=0.11,<0.12",
+    "nltk>=3.8,<4",
+    "langdetect>=1.0,<2",
+    "Jinja2>=3.1,<4",
+    "watchdog>=4.0,<5",
+    "platformdirs>=4.2,<5",
+    "tomli>=2.0;python_version<'3.11'",
+    "tomli-w>=1.0,<2",
+]
+
+[project.scripts]
+norvel-writer = "norvel_writer.__main__:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "black>=24",
+    "ruff>=0.4",
+    "pyinstaller>=6.6",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+norvel_writer = ["resources/**/*", "i18n/locales/*.qm"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["integration: requires running Ollama (deselect with -m 'not integration')"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
