@@ -506,6 +506,24 @@ async def chat_with_context(project_id: str, body: ChatRequest):
     return StreamingResponse(_gen(), media_type="text/event-stream")
 
 
+# ── Chapter summary ────────────────────────────────────────────────────────
+
+@app.get("/api/chapters/{chapter_id}/summary")
+async def summarise_chapter(chapter_id: str, language: str = Query(default="en")):
+    try:
+        pm = get_pm()
+        draft = pm.get_accepted_draft(chapter_id)
+        content = draft["content"] if draft else ""
+        if not content.strip():
+            return {"summary": ""}
+        from norvel_writer.core.draft_engine import DraftEngine
+        engine = DraftEngine(project_manager=pm)
+        summary = await engine.summarise_chapter(content, language=language)
+        return {"summary": summary}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ── Style ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/projects/{project_id}/style")

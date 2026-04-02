@@ -525,6 +525,12 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         <button class="btn primary" id="insert-btn">Insert into Editor</button>
         <button class="btn" id="clear-draft-btn">Clear</button>
       </div>
+      <hr style="border-color:var(--border);margin:12px 0 8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <label style="margin:0;">Chapter Summary</label>
+        <button class="btn" id="summarise-btn" style="padding:3px 12px;font-size:12px;">Summarise</button>
+      </div>
+      <div id="summary-output" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:13px;line-height:1.6;color:var(--subtext);min-height:36px;white-space:pre-wrap;"></div>
     </div>
 
     <!-- Chat tab -->
@@ -972,12 +978,51 @@ async function loadChapters(pid) {
       div.className = 'chapter-item' + (ch.id === state.currentChapterId ? ' active' : '');
       div.dataset.id = ch.id;
       div.textContent = ch.title || 'Untitled Chapter';
+      div.title = 'Double-click to rename';
       div.addEventListener('click', () => selectChapter(ch.id));
+      div.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        startChapterRename(div, ch.id);
+      });
       cl.appendChild(div);
     }
   } catch (e) {
     console.error('Failed to load chapters:', e);
   }
+}
+
+function startChapterRename(div, chapterId) {
+  const current = div.textContent;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.style.cssText = 'width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--accent);border-radius:4px;padding:1px 6px;color:var(--text);font-size:13px;font-family:inherit;';
+  div.textContent = '';
+  div.appendChild(input);
+  input.focus();
+  input.select();
+
+  async function commit() {
+    const title = input.value.trim() || current;
+    div.textContent = title;
+    if (title === current) return;
+    try {
+      await apiFetch('/api/chapters/' + chapterId, { method: 'PUT', body: { title } });
+      if (state.currentChapterId === chapterId) {
+        state.currentChapterTitle = title;
+        el('chapter-title').textContent = title;
+      }
+    } catch (e) {
+      div.textContent = current;
+      alert('Failed to rename: ' + e.message);
+    }
+  }
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { div.textContent = current; input.removeEventListener('blur', commit); }
+  });
 }
 
 async function selectChapter(cid) {
@@ -1262,6 +1307,22 @@ el('insert-btn').addEventListener('click', () => {
 el('clear-draft-btn').addEventListener('click', () => {
   el('draft-output').textContent = '';
   state.draftOutput = '';
+});
+
+el('summarise-btn').addEventListener('click', async () => {
+  if (!state.currentChapterId) { alert('Select a chapter first.'); return; }
+  const out = el('summary-output');
+  out.textContent = 'Summarising…';
+  el('summarise-btn').disabled = true;
+  try {
+    const lang = el('draft-lang').value || 'en';
+    const data = await apiFetch('/api/chapters/' + state.currentChapterId + '/summary?language=' + lang);
+    out.textContent = data.summary || '(Chapter is empty — nothing to summarise.)';
+  } catch (e) {
+    out.textContent = 'Error: ' + e.message;
+  } finally {
+    el('summarise-btn').disabled = false;
+  }
 });
 
 // ── Chat ───────────────────────────────────────────────────────────────────
