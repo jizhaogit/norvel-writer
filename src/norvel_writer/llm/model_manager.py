@@ -26,7 +26,9 @@ class OllamaStatus:
 async def get_ollama_status() -> OllamaStatus:
     status = OllamaStatus()
 
-    # Check if ollama binary is on PATH
+    # Check if ollama binary is on PATH (optional — only for version string).
+    # On Windows, Ollama often runs as a tray app and is NOT on PATH even when
+    # the service is fully reachable, so we never bail out early here.
     try:
         result = subprocess.run(
             ["ollama", "--version"],
@@ -40,13 +42,12 @@ async def get_ollama_status() -> OllamaStatus:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    if not status.installed:
-        return status
-
-    # Check if service is reachable
+    # Always check the HTTP service, regardless of binary availability.
+    # The service may be running even when the CLI is not on PATH.
     client = get_client()
     status.running = await client.ping()
     if status.running:
+        status.installed = True  # service is up → treat as installed
         try:
             status.models = await client.list_models()
         except OllamaConnectionError:

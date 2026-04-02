@@ -137,8 +137,14 @@ async def ollama_pull(model: str):
     """Stream model pull progress as SSE."""
     async def _gen():
         try:
+            import inspect
             import ollama
-            async for progress in await ollama.AsyncClient().pull(model, stream=True):
+            result = ollama.AsyncClient().pull(model, stream=True)
+            # Depending on the ollama library version, pull(stream=True) may
+            # return a coroutine (needs await) or an async generator directly.
+            if inspect.isawaitable(result):
+                result = await result
+            async for progress in result:
                 status = getattr(progress, "status", "") or ""
                 completed = getattr(progress, "completed", None)
                 total = getattr(progress, "total", None)

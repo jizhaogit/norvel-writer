@@ -1223,7 +1223,7 @@ el('pull-model-btn').addEventListener('click', async () => {
   btn.disabled = true; btn.textContent = 'Pulling…';
   prog.style.display = 'block'; prog.textContent = 'Starting…';
   try {
-    const res = await fetch('/api/ollama/pull/' + encodeURIComponent(name));
+    const res = await fetch('/api/ollama/pull/' + encodeURIComponent(name), { method: 'POST' });
     for await (const ev of readSSE(res)) {
       if (ev.error) { prog.textContent = '✗ ' + ev.error; break; }
       if (ev.done) {

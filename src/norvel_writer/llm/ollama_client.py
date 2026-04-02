@@ -134,9 +134,15 @@ class OllamaClient:
     ) -> None:
         """Pull a model, calling progress_cb(pct: int) periodically."""
         try:
-            import ollama
+            import inspect
             client = self._get_client()
-            async for status in await client.pull(name, stream=True):
+            result = client.pull(name, stream=True)
+            # Depending on the ollama library version, pull(stream=True) may
+            # return either a coroutine (needs await) or an async generator
+            # directly (must NOT be awaited). Handle both.
+            if inspect.isawaitable(result):
+                result = await result
+            async for status in result:
                 if progress_cb and status.total and status.completed:
                     pct = int((status.completed / status.total) * 100)
                     progress_cb(pct)
@@ -159,12 +165,19 @@ class OllamaClient:
 
         async def _gen():
             try:
-                async for chunk in await ollama_client.chat(
+                import inspect
+                result = ollama_client.chat(
                     model=model,
                     messages=messages,
                     stream=True,
                     options=options or {},
-                ):
+                )
+                # Depending on the ollama library version, chat(stream=True)
+                # may return a coroutine (needs await) or an async generator
+                # directly. Handle both so we work with any installed version.
+                if inspect.isawaitable(result):
+                    result = await result
+                async for chunk in result:
                     content = chunk.message.content
                     if content:
                         yield content
