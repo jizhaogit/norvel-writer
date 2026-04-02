@@ -1,0 +1,26 @@
+Metadata-Version: 2.4
+Name: norvel-writer
+Version: 0.1.0
+Summary: Local writing assistant powered by Ollama
+Requires-Python: >=3.11
+Requires-Dist: fastapi<1,>=0.109
+Requires-Dist: uvicorn[standard]<1,>=0.27
+Requires-Dist: python-multipart>=0.0.9
+Requires-Dist: aiofiles>=23
+Requires-Dist: ollama<0.4,>=0.2
+Requires-Dist: chromadb<0.6,>=0.5
+Requires-Dist: pydantic<3,>=2.7
+Requires-Dist: pydantic-settings<3,>=2.3
+Requires-Dist: python-docx<2,>=1.1
+Requires-Dist: pdfplumber<0.12,>=0.11
+Requires-Dist: nltk<4,>=3.8
+Requires-Dist: langdetect<2,>=1.0
+Requires-Dist: Jinja2<4,>=3.1
+Requires-Dist: platformdirs<5,>=4.2
+Requires-Dist: tomli>=2.0; python_version < "3.11"
+Requires-Dist: tomli-w<2,>=1.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
+Requires-Dist: black>=24; extra == "dev"
+Requires-Dist: ruff>=0.4; extra == "dev"

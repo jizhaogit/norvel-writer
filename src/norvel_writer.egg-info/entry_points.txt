@@ -1,0 +1,2 @@
+[console_scripts]
+norvel-writer = norvel_writer.__main__:main
