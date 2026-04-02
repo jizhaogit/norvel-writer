@@ -754,12 +754,9 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <div id="settings-models-list" style="font-size:12px;color:var(--subtext);min-height:22px;margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">—</div>
     </div>
     <div class="form-group">
-      <label>Pull a Model</label>
-      <div style="display:flex;gap:6px;">
-        <input type="text" id="pull-model-input" placeholder="e.g. gemma3:4b" style="flex:1;">
-        <button class="btn" id="pull-model-btn" style="white-space:nowrap;">Pull</button>
-      </div>
-      <div id="pull-progress" style="margin-top:6px;font-size:12px;color:var(--subtext);display:none;"></div>
+      <label>Pull Models</label>
+      <div id="pull-models-list" style="display:flex;flex-direction:column;gap:5px;margin-top:4px;"></div>
+      <div id="pull-progress" style="margin-top:8px;font-size:12px;color:var(--subtext);display:none;"></div>
     </div>
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;">
@@ -1208,56 +1205,106 @@ async function loadSettings() {
 }
 
 // ── Ollama model list + pull ────────────────────────────────────────────────
-async function loadOllamaModels() {
-  const listEl = el('settings-models-list');
-  const datalist = el('ollama-models-datalist');
-  if (!listEl || !datalist) return;
-  try {
-    const data = await apiFetch('/api/ollama/status');
-    const models = (data.models || []).map(m => m.name);
-    datalist.innerHTML = models.map(n => `<option value="${n}">`).join('');
-    if (models.length === 0) {
-      listEl.textContent = 'No models installed yet.';
+const RECOMMENDED_MODELS = [
+  { name: 'gemma3:4b',          desc: 'Google Gemma 3 · 4B  (default chat)' },
+  { name: 'gemma3:1b',          desc: 'Google Gemma 3 · 1B  (lightweight)' },
+  { name: 'llama3.2:3b',        desc: 'Meta Llama 3.2 · 3B' },
+  { name: 'llama3.1:8b',        desc: 'Meta Llama 3.1 · 8B' },
+  { name: 'mistral:7b',         desc: 'Mistral AI · 7B' },
+  { name: 'phi3:mini',          desc: 'Microsoft Phi-3 Mini' },
+  { name: 'nomic-embed-text',   desc: 'Nomic · embed model (required)' },
+];
+
+function renderPullModelsList(installedNames) {
+  const container = el('pull-models-list');
+  if (!container) return;
+  container.innerHTML = '';
+  for (const m of RECOMMENDED_MODELS) {
+    const installed = installedNames.some(n => n === m.name || n.startsWith(m.name.split(':')[0] + ':'));
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;';
+
+    const nameSpan = document.createElement('code');
+    nameSpan.style.cssText = 'flex:0 0 auto;font-size:12px;min-width:160px;';
+    nameSpan.textContent = m.name;
+
+    const descSpan = document.createElement('span');
+    descSpan.style.cssText = 'flex:1;font-size:11px;color:var(--subtext);';
+    descSpan.textContent = m.desc;
+
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.style.cssText = 'font-size:11px;padding:3px 12px;white-space:nowrap;flex:0 0 auto;';
+    if (installed) {
+      btn.textContent = '✓ Installed';
+      btn.disabled = true;
+      btn.style.color = 'var(--green)';
+      btn.style.borderColor = 'var(--green)';
     } else {
-      listEl.innerHTML = models.map(n =>
-        `<span style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;">${n}</span>`
-      ).join('');
+      btn.textContent = 'Pull';
+      btn.onclick = () => pullModel(m.name, btn);
     }
-  } catch (e) {
-    if (listEl) listEl.textContent = 'Could not load models.';
+
+    row.appendChild(nameSpan);
+    row.appendChild(descSpan);
+    row.appendChild(btn);
+    container.appendChild(row);
   }
 }
 
-el('models-refresh-btn').addEventListener('click', loadOllamaModels);
-
-el('pull-model-btn').addEventListener('click', async () => {
-  const name = el('pull-model-input').value.trim();
-  if (!name) return;
-  const btn = el('pull-model-btn');
+async function pullModel(name, btn) {
   const prog = el('pull-progress');
-  btn.disabled = true; btn.textContent = 'Pulling…';
-  prog.style.display = 'block'; prog.textContent = 'Starting…';
+  btn.disabled = true;
+  btn.textContent = 'Pulling…';
+  prog.style.display = 'block';
+  prog.style.color = 'var(--subtext)';
+  prog.textContent = 'Starting ' + name + '…';
   try {
     const res = await fetch('/api/ollama/pull/' + encodeURIComponent(name), { method: 'POST' });
     for await (const ev of readSSE(res)) {
-      if (ev.error) { prog.textContent = '✗ ' + ev.error; break; }
+      if (ev.error) {
+        prog.textContent = '✗ ' + ev.error;
+        prog.style.color = 'var(--red)';
+        btn.textContent = 'Pull'; btn.disabled = false;
+        break;
+      }
       if (ev.done) {
-        prog.textContent = '✓ Done! Model pulled.';
-        el('pull-model-input').value = '';
-        if (!el('cfg-chat-model').value) el('cfg-chat-model').value = name;
+        prog.textContent = '✓ ' + name + ' pulled successfully.';
+        prog.style.color = 'var(--green)';
         await loadOllamaModels();
         break;
       }
       if (ev.status !== undefined) {
-        prog.textContent = (ev.status || 'Downloading…') + (ev.pct > 0 ? ` (${ev.pct}%)` : '');
+        prog.textContent = name + ': ' + (ev.status || 'Downloading…') + (ev.pct > 0 ? ' (' + ev.pct + '%)' : '');
       }
     }
   } catch (e) {
     prog.textContent = '✗ ' + e.message;
-  } finally {
-    btn.disabled = false; btn.textContent = 'Pull';
+    prog.style.color = 'var(--red)';
+    btn.textContent = 'Pull'; btn.disabled = false;
   }
-});
+}
+
+async function loadOllamaModels() {
+  const listEl = el('settings-models-list');
+  const datalist = el('ollama-models-datalist');
+  try {
+    const data = await apiFetch('/api/ollama/status');
+    const models = (data.models || []).map(m => m.name);
+    if (datalist) datalist.innerHTML = models.map(n => `<option value="${n}">`).join('');
+    if (listEl) {
+      listEl.innerHTML = models.length === 0
+        ? 'No models installed yet.'
+        : models.map(n => `<span style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;">${n}</span>`).join('');
+    }
+    renderPullModelsList(models);
+  } catch (e) {
+    if (listEl) listEl.textContent = 'Could not load models.';
+    renderPullModelsList([]);
+  }
+}
+
+el('models-refresh-btn').addEventListener('click', loadOllamaModels);
 
 // ── AI error display helper ─────────────────────────────────────────────────
 // Detects model-not-found errors and appends a "Open Settings to Pull" button.
@@ -1319,21 +1366,67 @@ el('settings-btn').addEventListener('click', () => {
 el('settings-cancel-btn').addEventListener('click', () => el('modal-overlay').classList.remove('visible'));
 el('modal-overlay').addEventListener('click', (e) => { if (e.target === el('modal-overlay')) el('modal-overlay').classList.remove('visible'); });
 
+// ── llm.ini line updater ────────────────────────────────────────────────────
+// Replaces `key = <value>` inside [section] without touching the rest of the file.
+function updateIniValue(content, section, key, value) {
+  const lines = content.split('\n');
+  let inSection = false;
+  let found = false;
+  const out = lines.map(line => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('[')) {
+      inSection = trimmed.toLowerCase() === '[' + section.toLowerCase() + ']';
+    }
+    if (inSection && new RegExp('^' + key + '\\s*=', 'i').test(trimmed)) {
+      found = true;
+      return key + ' = ' + value;
+    }
+    return line;
+  });
+  if (!found) {
+    // Append the key right after the [section] header
+    const idx = out.findIndex(l => l.trim().toLowerCase() === '[' + section.toLowerCase() + ']');
+    if (idx >= 0) out.splice(idx + 1, 0, key + ' = ' + value);
+  }
+  return out.join('\n');
+}
+
 el('settings-save-btn').addEventListener('click', async () => {
   try {
+    const chatModel   = el('cfg-chat-model').value.trim();
+    const embedModel  = el('cfg-embed-model').value.trim();
+    const visionModel = el('cfg-vision-model').value.trim();
+    const ollamaUrl   = el('cfg-ollama-url').value.trim();
+
+    // 1. Save to settings.toml
     await apiFetch('/api/settings', {
       method: 'PUT',
       body: {
-        ollama_base_url: el('cfg-ollama-url').value,
-        default_chat_model: el('cfg-chat-model').value,
-        default_embed_model: el('cfg-embed-model').value,
-        vision_model: el('cfg-vision-model').value,
+        ollama_base_url: ollamaUrl,
+        default_chat_model: chatModel,
+        default_embed_model: embedModel,
+        vision_model: visionModel,
         theme: el('cfg-theme').value,
         default_content_language: el('cfg-content-lang').value,
         default_project_language: el('cfg-project-lang').value,
         ui_language: el('cfg-ui-lang').value,
       },
     });
+
+    // 2. Sync model fields into llm.ini so they take effect immediately
+    try {
+      const llmData = await apiFetch('/api/llm/config');
+      let ini = llmData.content || '';
+      if (chatModel)   ini = updateIniValue(ini, 'ollama', 'chat_model',  chatModel);
+      if (embedModel)  ini = updateIniValue(ini, 'ollama', 'embed_model', embedModel);
+                       ini = updateIniValue(ini, 'ollama', 'vision_model', visionModel);
+      if (ollamaUrl)   ini = updateIniValue(ini, 'ollama', 'base_url',    ollamaUrl);
+      await apiFetch('/api/llm/config', { method: 'PUT', body: { content: ini } });
+      el('llm-ini-editor').value = ini;
+    } catch (iniErr) {
+      console.warn('Could not sync llm.ini:', iniErr);
+    }
+
     applyI18n(el('cfg-ui-lang').value);
     await loadSettings();
     el('modal-overlay').classList.remove('visible');
