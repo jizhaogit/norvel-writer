@@ -758,20 +758,24 @@ async def update_settings(body: Dict[str, Any]):
 
 @app.get("/api/llm/config")
 async def get_llm_config():
-    """Return the current llm.ini contents and active provider."""
+    """Return the current llm.ini path, raw content, and active provider."""
     try:
         from norvel_writer.llm.providers import (
-            find_ini_path, read_ini, chat_provider, embeddings_provider
+            find_ini_path, read_ini, chat_provider, embeddings_provider,
+            ensure_ini_exists, _DEFAULT_INI,
         )
-        path = find_ini_path()
+        # Ensure llm.ini exists so there is always something to edit
+        path = ensure_ini_exists()
+        raw = path.read_text(encoding="utf-8") if path.exists() else _DEFAULT_INI
         cfg = read_ini()
         sections = {s: dict(cfg[s]) for s in cfg.sections()}
-        # Mask API keys for display
+        # Mask API keys for display only (raw content is shown unmasked in editor)
         for sec in sections.values():
             if "api_key" in sec and sec["api_key"]:
                 sec["api_key"] = sec["api_key"][:6] + "…"
         return {
             "path": str(path) if path else None,
+            "content": raw,
             "chat_provider": chat_provider(),
             "embeddings_provider": embeddings_provider(),
             "sections": sections,
