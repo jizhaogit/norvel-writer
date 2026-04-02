@@ -46,51 +46,55 @@ class OllamaClient:
     async def ping(self) -> bool:
         """Return True if the Ollama service responds.
 
-        Uses a TCP port check first to avoid localhost IPv6/IPv4 resolution
-        issues on Windows where 'localhost' may resolve to ::1 but Ollama
-        only listens on 127.0.0.1.
+        Uses urllib directly (same approach as working apps) rather than the
+        ollama SDK, which can fail silently on Windows due to IPv6/IPv4 issues.
+        Tries 127.0.0.1 explicitly to bypass localhost DNS resolution problems.
         """
+        import urllib.request
         import urllib.parse
+
         port = urllib.parse.urlparse(self._base_url).port or 11434
 
-        # Reliable TCP check on 127.0.0.1 directly
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection("127.0.0.1", port), timeout=3.0
-            )
-            writer.close()
+        # Try 127.0.0.1 first (avoids localhost→::1 IPv6 issue on Windows)
+        for host in ("127.0.0.1", "localhost"):
             try:
-                await writer.wait_closed()
+                url = f"http://{host}:{port}/"
+                req = urllib.request.urlopen(url, timeout=3)
+                req.close()
+                return True
             except Exception:
-                pass
-            return True
-        except Exception:
-            pass
+                continue
 
-        # Fallback: SDK call
-        try:
-            client = self._get_client()
-            await asyncio.wait_for(client.list(), timeout=5.0)
-            return True
-        except Exception:
-            return False
+        return False
 
     async def list_models(self) -> List[ModelInfo]:
-        try:
-            client = self._get_client()
-            response = await client.list()
-            models = []
-            for m in response.models:
-                models.append(ModelInfo(
-                    name=m.model or m.name,
-                    size=m.size or 0,
-                    digest=m.digest or "",
-                    family=getattr(m, "details", None) and
-                           getattr(m.details, "family", "") or "",
-                ))
-            return models
-        except Exception as exc:
-            raise OllamaConnectionError(f"Cannot reach Ollama at {self._base_url}") from exc
+        import json
+        import urllib.request
+        import urllib.parse
+
+        port = urllib.parse.urlparse(self._base_url).port or 11434
+        last_exc: Exception = RuntimeError("No hosts tried")
+
+        for host in ("127.0.0.1", "localhost"):
+            try:
+                url = f"http://{host}:{port}/api/tags"
+                with urllib.request.urlopen(url, timeout=5) as resp:
+                    data = json.loads(resp.read().decode())
+                models = []
+                for m in data.get("models", []):
+                    details = m.get("details", {})
+                    models.append(ModelInfo(
+                        name=m.get("model") or m.get("name", ""),
+                        size=m.get("size", 0),
+                        digest=m.get("digest", ""),
+                        family=details.get("family", "") if details else "",
+                    ))
+                return models
+            except Exception as exc:
+                last_exc = exc
+                continue
+
+        raise OllamaConnectionError(f"Cannot reach Ollama at {self._base_url}") from last_exc
 
     async def pull_model(
         self,
