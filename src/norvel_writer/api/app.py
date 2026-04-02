@@ -246,30 +246,41 @@ async def ingest_document(
     file: UploadFile,
     doc_type: str = Form("notes"),
 ):
-    suffix = Path(file.filename or "upload").suffix or ".bin"
-    tmp_path = None
+    from norvel_writer.config.settings import get_config
+    cfg = get_config()
+
+    # Permanently store the uploaded file in the project's files directory
+    files_dir = cfg.projects_path / project_id / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = Path(file.filename or "upload").name
+    dest_path = files_dir / safe_name
+    # Avoid overwriting an existing file with the same name
+    if dest_path.exists():
+        stem = dest_path.stem
+        suffix = dest_path.suffix
+        i = 1
+        while dest_path.exists():
+            dest_path = files_dir / f"{stem}_{i}{suffix}"
+            i += 1
+
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp_path = Path(tmp.name)
-            content = await file.read()
-            tmp.write(content)
+        content = await file.read()
+        dest_path.write_bytes(content)
 
         from norvel_writer.ingestion.pipeline import IngestPipeline
         pipeline = IngestPipeline()
         doc_id = await pipeline.run(
-            file_path=tmp_path,
+            file_path=dest_path,
             project_id=project_id,
             doc_type=doc_type,
         )
-        return {"id": doc_id, "ok": True}
+        return {"id": doc_id, "ok": True, "stored_path": str(dest_path)}
     except Exception as exc:
+        # Clean up the saved file if ingestion failed
+        if dest_path.exists():
+            dest_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=str(exc))
-    finally:
-        if tmp_path and tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except Exception:
-                pass
 
 
 @app.delete("/api/documents/{doc_id}")
