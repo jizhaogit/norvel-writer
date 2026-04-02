@@ -68,7 +68,7 @@ embeddings = ollama
 
 [ollama]
 base_url    = http://127.0.0.1:11434
-chat_model  = llama3.2:3b
+chat_model  = gemma3:4b
 embed_model = nomic-embed-text
 vision_model =
 
