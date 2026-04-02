@@ -1,0 +1,63 @@
+# Norvel Writer — LLM Provider Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+# INSTRUCTIONS:
+#   1. Copy this file to your Norvel Writer config directory as "llm.ini":
+#        Windows: %APPDATA%\NorvelWriter\llm.ini
+#        (e.g. C:\Users\YourName\AppData\Roaming\NorvelWriter\llm.ini)
+#   2. Set [provider] chat = <your choice>
+#   3. Fill in the API key / URL for that provider
+#   4. Restart the app
+#
+# Alternatively, place this file as "llm.ini" in the same folder as run.bat
+# and the app will find it there too.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[provider]
+# Provider for AI writing, rewriting, and chat
+# Options: ollama  openai  anthropic  gemini
+chat = ollama
+
+# Provider for document embeddings (used by RAG search)
+# Options: ollama  openai
+# NOTE: Changing this invalidates existing indexed documents.
+#       Delete the chroma folder in %APPDATA%\NorvelWriter\ and re-import.
+embeddings = ollama
+
+
+# ── Ollama (local, free, private) ────────────────────────────────────────────
+[ollama]
+base_url    = http://127.0.0.1:11434
+chat_model  = llama3.2:3b
+embed_model = nomic-embed-text
+# Optional: vision model for importing maps / character images
+# Leave blank to skip image analysis. Example: llava:7b  llama3.2-vision
+vision_model =
+
+
+# ── OpenAI (ChatGPT) ─────────────────────────────────────────────────────────
+[openai]
+# Get your key at: https://platform.openai.com/api-keys
+api_key     =
+chat_model  = gpt-4o-mini
+embed_model = text-embedding-3-small
+# base_url defaults to https://api.openai.com/v1
+# Set this to use Azure OpenAI or a compatible API (e.g. LM Studio)
+# base_url =
+
+
+# ── Anthropic (Claude) ───────────────────────────────────────────────────────
+[anthropic]
+# Get your key at: https://console.anthropic.com/
+api_key    =
+chat_model = claude-3-5-haiku-20241022
+# Anthropic does not provide an embeddings API.
+# Embeddings will always use the provider set in [provider] embeddings.
+
+
+# ── Google Gemini ─────────────────────────────────────────────────────────────
+[gemini]
+# Get your key at: https://aistudio.google.com/app/apikey
+api_key    =
+chat_model = gemini-1.5-flash
+# Gemini does not provide a standalone embeddings API compatible with ChromaDB.
+# Embeddings will always use the provider set in [provider] embeddings.

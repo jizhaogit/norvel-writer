@@ -28,6 +28,14 @@ def run() -> int:
     except Exception:
         pass
 
+    # Create llm.ini from example if it doesn't exist yet
+    try:
+        from norvel_writer.llm.providers import ensure_ini_exists
+        ini_path = ensure_ini_exists()
+        log.info("LLM config: %s", ini_path)
+    except Exception:
+        pass
+
     def _open_browser():
         import time
         time.sleep(1.5)

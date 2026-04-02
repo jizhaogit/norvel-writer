@@ -242,9 +242,19 @@ class OllamaClient:
 _client: Optional[OllamaClient] = None
 
 
-def get_client() -> OllamaClient:
-    global _client
-    if _client is None:
-        from norvel_writer.config.settings import get_config
-        _client = OllamaClient(get_config().ollama_base_url)
-    return _client
+def get_client():
+    """
+    Return the active LLM provider router.
+    Reads llm.ini on first call; returns a ProviderRouter that dispatches
+    to Ollama, OpenAI, Anthropic, or Gemini depending on configuration.
+    Falls back to a direct OllamaClient if the provider system is unavailable.
+    """
+    try:
+        from norvel_writer.llm.providers import get_router
+        return get_router()
+    except Exception:
+        global _client
+        if _client is None:
+            from norvel_writer.config.settings import get_config
+            _client = OllamaClient(get_config().ollama_base_url)
+        return _client

@@ -27,8 +27,9 @@ class EmbeddingService:
         Embed a list of texts in batches.
         Returns embeddings in the same order as input.
         """
+        # Use the router so embeddings respect the [provider] embeddings setting in llm.ini
         from norvel_writer.llm.ollama_client import get_client
-        client = get_client()
+        client = get_client()  # ProviderRouter routes embed() to the configured embed provider
 
         all_embeddings: List[List[float]] = []
         total = len(texts)

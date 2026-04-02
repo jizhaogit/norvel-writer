@@ -455,3 +455,45 @@ async def update_settings(body: Dict[str, Any]):
         return {"ok": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── LLM provider config (llm.ini) ─────────────────────────────────────────────
+
+@app.get("/api/llm/config")
+async def get_llm_config():
+    """Return the current llm.ini contents and active provider."""
+    try:
+        from norvel_writer.llm.providers import (
+            find_ini_path, read_ini, chat_provider, embeddings_provider
+        )
+        path = find_ini_path()
+        cfg = read_ini()
+        sections = {s: dict(cfg[s]) for s in cfg.sections()}
+        # Mask API keys for display
+        for sec in sections.values():
+            if "api_key" in sec and sec["api_key"]:
+                sec["api_key"] = sec["api_key"][:6] + "…"
+        return {
+            "path": str(path) if path else None,
+            "chat_provider": chat_provider(),
+            "embeddings_provider": embeddings_provider(),
+            "sections": sections,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.put("/api/llm/config")
+async def save_llm_config(body: Dict[str, Any]):
+    """
+    Write llm.ini.  Body: { "content": "<full ini text>" }
+    The file is written to the user config dir.
+    """
+    try:
+        from norvel_writer.llm.providers import _config_dir, _INI_FILENAME
+        dest = _config_dir() / _INI_FILENAME
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(body.get("content", ""), encoding="utf-8")
+        return {"ok": True, "path": str(dest)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
