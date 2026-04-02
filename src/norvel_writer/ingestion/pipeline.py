@@ -12,6 +12,7 @@ from norvel_writer.ingestion.docx_ingestor import DocxIngestor
 from norvel_writer.ingestion.image_ingestor import ImageIngestor
 from norvel_writer.ingestion.json_ingestor import JsonIngestor
 from norvel_writer.ingestion.md_ingestor import MdIngestor
+from norvel_writer.ingestion.odt_ingestor import OdtIngestor
 from norvel_writer.ingestion.pdf_ingestor import PdfIngestor
 from norvel_writer.ingestion.txt_ingestor import TxtIngestor
 from norvel_writer.utils.chunker import chunk_text
@@ -25,6 +26,7 @@ _INGESTORS: List[BaseIngestor] = [
     TxtIngestor(),
     MdIngestor(),
     DocxIngestor(),
+    OdtIngestor(),
     PdfIngestor(),
     JsonIngestor(),
     _IMAGE_INGESTOR,
