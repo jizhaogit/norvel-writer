@@ -75,6 +75,10 @@ class ModelsPage(QWizardPage):
         self._main_status.setWordWrap(True)
         layout.addWidget(self._main_status)
 
+        self._btn_skip = QPushButton("Skip — I'll download models later")
+        self._btn_skip.clicked.connect(self._skip)
+        layout.addWidget(self._btn_skip)
+
         layout.addStretch()
 
     def initializePage(self) -> None:
@@ -140,7 +144,11 @@ class ModelsPage(QWizardPage):
                 cfg.save()
                 self._check_complete()
             else:
-                self._main_status.setText(f"Failed to download {model}.")
+                self._main_status.setText(
+                    f"Could not download {model}. "
+                    "Make sure Ollama is running (check the system tray), then try again. "
+                    "Or click Skip to set up models later."
+                )
 
         self._worker.run(_pull(), on_result=_done)
 
@@ -175,9 +183,21 @@ class ModelsPage(QWizardPage):
                 self._ready = True
                 self.completeChanged.emit()
             else:
-                self._main_status.setText(f"Failed to download {model}.")
+                self._main_status.setText(
+                    f"Could not download {model}. "
+                    "Make sure Ollama is running (check the system tray), then try again. "
+                    "Or click Skip to set up models later."
+                )
 
         self._worker.run(_pull(), on_result=_done)
+
+    def _skip(self) -> None:
+        self._main_status.setText(
+            "Skipped. You can download models later via File → Settings "
+            "or by running: ollama pull llama3.2:3b && ollama pull nomic-embed-text"
+        )
+        self._ready = True
+        self.completeChanged.emit()
 
     def _check_complete(self) -> None:
         self._ready = True
