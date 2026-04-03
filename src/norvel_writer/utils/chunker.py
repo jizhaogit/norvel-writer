@@ -24,6 +24,13 @@ def _char_size(tokens: int) -> int:
     return max(1, tokens * 4)
 
 
+def _get_first_line(text: str) -> str:
+    for line in text.splitlines():
+        if line.strip():
+            return line.rstrip()
+    return ""
+
+
 def chunk_text(
     text: str,
     max_tokens: int = 512,
@@ -63,7 +70,24 @@ def chunk_text(
         chunk_size=_char_size(max_tokens),
         chunk_overlap=_char_size(overlap_tokens),
     )
-    return [c.strip() for c in splitter.split_text(text) if c.strip()]
+    chunks = [c.strip() for c in splitter.split_text(text) if c.strip()]
+    first_line = _get_first_line(text)
+    return _ensure_first_line(chunks, first_line)
+
+
+def _ensure_first_line(chunks: List[str], first_line: str) -> List[str]:
+    if not first_line:
+        return chunks
+    out = []
+    for c in chunks:
+        c = c.strip()
+        if not c:
+            continue
+        if c.splitlines()[0].strip() == first_line.strip():
+            out.append(c)
+        else:
+            out.append(f"{first_line}\n{c}")
+    return out
 
 
 def chunk_by_paragraphs(
