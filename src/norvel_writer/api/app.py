@@ -13,6 +13,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from html.parser import HTMLParser
 from pydantic import BaseModel
 
+from norvel_writer.storage.db import get_db
+
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="Norvel Writer", version="0.1.0")
