@@ -1,6 +1,7 @@
 """FastAPI application for Norvel Writer."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import tempfile
@@ -120,6 +121,99 @@ async def ollama_status():
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/model/health")
+async def model_health():
+    """
+    Check whether the configured chat and embed models are actually available.
+    For Ollama providers: verifies the model name exists in the local model list.
+    For cloud providers: verifies that the relevant API key is set.
+    Returns {chat: {ok, name, error}, embed: {ok, name, error}}.
+    """
+    from dotenv import dotenv_values
+    from norvel_writer.llm.langchain_bridge import find_env_path
+
+    env_path = find_env_path()
+    env = dotenv_values(env_path) if (env_path and env_path.exists()) else {}
+
+    provider       = env.get("LLM_PROVIDER", "ollama").strip().lower()
+    embed_provider = env.get("EMBEDDINGS_PROVIDER", provider).strip().lower()
+
+    chat_r:  dict = {"ok": False, "name": "", "error": ""}
+    embed_r: dict = {"ok": False, "name": "", "error": ""}
+
+    # ── helper: check Ollama model list ──────────────────────────────────────
+    _ollama_models: list[str] | None = None
+
+    async def _ollama_model_names() -> list[str]:
+        nonlocal _ollama_models
+        if _ollama_models is None:
+            try:
+                from norvel_writer.llm.ollama_client import get_client
+                raw = await get_client().list_models()
+                _ollama_models = [getattr(m, "model", getattr(m, "name", str(m))) for m in raw]
+            except Exception:
+                _ollama_models = []
+        return _ollama_models
+
+    def _model_in_list(name: str, names: list[str]) -> bool:
+        if not name:
+            return False
+        if name in names:
+            return True
+        base = name.split(":")[0]
+        return any(n == name or n.startswith(base + ":") for n in names)
+
+    # ── Chat model ────────────────────────────────────────────────────────────
+    if provider == "ollama":
+        name = env.get("OLLAMA_CHAT_MODEL", "").strip()
+        chat_r["name"] = name
+        names = await _ollama_model_names()
+        if _model_in_list(name, names):
+            chat_r["ok"] = True
+        else:
+            chat_r["error"] = f"Not pulled — run: ollama pull {name}" if name else "No model configured"
+    elif provider == "openai":
+        key  = env.get("OPENAI_API_KEY", "").strip()
+        chat_r["name"] = env.get("OPENAI_CHAT_MODEL", "").strip()
+        chat_r["ok"]   = bool(key)
+        if not key:
+            chat_r["error"] = "OPENAI_API_KEY not set in .env"
+    elif provider == "anthropic":
+        key  = env.get("ANTHROPIC_API_KEY", "").strip()
+        chat_r["name"] = env.get("ANTHROPIC_MODEL", "").strip()
+        chat_r["ok"]   = bool(key)
+        if not key:
+            chat_r["error"] = "ANTHROPIC_API_KEY not set in .env"
+    elif provider == "gemini":
+        key  = env.get("GOOGLE_API_KEY", "").strip()
+        chat_r["name"] = env.get("GEMINI_MODEL", "").strip()
+        chat_r["ok"]   = bool(key)
+        if not key:
+            chat_r["error"] = "GOOGLE_API_KEY not set in .env"
+    else:
+        chat_r["error"] = f"Unknown provider: {provider}"
+
+    # ── Embed model ───────────────────────────────────────────────────────────
+    if embed_provider == "ollama":
+        name = env.get("OLLAMA_EMBED_MODEL", "").strip()
+        embed_r["name"] = name
+        names = await _ollama_model_names()
+        if _model_in_list(name, names):
+            embed_r["ok"] = True
+        else:
+            embed_r["error"] = f"Not pulled — run: ollama pull {name}" if name else "No model configured"
+    elif embed_provider == "openai":
+        key  = env.get("OPENAI_API_KEY", "").strip()
+        embed_r["name"] = env.get("OPENAI_EMBED_MODEL", "").strip()
+        embed_r["ok"]   = bool(key)
+        if not key:
+            embed_r["error"] = "OPENAI_API_KEY not set in .env"
+    else:
+        embed_r["error"] = f"Unknown embed provider: {embed_provider}"
+
+    return {"chat": chat_r, "embed": embed_r}
 
 
 @app.post("/api/ollama/start")

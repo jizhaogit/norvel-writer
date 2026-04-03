@@ -49,14 +49,24 @@ class EmbeddingService:
                     all_embeddings.extend(embeddings)
                     break
                 except Exception as exc:
-                    if attempt == MAX_RETRIES - 1:
+                    err_str = str(exc).lower()
+                    # "not found" / 404 errors are permanent — the model is not
+                    # pulled.  Retrying wastes time; fail immediately.
+                    is_permanent = (
+                        "not found" in err_str
+                        or "404" in err_str
+                        or "does not exist" in err_str
+                        or "no such model" in err_str
+                    )
+                    if attempt == MAX_RETRIES - 1 or is_permanent:
                         log.error(
-                            "Embedding batch failed after %d retries: %s",
-                            MAX_RETRIES,
+                            "Embedding batch failed%s: %s",
+                            " (model not found — skipping retries)" if is_permanent else f" after {MAX_RETRIES} retries",
                             exc,
                         )
                         dim = len(all_embeddings[0]) if all_embeddings else _ZERO_DIM
                         all_embeddings.extend([[0.0] * dim] * len(batch))
+                        break
                     else:
                         await asyncio.sleep(RETRY_DELAY * (attempt + 1))
 

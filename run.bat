@@ -45,6 +45,10 @@ echo Starting Norvel Writer...
 echo ^(First run installs Python 3.11 + packages - may take a few minutes^)
 echo.
 
+rem Suppress uv "hardlink → copy" warning that appears when the cache and
+rem project sit on different drives/filesystems.
+set "UV_LINK_MODE=copy"
+
 "!UV!" run --python 3.11 python -m norvel_writer
 
 if errorlevel 1 (

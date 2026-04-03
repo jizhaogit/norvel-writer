@@ -63,9 +63,67 @@ body {
   background: var(--red);
   flex-shrink: 0;
   cursor: pointer;
-  title: "Ollama status";
 }
 #ollama-dot.running { background: var(--green); }
+
+/* ── Model health indicators ── */
+#model-health {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+  position: relative;
+}
+.mh-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: default;
+  background: var(--surface2);
+  color: var(--muted);
+  transition: border-color .2s;
+  white-space: nowrap;
+}
+.mh-pill .mh-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+  transition: background .2s;
+}
+.mh-pill.ok   { border-color: color-mix(in srgb, var(--green) 40%, var(--border)); color: var(--text); }
+.mh-pill.ok   .mh-dot { background: var(--green); box-shadow: 0 0 4px var(--green); }
+.mh-pill.fail { border-color: color-mix(in srgb, var(--red) 40%, var(--border)); color: var(--text); }
+.mh-pill.fail .mh-dot { background: var(--red); }
+.mh-pill.checking .mh-dot { background: var(--yellow); animation: ai-pulse 1s ease-in-out infinite; }
+
+/* Tooltip */
+#model-health-tip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--surface1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  min-width: 240px;
+  z-index: 500;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+}
+#model-health:hover #model-health-tip { display: block; }
+.mh-tip-row { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.mh-tip-row:last-child { margin-bottom: 0; }
+.mh-tip-label { font-size: 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.mh-tip-name  { font-size: 12px; color: var(--text); font-weight: 500; }
+.mh-tip-error { font-size: 11px; color: var(--red); margin-top: 2px; font-family: monospace; }
+.mh-tip-ok    { font-size: 11px; color: var(--green); margin-top: 2px; }
+
 #settings-btn {
   background: none;
   border: 1px solid var(--border);
@@ -567,6 +625,32 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   <span class="app-name">Norvel Writer</span>
   <span class="project-name" id="current-project-name">No project selected</span>
   <div id="ollama-dot" title="Ollama status"></div>
+
+  <!-- Model health lights -->
+  <div id="model-health">
+    <div class="mh-pill checking" id="mh-chat">
+      <span class="mh-dot"></span><span>LLM</span>
+    </div>
+    <div class="mh-pill checking" id="mh-embed">
+      <span class="mh-dot"></span><span>Embed</span>
+    </div>
+    <!-- Hover tooltip -->
+    <div id="model-health-tip">
+      <div class="mh-tip-row">
+        <span class="mh-tip-label">Chat Model</span>
+        <span class="mh-tip-name"  id="mh-tip-chat-name">—</span>
+        <span class="mh-tip-error" id="mh-tip-chat-err" style="display:none;"></span>
+        <span class="mh-tip-ok"    id="mh-tip-chat-ok"  style="display:none;">✓ Ready</span>
+      </div>
+      <div class="mh-tip-row">
+        <span class="mh-tip-label">Embed Model</span>
+        <span class="mh-tip-name"  id="mh-tip-embed-name">—</span>
+        <span class="mh-tip-error" id="mh-tip-embed-err" style="display:none;"></span>
+        <span class="mh-tip-ok"    id="mh-tip-embed-ok"  style="display:none;">✓ Ready</span>
+      </div>
+    </div>
+  </div>
+
   <button id="settings-btn">⚙ Settings</button>
 </div>
 
@@ -1399,6 +1483,7 @@ async function init() {
   populateLangSelect(el('cfg-project-lang'), 'en');
 
   await checkOllamaStatus();
+  checkModelHealth();           // non-blocking; pills start as "checking"
   await loadSettings();
   applyI18n(_currentLang);
   await loadProjects();
@@ -1408,6 +1493,36 @@ async function init() {
     await selectProject(lastPid);
     const lastCid = localStorage.getItem('lastChapterId');
     if (lastCid) await selectChapter(lastCid);
+  }
+}
+
+// ── Model health indicators ─────────────────────────────────────────────────
+function _applyMhPill(pillId, data) {
+  const pill = el(pillId);
+  pill.classList.remove('ok', 'fail', 'checking');
+  pill.classList.add(data.ok ? 'ok' : 'fail');
+}
+function _applyMhTip(nameId, errId, okId, data) {
+  el(nameId).textContent = data.name || '(not configured)';
+  if (data.ok) {
+    el(errId).style.display = 'none';
+    el(okId).style.display  = '';
+  } else {
+    el(errId).textContent   = data.error || 'Unknown error';
+    el(errId).style.display = '';
+    el(okId).style.display  = 'none';
+  }
+}
+
+async function checkModelHealth() {
+  try {
+    const data = await apiFetch('/api/model/health');
+    _applyMhPill('mh-chat',  data.chat);
+    _applyMhPill('mh-embed', data.embed);
+    _applyMhTip('mh-tip-chat-name',  'mh-tip-chat-err',  'mh-tip-chat-ok',  data.chat);
+    _applyMhTip('mh-tip-embed-name', 'mh-tip-embed-err', 'mh-tip-embed-ok', data.embed);
+  } catch (_) {
+    // If the endpoint fails, leave pills in checking state
   }
 }
 
@@ -1444,6 +1559,13 @@ el('banner-start-btn').addEventListener('click', async () => {
 el('banner-retry-btn').addEventListener('click', () => checkOllamaStatus());
 el('banner-dismiss-btn').addEventListener('click', () => el('ollama-banner').classList.remove('visible'));
 el('ollama-dot').addEventListener('click', () => checkOllamaStatus());
+
+// Click either pill to force an immediate health re-check
+el('mh-chat').addEventListener('click',  () => checkModelHealth());
+el('mh-embed').addEventListener('click', () => checkModelHealth());
+
+// Refresh model health every 60 s in the background
+setInterval(checkModelHealth, 60_000);
 
 // ── API helpers ────────────────────────────────────────────────────────────
 async function apiFetch(url, opts = {}) {
@@ -1735,6 +1857,7 @@ el('settings-save-btn').addEventListener('click', async () => {
 
     applyI18n(el('cfg-ui-lang').value);
     await loadSettings();
+    checkModelHealth();         // re-check after config change
     el('modal-overlay').classList.remove('visible');
   } catch (e) {
     alert('Failed to save settings: ' + e.message);
