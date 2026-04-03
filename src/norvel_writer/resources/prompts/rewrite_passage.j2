@@ -10,8 +10,21 @@ They override any style examples or style profile provided below.
 ---
 {% endif %}
 
+{% if beats %}
+## Chapter Beats — MAINTAIN CONSISTENCY WITH THESE
+The following beats define the chapter's story arc. The rewritten passage must remain
+consistent with these beats — do not contradict or skip any beat that relates to this passage.
+
+{{ beats }}
+
+---
+{% endif %}
+
 {% if rag_chunks %}
-## Project Reference Material
+## Project Reference Material (Codex, World-building, Characters)
+The following excerpts from the author's codex and project documents are relevant to this passage.
+You MUST honour all facts, character names, relationships, locations, and rules described here.
+
 {% for chunk in rag_chunks %}
 ---
 {{ chunk }}
@@ -41,6 +54,8 @@ Style guidance: {{ style_mode | replace('_', ' ') }}
 ## Rules
 - Write in {{ language }}
 - Preserve the narrative content and plot events
+- Keep all character names, locations, and world-building details exactly as established in the reference material
 - Do NOT add meta-commentary or explain your changes
-- Return ONLY the rewritten passage
+- Return ONLY the rewritten passage — no preamble, no sign-off
 - Match the established POV and tense
+- Stay consistent with the surrounding story context implied by the codex and beats

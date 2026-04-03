@@ -97,6 +97,7 @@ class DraftEngine:
         user_instruction: str = "Rewrite this passage in the same style.",
         style_mode: str = "preserve_tone_rhythm",
         language: str = "en",
+        beats: str = "",
     ) -> AsyncIterator[str]:
         """Stream rewritten passage tokens."""
         from norvel_writer.llm.langchain_bridge import chat_stream
@@ -105,7 +106,8 @@ class DraftEngine:
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
             query=passage,
-            n_results=4,
+            n_results=6,
+            doc_types=["codex", "beats", "draft", "research"],
         )
         style_results = await self._pm.retrieve_style_examples(
             project_id=project_id,
@@ -133,6 +135,7 @@ class DraftEngine:
             language=language,
             style_mode=style_mode,
             persona=persona,
+            beats=beats,
         )
 
         return await chat_stream(messages)

@@ -652,6 +652,7 @@ async def continue_draft(project_id: str, body: ContinueRequest):
 
 class RewriteRequest(BaseModel):
     passage: str
+    chapter_id: str = ""
     user_instruction: str = "Rewrite this passage in the same style."
     style_mode: str = "preserve_tone_rhythm"
     language: str = "en"
@@ -663,9 +664,17 @@ async def rewrite_passage(project_id: str, body: RewriteRequest):
         try:
             from norvel_writer.core.draft_engine import DraftEngine
             engine = DraftEngine(project_manager=get_pm())
+            # Load beats for this chapter from DB (same as continue writing)
+            chapter_beats = ""
+            if body.chapter_id:
+                from norvel_writer.storage.repositories.project_repo import ProjectRepo
+                from norvel_writer.storage.db import get_db
+                ch_row = ProjectRepo(get_db()).get_chapter(body.chapter_id)
+                chapter_beats = (ch_row.get("beats") or "").strip() if ch_row else ""
             stream = await engine.rewrite_passage(
                 project_id=project_id,
                 passage=body.passage,
+                beats=chapter_beats,
                 user_instruction=body.user_instruction,
                 style_mode=body.style_mode,
                 language=body.language,

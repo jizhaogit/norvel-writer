@@ -2312,6 +2312,7 @@ el('generate-btn').addEventListener('click', async () => {
         signal: _activeAbortCtrl.signal,
         body: JSON.stringify({
           passage,
+          chapter_id:       state.currentChapterId || '',
           user_instruction: instrBase + wordNote,
           style_mode:       el('draft-style-mode').value,
           language:         el('draft-lang').value,

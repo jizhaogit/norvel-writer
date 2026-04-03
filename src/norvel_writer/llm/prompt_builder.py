@@ -114,6 +114,7 @@ def build_rewrite_messages(
     language: str,
     style_mode: str,
     persona: str = "",
+    beats: str = "",
 ) -> List[Dict[str, str]]:
     system_prompt = render_template(
         "rewrite_passage.j2",
@@ -123,6 +124,7 @@ def build_rewrite_messages(
         language=_lang_display(language),
         style_mode=style_mode,
         persona=persona,
+        beats=beats,
     )
     messages = [
         {"role": "system", "content": system_prompt},
