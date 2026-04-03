@@ -368,9 +368,14 @@ class DraftEngine:
                 "4. The project codex (character traits, world rules, lore, naming)\n"
                 "5. The style samples (match tone, rhythm, sentence structure)\n\n"
                 "When writing:\n"
+                "- Output ONLY the prose — no beat labels, no beat numbers, no headings,\n"
+                "  no annotations, no 'Beat 1:', no '[Beat: ...]', nothing except the story text\n"
                 "- Do NOT add meta-commentary or explain your choices\n"
                 "- Maintain the established POV and tense\n"
-                "- Write directly usable prose — not outlines or summaries\n\n"
+                "- Write directly usable prose — not outlines or summaries\n"
+                "- Cover each beat EXACTLY ONCE — once a beat is written, move on\n"
+                "- NEVER repeat a sentence, paragraph, or scene you have already written\n"
+                "- When you reach the final beat, end the chapter naturally and STOP\n\n"
                 + lang_line
             )
             if persona:

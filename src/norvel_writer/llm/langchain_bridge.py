@@ -133,11 +133,17 @@ def get_llm():
                 base_url=_env("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
                 model=_env("OLLAMA_CHAT_MODEL", "gemma3:4b"),
                 temperature=0.7,
-                # Hard cap so a looping model cannot stream forever.
-                # repeat_penalty > 1.0 penalises repeated tokens and breaks
-                # most repetition loops before they start.
-                num_predict=4096,
-                repeat_penalty=1.15,
+                # Large context window so system-prompt + chapter + beats all
+                # fit in a single pass without truncation (truncation causes loops).
+                num_ctx=int(_env("OLLAMA_NUM_CTX", "8192")),
+                # Hard cap on generated tokens.
+                num_predict=int(_env("OLLAMA_NUM_PREDICT", "4096")),
+                # Repetition suppression: penalty applied to recent tokens.
+                # repeat_last_n — how many tokens back to scan (default 64 is too short
+                #   for long chapter rewrites; 512 catches multi-paragraph loops).
+                # repeat_penalty > 1.0 discourages reusing those tokens.
+                repeat_last_n=int(_env("OLLAMA_REPEAT_LAST_N", "512")),
+                repeat_penalty=float(_env("OLLAMA_REPEAT_PENALTY", "1.18")),
             )
             log.info("LLM: Ollama %s @ %s", _llm.model, _llm.base_url)
 
@@ -323,6 +329,16 @@ OLLAMA_BASE_URL=http://127.0.0.1:11434
 OLLAMA_CHAT_MODEL=gemma3:4b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 # OLLAMA_VISION_MODEL=llava:7b
+#
+# Generation quality / repetition control (Ollama only)
+# OLLAMA_NUM_CTX sets the context window — increase if full-chapter rewrites
+# loop or truncate.  Must be <= what your model supports.
+# OLLAMA_REPEAT_LAST_N: how many recent tokens to scan for repeats (default 512)
+# OLLAMA_REPEAT_PENALTY: >1.0 = stronger repetition suppression (default 1.18)
+OLLAMA_NUM_CTX=8192
+OLLAMA_NUM_PREDICT=4096
+OLLAMA_REPEAT_LAST_N=512
+OLLAMA_REPEAT_PENALTY=1.18
 
 
 # ── OpenAI (https://platform.openai.com) ──────────────────────────────────

@@ -2745,6 +2745,13 @@ async function sendChat() {
   assistantBubble.textContent = 'Thinking…';
   let fullText = '';
 
+  // Loop detection state — checked every LOOP_CHECK_EVERY chars
+  const LOOP_PROBE    = 120;   // size of the "fingerprint" block
+  const LOOP_LOOKBACK = 900;   // how far back to search for the fingerprint
+  const LOOP_CHECK_EVERY = 80;
+  let _loopCheckedAt = 0;
+  let _loopStopped   = false;
+
   state.chatHistory.push({ role: 'user', content: question });
   el('chat-send-btn').disabled = true;
 
@@ -2768,6 +2775,22 @@ async function sendChat() {
       if (ev.text) {
         if (!fullText) { assistantBubble.classList.remove('chat-thinking'); assistantBubble.textContent = ''; }
         fullText += ev.text; assistantBubble.textContent = fullText; el('chat-history').scrollTop = el('chat-history').scrollHeight;
+
+        // ── Repetition loop guard ──────────────────────────────────────────
+        if (fullText.length - _loopCheckedAt > LOOP_CHECK_EVERY && fullText.length > LOOP_PROBE + LOOP_LOOKBACK) {
+          _loopCheckedAt = fullText.length;
+          const probe    = fullText.slice(-LOOP_PROBE).trim();
+          const lookback = fullText.slice(-(LOOP_PROBE + LOOP_LOOKBACK), -LOOP_PROBE);
+          if (probe.length > 40 && lookback.includes(probe)) {
+            _loopStopped = true;
+            assistantBubble.textContent = fullText.slice(0, -LOOP_PROBE);
+            assistantBubble.textContent +=
+              '\n\n⚠️ Generation stopped — repetition loop detected.\n' +
+              'The model started repeating itself. Save what's here, then ask the Writer to continue from where it left off, or try with fewer beats at a time.';
+            fullText = assistantBubble.textContent;
+            break;
+          }
+        }
       }
       if (ev.done) break;
     }
