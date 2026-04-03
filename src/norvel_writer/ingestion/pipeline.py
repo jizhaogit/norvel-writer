@@ -20,6 +20,38 @@ from norvel_writer.utils.text_utils import detect_language, hash_file
 
 log = logging.getLogger(__name__)
 
+# Maps ISO 639-1 codes → NLTK punkt language names.
+# NLTK punkt supports: danish, dutch, english, estonian, finnish, french,
+# german, greek, italian, norwegian, polish, portuguese, slovene, spanish,
+# swedish, turkish.
+# CJK, Arabic, Thai, Hindi, Korean, etc. fall back to "english" — NLTK has no
+# punkt tokeniser for these scripts, but the chunker still works fine
+# (falls back to splitting on whitespace/newlines).
+_ISO_TO_NLTK: dict = {
+    "en":    "english",
+    "fr":    "french",
+    "de":    "german",
+    "es":    "spanish",
+    "it":    "italian",
+    "pt":    "portuguese",
+    "nl":    "dutch",
+    "pl":    "polish",
+    "tr":    "turkish",
+    "da":    "danish",
+    "fi":    "finnish",
+    "no":    "norwegian",
+    "sv":    "swedish",
+    "et":    "estonian",
+    "el":    "greek",
+    "sl":    "slovene",
+}
+
+
+def _nltk_lang(iso_code: str) -> str:
+    """Return the NLTK punkt language name for an ISO 639-1 code."""
+    return _ISO_TO_NLTK.get(iso_code, "english")
+
+
 _IMAGE_INGESTOR = ImageIngestor()
 
 _INGESTORS: List[BaseIngestor] = [
@@ -149,8 +181,8 @@ class IngestPipeline:
 
         _progress(45)
 
-        # 4. Chunk
-        chunks = chunk_text(doc.text, language="english")
+        # 4. Chunk — use detected document language for sentence tokenisation
+        chunks = chunk_text(doc.text, language=_nltk_lang(lang))
         if not chunks:
             log.warning("No chunks produced for %s", file_path.name)
             doc_repo.update_document_status(doc_id, "ready", chunk_count=0)

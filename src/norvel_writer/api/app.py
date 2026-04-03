@@ -470,7 +470,13 @@ async def ingest_document(
     file: UploadFile,
     doc_type: str = Form("notes"),
 ):
+    from norvel_writer.config.defaults import DOC_TYPES
     from norvel_writer.config.settings import get_config
+    if doc_type not in DOC_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid doc_type '{doc_type}'. Must be one of: {', '.join(DOC_TYPES)}",
+        )
     cfg = get_config()
 
     # Permanently store the uploaded file in the project's files directory
