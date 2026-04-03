@@ -37,6 +37,7 @@ class DraftEngine:
         language: str = "en",
         active_doc_types: Optional[List[str]] = None,
         beats: str = "",
+        text_after_cursor: str = "",
     ) -> AsyncIterator[str]:
         """Stream continuation tokens for the current draft."""
         from norvel_writer.llm.langchain_bridge import chat_stream
@@ -84,6 +85,7 @@ class DraftEngine:
             constraints=constraints,
             persona=persona,
             beats=beats,
+            text_after_cursor=text_after_cursor,
         )
 
         return await chat_stream(messages)
@@ -142,15 +144,17 @@ class DraftEngine:
     ) -> str:
         """Return a 1-3 sentence summary of a chapter."""
         from norvel_writer.llm.langchain_bridge import chat_complete
+        from norvel_writer.llm.prompt_builder import _lang_display
         from norvel_writer.utils.text_utils import truncate_to_tokens
 
         text = truncate_to_tokens(chapter_text, max_tokens=3000)
+        lang = _lang_display(language)
         messages = [
             {
                 "role": "system",
                 "content": (
                     f"You are a writing assistant. Summarise the following chapter "
-                    f"in 1-3 sentences in {language}. Be concise and factual."
+                    f"in 1-3 sentences. Write your summary in {lang}. Be concise and factual."
                 ),
             },
             {"role": "user", "content": text},
@@ -165,6 +169,7 @@ class DraftEngine:
     ) -> str:
         """Check passage for contradictions with project codex/beats."""
         from norvel_writer.llm.langchain_bridge import chat_complete
+        from norvel_writer.llm.prompt_builder import _lang_display
 
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
@@ -173,6 +178,7 @@ class DraftEngine:
             doc_types=["codex", "beats"],
         )
         context = "\n\n---\n\n".join(r["text"] for r in rag_results)
+        lang = _lang_display(language)
 
         messages = [
             {
@@ -180,7 +186,7 @@ class DraftEngine:
                 "content": (
                     "You are a continuity checker. Given the project reference material, "
                     "identify any contradictions or inconsistencies in the passage. "
-                    f"Respond in {language}. If no issues found, say so briefly."
+                    f"Write your response in {lang}. If no issues found, say so briefly."
                 ),
             },
             {
@@ -202,6 +208,7 @@ class DraftEngine:
         Supports multi-turn history. Returns an async generator of string tokens.
         """
         from norvel_writer.llm.langchain_bridge import chat_stream
+        from norvel_writer.llm.prompt_builder import _lang_display
 
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
@@ -209,12 +216,13 @@ class DraftEngine:
             n_results=6,
         )
         context = "\n\n---\n\n".join(r["text"] for r in rag_results)
+        lang = _lang_display(language)
 
         system_prompt = (
             "You are a knowledgeable writing assistant with full access to the author's "
             "project materials. Answer questions, offer suggestions, brainstorm ideas, "
             "and help the author think through their story. "
-            f"Always respond in the same language as the user's question (detected: {language}). "
+            f"You MUST write all responses in {lang}. "
             "Be concise but thorough. If you use project material in your answer, say so briefly."
         )
         if context:

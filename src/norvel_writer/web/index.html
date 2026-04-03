@@ -940,6 +940,7 @@ const state = {
   isDirty: false,
   settings: {},
   ollamaRunning: false,
+  savedCursorRange: null,   // Range captured when Continue is clicked; restored by Insert
 };
 
 const LANGUAGES = {
@@ -1295,7 +1296,7 @@ async function loadOllamaModels() {
 }
 
 // ── AI error display helper ─────────────────────────────────────────────────
-// Detects model-not-found errors and appends a "Open Settings to Pull" button.
+// Detects model-not-found errors and shows the exact ollama pull command.
 function showAiError(container, msg, append = false) {
   const isModelErr = /not found|pull it first/i.test(msg || '');
   if (!append) container.textContent = '';
@@ -1304,14 +1305,43 @@ function showAiError(container, msg, append = false) {
     container.appendChild(br);
   }
   if (isModelErr) {
-    const wrap = document.createElement('span');
-    wrap.style.color = 'var(--red)';
-    wrap.textContent = '⚠ ' + msg;
-    const btn = document.createElement('button');
-    btn.textContent = '⚙ Open Settings to Pull';
-    btn.style.cssText = 'margin-left:8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;color:var(--text);vertical-align:middle;';
-    btn.onclick = () => { loadSettings(); loadDotEnv(); el('modal-overlay').classList.add('visible'); };
-    wrap.appendChild(btn);
+    // Try to extract the model name from the error message.
+    // LangChain/Ollama errors look like: model "gemma3:4b" not found
+    const modelMatch = msg.match(/model\s+["']?([^\s"']+)["']?\s+not found/i);
+    const modelName = modelMatch ? modelMatch[1] : null;
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'color:var(--red);background:var(--surface);border:1px solid var(--red);border-radius:6px;padding:10px 12px;margin:6px 0;font-size:13px;';
+
+    const title = document.createElement('div');
+    title.style.cssText = 'font-weight:600;margin-bottom:6px;';
+    title.textContent = '⚠ Model not installed';
+    wrap.appendChild(title);
+
+    const detail = document.createElement('div');
+    detail.style.cssText = 'color:var(--text);margin-bottom:8px;';
+    detail.textContent = modelName
+      ? `The model "${modelName}" is not installed in Ollama.`
+      : msg;
+    wrap.appendChild(detail);
+
+    const cmd = document.createElement('div');
+    cmd.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-family:monospace;font-size:12px;color:var(--green);margin-bottom:8px;';
+    cmd.textContent = modelName ? `ollama pull ${modelName}` : 'ollama pull <model-name>';
+    wrap.appendChild(cmd);
+
+    const hint = document.createElement('div');
+    hint.style.cssText = 'font-size:11px;color:var(--muted);';
+    hint.textContent = 'Run the command above in a terminal (Command Prompt / PowerShell), then retry. '
+      + 'To use a different model or provider, open Settings → LLM Provider Config.';
+    wrap.appendChild(hint);
+
+    const settingsBtn = document.createElement('button');
+    settingsBtn.textContent = '⚙ Open Settings';
+    settingsBtn.style.cssText = 'margin-top:8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:3px 12px;font-size:11px;cursor:pointer;color:var(--text);';
+    settingsBtn.onclick = () => { loadSettings(); loadDotEnv(); el('modal-overlay').classList.add('visible'); };
+    wrap.appendChild(settingsBtn);
+
     container.appendChild(wrap);
   } else {
     container.appendChild(document.createTextNode((append ? '[Error: ' : 'Error: ') + msg + (append ? ']' : '')));
@@ -1797,6 +1827,37 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // ── Draft AI ───────────────────────────────────────────────────────────────
+// ── Cursor-split helper ─────────────────────────────────────────────────────
+// Returns { before, after, savedRange } where:
+//   before = plain text left of cursor in the editor
+//   after  = plain text right of cursor (empty if cursor is at end)
+//   savedRange = cloned Range for restoring the cursor on Insert
+function getEditorCursorSplit() {
+  const editor = el('editor');
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
+    // No cursor inside editor — treat as end-of-document
+    return { before: editor.innerText, after: '', savedRange: null };
+  }
+  const cursorRange = sel.getRangeAt(0).cloneRange();
+  // Collapse to start (handles selected text — treat selection start as cursor)
+  cursorRange.collapse(true);
+
+  const beforeRange = document.createRange();
+  beforeRange.selectNodeContents(editor);
+  beforeRange.setEnd(cursorRange.startContainer, cursorRange.startOffset);
+
+  const afterRange = document.createRange();
+  afterRange.selectNodeContents(editor);
+  afterRange.setStart(cursorRange.startContainer, cursorRange.startOffset);
+
+  return {
+    before: beforeRange.toString(),
+    after: afterRange.toString().trimStart(),
+    savedRange: cursorRange,
+  };
+}
+
 el('continue-btn').addEventListener('click', async () => {
   if (!state.currentProjectId || !state.currentChapterId) {
     alert('Please select a chapter first.'); return;
@@ -1807,11 +1868,16 @@ el('continue-btn').addEventListener('click', async () => {
     return;
   }
   _pendingContinue = false;
+
+  // Capture cursor position BEFORE the button steals focus
+  const { before, after, savedRange } = getEditorCursorSplit();
+  state.savedCursorRange = savedRange;   // used by Insert button
+
   const output = el('draft-output');
   output.textContent = '';
   state.draftOutput = '';
   el('continue-btn').disabled = true;
-  el('continue-btn').textContent = 'Generating...';
+  el('continue-btn').textContent = after ? 'Generating (insert)...' : 'Generating...';
 
   try {
     const res = await fetch('/api/projects/' + state.currentProjectId + '/continue', {
@@ -1819,7 +1885,8 @@ el('continue-btn').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chapter_id: state.currentChapterId,
-        current_text: el('editor').innerText,
+        current_text: before,
+        text_after_cursor: after,
         user_instruction: el('draft-instruction').value || 'Continue the story from where it left off.',
         style_mode: el('draft-style-mode').value,
         language: el('draft-lang').value,
@@ -1915,17 +1982,33 @@ el('insert-btn').addEventListener('click', () => {
   if (!state.draftOutput) return;
   const editor = el('editor');
   editor.focus();
-  // Move caret to end if no selection
   const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) {
+
+  // Restore the exact cursor position captured when Continue was clicked
+  if (state.savedCursorRange && editor.contains(state.savedCursorRange.startContainer)) {
+    sel.removeAllRanges();
+    sel.addRange(state.savedCursorRange);
+    state.savedCursorRange = null;
+  } else if (!sel || sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
+    // Fallback: move caret to end
     const range = document.createRange();
     range.selectNodeContents(editor);
     range.collapse(false);
     sel.removeAllRanges();
     sel.addRange(range);
   }
-  // Insert two line breaks then the draft text as plain text
-  document.execCommand('insertHTML', false, '<br><br>' + escHtml(state.draftOutput).replace(/\n/g, '<br>'));
+
+  // When inserting mid-document add a single leading newline; for end-of-doc add two
+  const atEnd = sel.rangeCount > 0 && (() => {
+    const r = sel.getRangeAt(0);
+    const endRange = document.createRange();
+    endRange.selectNodeContents(editor);
+    endRange.collapse(false);
+    return r.compareBoundaryPoints(Range.START_TO_START, endRange) >= 0;
+  })();
+  const prefix = atEnd ? '<br><br>' : '<br>';
+  document.execCommand('insertHTML', false, prefix + escHtml(state.draftOutput).replace(/\n/g, '<br>'));
+
   state.isDirty = true;
   el('word-count').textContent = countWords(editor.innerText) + ' words';
   setStatus('Saving...');

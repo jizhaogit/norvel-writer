@@ -10,6 +10,16 @@ log = logging.getLogger(__name__)
 _TEMPLATE_DIR: Optional[Path] = None
 
 
+def _lang_display(code: str) -> str:
+    """Convert an ISO language code to a human-readable name for LLM prompts.
+
+    "zh" → "Chinese (中文)", "ja" → "Japanese (日本語)", "en" → "English", etc.
+    LLMs reliably understand the full name; bare ISO codes are often ignored.
+    """
+    from norvel_writer.config.defaults import language_display
+    return language_display(code)
+
+
 def _get_template_dir() -> Path:
     global _TEMPLATE_DIR
     if _TEMPLATE_DIR is None:
@@ -61,24 +71,35 @@ def build_continuation_messages(
     constraints: Optional[List[str]] = None,
     persona: str = "",
     beats: str = "",
+    text_after_cursor: str = "",
 ) -> List[Dict[str, str]]:
-    """Build the messages list for a continuation request."""
+    """Build the messages list for a continuation request.
+
+    When ``text_after_cursor`` is non-empty the AI is asked to INSERT new
+    content at the cursor position rather than append to the end.
+    """
     system_prompt = render_template(
         "continue_draft.j2",
         rag_chunks=rag_chunks,
         style_chunks=style_chunks,
         style_profile=style_profile,
-        language=language,
+        language=_lang_display(language),
         style_mode=style_mode,
         constraints=constraints or [],
         persona=persona,
         beats=beats,
+        text_after_cursor=text_after_cursor.strip(),
     )
+    # Mark the cursor position in the user message when inserting mid-text
+    if text_after_cursor.strip():
+        draft_block = f"{current_text.rstrip()}\n\n✍ ← INSERT HERE\n"
+    else:
+        draft_block = current_text
     messages = [
         {"role": "system", "content": system_prompt},
         {
             "role": "user",
-            "content": f"{user_instruction}\n\n---\n{current_text}",
+            "content": f"{user_instruction}\n\n---\n{draft_block}",
         },
     ]
     return messages
@@ -99,7 +120,7 @@ def build_rewrite_messages(
         rag_chunks=rag_chunks,
         style_chunks=style_chunks,
         style_profile=style_profile,
-        language=language,
+        language=_lang_display(language),
         style_mode=style_mode,
         persona=persona,
     )
@@ -120,7 +141,7 @@ def build_style_extraction_messages(
     combined = "\n\n---\n\n".join(sample_texts[:5])  # cap at 5 samples per call
     system_prompt = render_template(
         "extract_style.j2",
-        language=model_language,
+        language=_lang_display(model_language),
     )
     return [
         {"role": "system", "content": system_prompt},

@@ -516,7 +516,8 @@ async def update_document_content(doc_id: str, body: DocumentContentUpdate):
 
 class ContinueRequest(BaseModel):
     chapter_id: str
-    current_text: str = ""
+    current_text: str = ""          # text before the cursor
+    text_after_cursor: str = ""     # text after the cursor (empty = cursor at end)
     user_instruction: str = "Continue the story from where it left off."
     style_mode: str = "inspired_by"
     language: str = "en"
@@ -538,6 +539,7 @@ async def continue_draft(project_id: str, body: ContinueRequest):
                 project_id=project_id,
                 chapter_id=body.chapter_id,
                 current_text=body.current_text,
+                text_after_cursor=body.text_after_cursor,
                 user_instruction=body.user_instruction,
                 style_mode=body.style_mode,
                 language=body.language,
@@ -672,18 +674,22 @@ async def generate_beats(chapter_id: str, body: BeatsGenRequest):
     async def _gen():
         try:
             from norvel_writer.llm.langchain_bridge import chat_stream
+            from norvel_writer.llm.prompt_builder import _lang_display
+            lang = _lang_display(body.language)
             messages = [
                 {
                     "role": "system",
                     "content": (
                         "You are a story structure expert. "
-                        "Analyse the provided chapter draft and extract its key story beats. "
-                        "Each beat is one sentence describing a key story event or turning point. "
-                        f"Write in {body.language}. "
-                        "Output ONLY a numbered list, no other commentary. Format:\n1. [beat]\n2. [beat]\n..."
+                        "Read the chapter and identify its KEY story beats (up to 15) — the major turning points, "
+                        "revelations, decisions, or emotional shifts that drive the plot forward. "
+                        "Ignore minor actions, dialogue details, and scene logistics. "
+                        "Each beat is ONE short sentence capturing WHAT CHANGES or MATTERS most. "
+                        f"You MUST write every beat in {lang}. "
+                        "Output ONLY a numbered list, no other text. Format:\n1. [beat]\n2. [beat]\n..."
                     ),
                 },
-                {"role": "user", "content": f"Analyse this chapter and extract the story beats:\n\n{body.description}"},
+                {"role": "user", "content": f"Identify the key story beats in this chapter:\n\n{body.description}"},
             ]
             async for chunk in await chat_stream(messages):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
@@ -711,14 +717,17 @@ async def build_style(project_id: str):
             from norvel_writer.core.style_profile import StyleProfileEngine
 
             engine = StyleProfileEngine()
-            profile_id_holder: List[str] = []
+
+            # Use the project's content language for style analysis output
+            proj = get_pm().get_project(project_id)
+            proj_lang = (proj.get("language") or "en") if proj else "en"
 
             def _progress(pct: int):
-                import asyncio
                 pass  # progress_cb is sync callback; we'll report done at end
 
             profile_id = await engine.build_profile(
                 project_id=project_id,
+                language=proj_lang,
                 progress_cb=_progress,
             )
             profile = get_pm().get_active_style_profile(project_id)

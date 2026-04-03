@@ -49,7 +49,17 @@ These excerpts are provided as stylistic reference only:
 {% endif %}
 
 ## Your Task
+{% if text_after_cursor %}
+Write new content to INSERT at the author's cursor position (marked with ✍ below in the draft).
+Your text will be placed between the content above the cursor and the content below it.
+It must flow naturally FROM the text above AND lead smoothly INTO the text that follows:
+
+--- Text that continues AFTER your insertion ---
+{{ text_after_cursor }}
+---
+{% else %}
 Continue the story directly from where it ends.
+{% endif %}
 
 Style guidance: {{ style_mode | replace('_', ' ') }}
 
@@ -63,8 +73,12 @@ Style guidance: {{ style_mode | replace('_', ' ') }}
 ## Rules
 - Write in {{ language }}
 - Do NOT summarize what happened — write directly usable prose
-- Do NOT repeat the text already written
+- Do NOT repeat text that already exists above or below the insertion point
 - Maintain the established POV and tense
 - Do not add chapter headings or meta-commentary
+{% if text_after_cursor %}
+- Bridge naturally between the context above the cursor and the text that follows — do NOT duplicate it
+{% else %}
 - Write at least 3-5 paragraphs unless instructed otherwise
+{% endif %}
 - Preserve character names and terminology exactly as they appear in the reference material

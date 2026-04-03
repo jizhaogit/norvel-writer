@@ -73,6 +73,7 @@ class StyleProfileEngine:
         self,
         project_id: str,
         profile_name: str = "Default Style",
+        language: str = "en",
         progress_cb=None,
     ) -> str:
         """
@@ -82,7 +83,7 @@ class StyleProfileEngine:
         from norvel_writer.storage.repositories.document_repo import DocumentRepo
         from norvel_writer.storage.repositories.style_repo import StyleRepo
         from norvel_writer.llm.langchain_bridge import chat_complete
-        from norvel_writer.llm.prompt_builder import build_style_extraction_messages
+        from norvel_writer.llm.prompt_builder import build_style_extraction_messages, _lang_display
 
         doc_repo = DocumentRepo(self._db)
         style_repo = StyleRepo(self._db)
@@ -108,7 +109,7 @@ class StyleProfileEngine:
             batch_size = 5
             for i in range(0, len(sample_texts), batch_size):
                 batch = sample_texts[i : i + batch_size]
-                messages = build_style_extraction_messages(batch)
+                messages = build_style_extraction_messages(batch, model_language=language)
                 try:
                     response = await chat_complete(messages)
                     all_notes.append(response)
@@ -121,7 +122,7 @@ class StyleProfileEngine:
                     progress_cb(pct)
 
             # Synthesise notes into structured profile
-            profile = await self._synthesise_profile(all_notes)
+            profile = await self._synthesise_profile(all_notes, language=language)
 
         if progress_cb:
             progress_cb(90)
@@ -140,12 +141,14 @@ class StyleProfileEngine:
         return profile_id
 
     async def _synthesise_profile(
-        self, notes: List[str]
+        self, notes: List[str], language: str = "en"
     ) -> StyleProfile:
         """Merge multiple style analysis notes into one structured profile."""
         if not notes:
             return StyleProfile()
 
+        from norvel_writer.llm.prompt_builder import _lang_display
+        lang = _lang_display(language)
         combined = "\n\n---\n\n".join(notes)
         messages = [
             {
@@ -157,6 +160,7 @@ class StyleProfileEngine:
                     "imagery_density, dialogue_habits, paragraph_rhythm, tone_markers (array), "
                     "structural_preferences, example_phrases (array of up to 5), "
                     "avoid_patterns (array), raw_notes.\n"
+                    f"Write all text values inside the JSON in {lang}.\n"
                     "Return ONLY valid JSON, no markdown."
                 ),
             },
