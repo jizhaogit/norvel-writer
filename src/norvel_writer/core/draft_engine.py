@@ -239,9 +239,14 @@ class DraftEngine:
                 ch_row = self._pm.get_chapter(resolved_chapter_id)
                 if ch_row:
                     chapter_title = ch_row.get("title") or "Untitled Chapter"
-                    raw = ch_row.get("content") or ""
+                # Chapter prose lives in the drafts table, not the chapters row
+                draft = self._pm.get_accepted_draft(resolved_chapter_id)
+                if draft:
+                    raw = draft.get("content") or ""
                     chapter_text = truncate_to_tokens(strip_html(raw), max_tokens=3000)
                     log.debug("chat: loaded chapter %r (%d chars)", chapter_title, len(chapter_text))
+                else:
+                    log.debug("chat: no accepted draft for chapter %r", resolved_chapter_id)
             except Exception as exc:
                 log.warning("chat: chapter load failed for %r: %s", resolved_chapter_id, exc)
 

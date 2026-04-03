@@ -2947,6 +2947,72 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ── Persist resizable element heights across sessions ───────────────────────
+(function () {
+  const STORE_KEY = 'norvel_ui_heights';
+
+  // IDs of every element the user can resize
+  const RESIZABLE_IDS = [
+    'chat-history',
+    'chat-input',
+    'draft-output',
+    'beats-editor',
+    'continue-start-from',
+    'continue-end-before',
+    'rewrite-content',
+    'draft-instruction',
+  ];
+
+  // Restore saved heights immediately (before first paint where possible)
+  function restoreHeights() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+      for (const [id, h] of Object.entries(saved)) {
+        const elem = document.getElementById(id);
+        if (elem && h) elem.style.height = h;
+      }
+    } catch (_) {}
+  }
+
+  // Debounced batch-save: collect changed elements, flush after 400 ms of quiet
+  const pending = {};
+  let saveTimer = null;
+  function scheduleFlush() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+        Object.assign(saved, pending);
+        // Remove entries whose height was cleared
+        for (const [id, h] of Object.entries(saved)) {
+          if (!h) delete saved[id];
+        }
+        localStorage.setItem(STORE_KEY, JSON.stringify(saved));
+      } catch (_) {}
+    }, 400);
+  }
+
+  function observeResizables() {
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const elem = entry.target;
+        // Only persist explicit inline heights set by the user dragging the handle
+        if (elem.id && elem.style.height) {
+          pending[elem.id] = elem.style.height;
+          scheduleFlush();
+        }
+      }
+    });
+    for (const id of RESIZABLE_IDS) {
+      const elem = document.getElementById(id);
+      if (elem) observer.observe(elem);
+    }
+  }
+
+  restoreHeights();
+  observeResizables();
+}());
+
 // ── Start ──────────────────────────────────────────────────────────────────
 init();
 </script>
