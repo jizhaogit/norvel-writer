@@ -334,7 +334,7 @@ body {
   min-height: 120px;
   max-height: 70vh;
   resize: vertical;
-  overflow: hidden;
+  overflow: auto;           /* must be auto/scroll for resize handle to show */
 }
 #rewrite-panel-bar {
   display: flex;
@@ -3343,7 +3343,7 @@ el('editor-notes-clear-btn').addEventListener('click', () => {
     'continue-end-before',
     'rewrite-content',
     'draft-instruction',
-    'rewrite-viewer',
+    'rewrite-panel',
   ];
 
   // Restore saved heights immediately (before first paint where possible)
