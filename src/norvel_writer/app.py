@@ -36,6 +36,13 @@ def run() -> int:
     except Exception:
         pass
 
+    # Copy bundled role TOML files to user data dir (first-run + new roles)
+    try:
+        from norvel_writer.core.role_loader import ensure_user_role_files
+        ensure_user_role_files()
+    except Exception:
+        pass
+
     def _open_browser():
         import time
         time.sleep(1.5)

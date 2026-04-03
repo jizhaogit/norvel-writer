@@ -108,4 +108,34 @@ MIGRATIONS: List[Tuple[int, str]] = [
         ALTER TABLE chapters ADD COLUMN beats TEXT NOT NULL DEFAULT '';
         """,
     ),
+    (
+        4,
+        """
+        CREATE TABLE IF NOT EXISTS chapter_images (
+            id             TEXT PRIMARY KEY,
+            chapter_id     TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+            filename       TEXT NOT NULL,
+            title          TEXT NOT NULL DEFAULT '',
+            ai_description TEXT NOT NULL DEFAULT '',
+            file_path      TEXT NOT NULL,
+            created_at     TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_chapter_images_chapter ON chapter_images(chapter_id);
+        """,
+    ),
+    (
+        5,
+        """
+        CREATE TABLE IF NOT EXISTS project_images (
+            id             TEXT PRIMARY KEY,
+            project_id     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            filename       TEXT NOT NULL,
+            title          TEXT NOT NULL DEFAULT '',
+            ai_description TEXT NOT NULL DEFAULT '',
+            file_path      TEXT NOT NULL,
+            created_at     TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_images_project ON project_images(project_id);
+        """,
+    ),
 ]

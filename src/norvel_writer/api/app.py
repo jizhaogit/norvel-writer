@@ -113,11 +113,21 @@ async def ollama_status():
     try:
         from norvel_writer.llm.model_manager import get_ollama_status
         status = await get_ollama_status()
+        from norvel_writer.config.settings import get_config
+        cfg = get_config()
+        vision_model = cfg.vision_model.strip()
+        model_names = [m.name for m in status.models]
+        vision_available = bool(vision_model) and any(
+            n == vision_model or n.startswith(vision_model.split(":")[0])
+            for n in model_names
+        )
         return {
             "installed": status.installed,
             "running": status.running,
             "version": status.version,
             "models": [{"name": m.name, "size": getattr(m, "size", 0)} for m in status.models],
+            "vision_model": vision_model,
+            "vision_available": vision_available,
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -616,6 +626,8 @@ class ContinueRequest(BaseModel):
     style_mode: str = "inspired_by"
     language: str = "en"
     active_doc_types: Optional[List[str]] = None
+    editor_note: str = ""           # pinned editor suggestion from the browser
+    qa_note: str = ""               # pinned QA report from the browser
 
 
 @app.post("/api/projects/{project_id}/continue")
@@ -641,6 +653,8 @@ async def continue_draft(project_id: str, body: ContinueRequest):
                 language=body.language,
                 active_doc_types=body.active_doc_types,
                 beats=chapter_beats,
+                editor_note=body.editor_note,
+                qa_note=body.qa_note,
             )
             async for chunk in stream:
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
@@ -661,6 +675,8 @@ class RewriteRequest(BaseModel):
     user_instruction: str = "Rewrite this passage in the same style."
     style_mode: str = "preserve_tone_rhythm"
     language: str = "en"
+    editor_note: str = ""           # pinned editor suggestion from the browser
+    qa_note: str = ""               # pinned QA report from the browser
 
 
 @app.post("/api/projects/{project_id}/rewrite")
@@ -679,10 +695,13 @@ async def rewrite_passage(project_id: str, body: RewriteRequest):
             stream = await engine.rewrite_passage(
                 project_id=project_id,
                 passage=body.passage,
+                chapter_id=body.chapter_id,
                 beats=chapter_beats,
                 user_instruction=body.user_instruction,
                 style_mode=body.style_mode,
                 language=body.language,
+                editor_note=body.editor_note,
+                qa_note=body.qa_note,
             )
             async for chunk in stream:
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
@@ -730,6 +749,303 @@ async def chat_with_context(project_id: str, body: ChatRequest):
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
 
     return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+# ── Role file API ─────────────────────────────────────────────────────────
+
+VALID_ROLES = {"editor", "writer", "qa"}
+
+@app.get("/api/roles/{role}")
+async def get_role_file(role: str):
+    if role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail=f"Unknown role: {role}")
+    from norvel_writer.core.role_loader import _user_roles_dir, _bundled_roles_dir, ensure_user_role_files
+    ensure_user_role_files()
+    user_path = _user_roles_dir() / f"{role}.toml"
+    bundled_path = _bundled_roles_dir() / f"{role}.toml"
+    path = user_path if user_path.exists() else bundled_path
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Role file not found")
+    return {"role": role, "path": str(path), "content": path.read_text(encoding="utf-8")}
+
+class RoleFileBody(BaseModel):
+    content: str
+
+@app.put("/api/roles/{role}")
+async def save_role_file(role: str, body: RoleFileBody):
+    if role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail=f"Unknown role: {role}")
+    from norvel_writer.core.role_loader import _user_roles_dir
+    user_dir = _user_roles_dir()
+    user_dir.mkdir(parents=True, exist_ok=True)
+    path = user_dir / f"{role}.toml"
+    path.write_text(body.content, encoding="utf-8")
+    return {"ok": True, "path": str(path)}
+
+@app.delete("/api/roles/{role}")
+async def reset_role_file(role: str):
+    """Delete the user override so the bundled default is used again."""
+    if role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail=f"Unknown role: {role}")
+    from norvel_writer.core.role_loader import _user_roles_dir, _bundled_roles_dir
+    user_path = _user_roles_dir() / f"{role}.toml"
+    if user_path.exists():
+        user_path.unlink()
+    bundled_path = _bundled_roles_dir() / f"{role}.toml"
+    content = bundled_path.read_text(encoding="utf-8") if bundled_path.exists() else ""
+    return {"ok": True, "content": content}
+
+# ── Chapter images ────────────────────────────────────────────────────────
+
+ALLOWED_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+
+def _images_dir(chapter_id: str) -> Path:
+    from norvel_writer.config.settings import get_config
+    d = get_config().chapter_images_path / chapter_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+@app.get("/api/chapters/{chapter_id}/images")
+async def list_chapter_images(chapter_id: str):
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM chapter_images WHERE chapter_id=? ORDER BY created_at ASC",
+        (chapter_id,),
+    )
+    return [dict(r) for r in rows]
+
+@app.post("/api/chapters/{chapter_id}/images")
+async def upload_chapter_image(chapter_id: str, file: UploadFile, title: str = Form(default="")):
+    import shutil, uuid
+    from datetime import datetime, timezone
+
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_IMAGE_EXTS:
+        raise HTTPException(status_code=400, detail=f"Unsupported image format: {ext}")
+
+    image_id = str(uuid.uuid4())
+    filename  = f"{image_id}{ext}"
+    dest      = _images_dir(chapter_id) / filename
+
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    now = datetime.now(timezone.utc).isoformat()
+    display_title = title.strip() or file.filename or filename
+    db = get_db()
+    db.execute(
+        "INSERT INTO chapter_images(id, chapter_id, filename, title, ai_description, file_path, created_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (image_id, chapter_id, filename, display_title, "", str(dest), now),
+    )
+    return {"id": image_id, "chapter_id": chapter_id, "filename": filename,
+            "title": display_title, "ai_description": "", "created_at": now}
+
+@app.get("/api/chapter-images/{image_id}")
+async def get_chapter_image(image_id: str):
+    db = get_db()
+    row = db.execute_one("SELECT * FROM chapter_images WHERE id=?", (image_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return dict(row)
+
+@app.get("/api/chapter-images/{image_id}/file")
+async def serve_chapter_image(image_id: str):
+    db = get_db()
+    row = db.execute_one("SELECT * FROM chapter_images WHERE id=?", (image_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+    path = Path(row["file_path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Image file missing on disk")
+    return FileResponse(str(path))
+
+class ImageUpdateBody(BaseModel):
+    title: Optional[str] = None
+    ai_description: Optional[str] = None
+
+@app.put("/api/chapter-images/{image_id}")
+async def update_chapter_image(image_id: str, body: ImageUpdateBody):
+    db = get_db()
+    # Only update fields that were explicitly provided
+    updates = {}
+    if body.title is not None:
+        updates["title"] = body.title
+    if body.ai_description is not None:
+        updates["ai_description"] = body.ai_description
+    if updates:
+        set_clause = ", ".join(f"{k}=?" for k in updates)
+        db.execute(
+            f"UPDATE chapter_images SET {set_clause} WHERE id=?",
+            (*updates.values(), image_id),
+        )
+    return {"ok": True}
+
+@app.delete("/api/chapter-images/{image_id}")
+async def delete_chapter_image(image_id: str):
+    import os
+    db = get_db()
+    row = db.execute_one("SELECT file_path FROM chapter_images WHERE id=?", (image_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+    try:
+        os.remove(row["file_path"])
+    except FileNotFoundError:
+        pass
+    db.execute("DELETE FROM chapter_images WHERE id=?", (image_id,))
+    return {"ok": True}
+
+@app.post("/api/chapter-images/{image_id}/describe")
+async def describe_chapter_image(image_id: str, language: str = Query(default="en")):
+    """Use the configured vision model to analyze and describe the image."""
+    from norvel_writer.config.settings import get_config
+    cfg = get_config()
+    vision_model = cfg.vision_model.strip()
+    if not vision_model:
+        raise HTTPException(status_code=400, detail="No vision model configured. Set OLLAMA_VISION_MODEL in Settings → LLM Config.")
+
+    db = get_db()
+    row = db.execute_one("SELECT * FROM chapter_images WHERE id=?", (image_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+    path = Path(row["file_path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Image file missing on disk")
+
+    from norvel_writer.llm.ollama_client import get_client
+    from norvel_writer.llm.prompt_builder import _lang_display
+    lang = _lang_display(language)
+    description = await get_client().describe_image(path, vision_model, language=lang)
+    db.execute(
+        "UPDATE chapter_images SET ai_description=? WHERE id=?",
+        (description, image_id),
+    )
+    return {"description": description}
+
+
+# ── Project-level Image Memory ─────────────────────────────────────────────
+
+def _project_images_dir(project_id: str) -> Path:
+    from norvel_writer.config.settings import get_config
+    d = get_config().project_images_path / project_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+@app.get("/api/projects/{project_id}/images")
+async def list_project_images(project_id: str):
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM project_images WHERE project_id=? ORDER BY created_at ASC",
+        (project_id,),
+    )
+    return [dict(r) for r in rows]
+
+@app.post("/api/projects/{project_id}/images")
+async def upload_project_image(project_id: str, file: UploadFile, title: str = Form(default="")):
+    import shutil, uuid
+    from datetime import datetime, timezone
+
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_IMAGE_EXTS:
+        raise HTTPException(status_code=400, detail=f"Unsupported image format: {ext}")
+
+    image_id = str(uuid.uuid4())
+    filename  = f"{image_id}{ext}"
+    dest      = _project_images_dir(project_id) / filename
+
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    now = datetime.now(timezone.utc).isoformat()
+    display_title = title.strip() or file.filename or filename
+    db = get_db()
+    db.execute(
+        "INSERT INTO project_images(id, project_id, filename, title, ai_description, file_path, created_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (image_id, project_id, filename, display_title, "", str(dest), now),
+    )
+    return {"id": image_id, "project_id": project_id, "filename": filename,
+            "title": display_title, "ai_description": "", "created_at": now}
+
+@app.get("/api/project-images/{image_id}")
+async def get_project_image(image_id: str):
+    db = get_db()
+    row = db.execute_one("SELECT * FROM project_images WHERE id=?", (image_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return dict(row)
+
+@app.get("/api/project-images/{image_id}/file")
+async def serve_project_image(image_id: str):
+    db = get_db()
+    row = db.execute_one("SELECT * FROM project_images WHERE id=?", (image_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+    path = Path(row["file_path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Image file missing on disk")
+    return FileResponse(str(path))
+
+class ProjectImageUpdateBody(BaseModel):
+    title: Optional[str] = None
+    ai_description: Optional[str] = None
+
+@app.put("/api/project-images/{image_id}")
+async def update_project_image(image_id: str, body: ProjectImageUpdateBody):
+    db = get_db()
+    updates = {}
+    if body.title is not None:
+        updates["title"] = body.title
+    if body.ai_description is not None:
+        updates["ai_description"] = body.ai_description
+    if updates:
+        set_clause = ", ".join(f"{k}=?" for k in updates)
+        db.execute(
+            f"UPDATE project_images SET {set_clause} WHERE id=?",
+            (*updates.values(), image_id),
+        )
+    return {"ok": True}
+
+@app.delete("/api/project-images/{image_id}")
+async def delete_project_image(image_id: str):
+    import os
+    db = get_db()
+    row = db.execute_one("SELECT file_path FROM project_images WHERE id=?", (image_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+    try:
+        os.remove(row["file_path"])
+    except FileNotFoundError:
+        pass
+    db.execute("DELETE FROM project_images WHERE id=?", (image_id,))
+    return {"ok": True}
+
+@app.post("/api/project-images/{image_id}/describe")
+async def describe_project_image(image_id: str, language: str = Query(default="en")):
+    """Use the configured vision model to analyze and describe the project-level image."""
+    from norvel_writer.config.settings import get_config
+    cfg = get_config()
+    vision_model = cfg.vision_model.strip()
+    if not vision_model:
+        raise HTTPException(status_code=400, detail="No vision model configured.")
+
+    db = get_db()
+    row = db.execute_one("SELECT * FROM project_images WHERE id=?", (image_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+    path = Path(row["file_path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Image file missing on disk")
+
+    from norvel_writer.llm.ollama_client import get_client
+    from norvel_writer.llm.prompt_builder import _lang_display
+    lang = _lang_display(language)
+    description = await get_client().describe_image(path, vision_model, language=lang)
+    db.execute(
+        "UPDATE project_images SET ai_description=? WHERE id=?",
+        (description, image_id),
+    )
+    return {"description": description}
 
 
 # ── Chapter summary ────────────────────────────────────────────────────────

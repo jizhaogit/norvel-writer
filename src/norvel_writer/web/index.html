@@ -255,6 +255,161 @@ body {
 }
 .chapter-item:hover { background: var(--surface2); color: var(--text); }
 .chapter-item.active { color: var(--accent); background: rgba(137,180,250,0.08); }
+.chapter-item .ch-rename-icon {
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0;
+  flex-shrink: 0;
+  padding: 0 2px;
+  transition: opacity .15s;
+}
+.chapter-item:hover .ch-rename-icon { opacity: 1; }
+.chapter-item .ch-img-badge {
+  font-size: 9px;
+  color: var(--accent);
+  background: rgba(137,180,250,0.15);
+  border-radius: 3px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  cursor: pointer;
+  display: none;
+}
+.chapter-item .ch-img-badge.visible { display: inline; }
+
+/* ── Image sub-nodes ── */
+.ch-images-list {
+  display: none;
+  flex-direction: column;
+}
+.ch-images-list.open { display: flex; }
+.ch-image-item {
+  padding: 4px 10px 4px 40px;
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid transparent;
+}
+.ch-image-item:hover { background: var(--surface2); color: var(--text); }
+.ch-image-item.active { color: var(--accent); background: rgba(137,180,250,0.08); }
+.ch-image-item .ch-img-thumb {
+  width: 22px; height: 22px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ch-image-item .ch-img-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ch-image-item .ch-img-del {
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0;
+  padding: 0 2px;
+  flex-shrink: 0;
+  transition: opacity .15s;
+}
+.ch-image-item:hover .ch-img-del { opacity: 1; color: var(--red); }
+.ch-images-add {
+  padding: 3px 10px 3px 40px;
+  font-size: 10px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ch-images-add:hover { color: var(--accent); }
+
+/* ── Image viewer (main area overlay) ── */
+#image-viewer {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  background: var(--bg);
+}
+#image-viewer.visible { display: flex; }
+#image-viewer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+#image-viewer-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#image-viewer-back { font-size: 11px; }
+#image-viewer-describe-btn { font-size: 11px; }
+#image-viewer-delete-btn { font-size: 11px; color: var(--red); border-color: var(--red); }
+#image-viewer-body {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+}
+#image-viewer-img {
+  max-width: 100%;
+  max-height: 60vh;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+}
+#image-viewer-desc-box {
+  width: 100%;
+  max-width: 720px;
+}
+#image-viewer-desc-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+#image-viewer-desc {
+  width: 100%;
+  min-height: 80px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  font-family: inherit;
+}
+#image-viewer-desc-status {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+  min-height: 14px;
+}
+#image-viewer-thinking {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  animation: chat-pulse 1.4s ease-in-out infinite;
+  display: none;
+}
 
 /* ── Context menu ── */
 #ctx-menu {
@@ -619,6 +774,134 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   color: var(--muted);
 }
 #upload-progress.visible { display: block; }
+
+/* ── Project Image Memory ── */
+#proj-img-section {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+#proj-img-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+#proj-img-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+#proj-img-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.proj-img-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background .12s;
+}
+.proj-img-item:hover { background: var(--surface2); }
+.proj-img-item.active { border-color: var(--accent); background: rgba(137,180,250,0.07); }
+.proj-img-thumb-sm {
+  width: 28px; height: 28px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.proj-img-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.proj-img-has-desc {
+  font-size: 9px;
+  color: var(--green);
+  flex-shrink: 0;
+}
+.proj-img-del {
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity .12s;
+  padding: 0 2px;
+}
+.proj-img-item:hover .proj-img-del { opacity: 1; color: var(--red); }
+
+/* Project image viewer (modal/overlay within Memory tab) */
+#proj-img-viewer {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+#proj-img-viewer.open { display: flex; }
+#proj-img-viewer-img {
+  max-width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border-radius: 4px;
+  align-self: center;
+  border: 1px solid var(--border);
+}
+#proj-img-viewer-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#proj-img-viewer-title {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+}
+#proj-img-viewer-desc {
+  width: 100%;
+  min-height: 80px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+  font-family: inherit;
+}
+#proj-img-viewer-hint {
+  font-size: 10px;
+  color: var(--green);
+  font-style: italic;
+}
+#proj-img-viewer-status {
+  font-size: 11px;
+  color: var(--muted);
+  min-height: 14px;
+}
 
 /* ── Style tab ── */
 #style-summary {
@@ -988,6 +1271,32 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     </div>
     <div id="editor" contenteditable="true" spellcheck="true" data-placeholder="Select a chapter from the sidebar to start writing..."></div>
 
+    <!-- Hidden file input for chapter image uploads -->
+    <input type="file" id="chapter-img-upload" accept="image/*" style="display:none">
+
+    <!-- Image Viewer Panel -->
+    <div id="image-viewer">
+      <div id="image-viewer-toolbar">
+        <button id="image-viewer-back" class="btn btn-sm">← Back to Editor</button>
+        <span id="image-viewer-title"></span>
+        <button id="image-viewer-describe-btn" class="btn btn-sm" style="display:none">🔍 Describe with AI</button>
+        <button id="image-viewer-delete-btn" class="btn btn-sm">🗑 Delete</button>
+      </div>
+      <div id="image-viewer-body">
+        <img id="image-viewer-img" src="" alt="chapter image">
+        <div id="image-viewer-desc-box">
+          <div id="image-viewer-desc-label">AI Description</div>
+          <textarea id="image-viewer-desc" placeholder="No description yet. Use 'Describe with AI' or type your own notes here."></textarea>
+          <div style="font-size:10px;color:var(--green);font-style:italic;margin-top:4px;">✦ Saved descriptions are used by Writer, Editor &amp; QA when working on this chapter — same priority as Codex.</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+            <button id="image-viewer-save-desc-btn" class="btn btn-sm">💾 Save Description</button>
+            <span id="image-viewer-desc-status" style="font-size:11px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+      <div id="image-viewer-thinking" style="display:none">🔍 Analyzing image with AI…</div>
+    </div>
+
     <!-- Rewrite Versions Panel -->
     <div id="rewrite-panel" style="display:none;">
       <div id="rewrite-drag-handle" title="Drag to resize"></div>
@@ -1201,6 +1510,35 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <input type="file" id="file-input" style="display:none" multiple
         accept=".txt,.md,.docx,.odt,.pdf,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp">
       <div id="upload-progress">Uploading...</div>
+
+      <!-- Project Image Memory -->
+      <div id="proj-img-section">
+        <div id="proj-img-section-header">
+          <span id="proj-img-section-label">📷 Image Memory</span>
+          <button class="btn btn-sm" id="proj-img-add-btn" title="Upload an image to project memory">+ Image</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">
+          Visual references (character art, maps, scene mood boards). AI descriptions are fed to Writer, Editor &amp; QA at the same priority as Codex.
+        </div>
+        <div id="proj-img-list"></div>
+        <!-- Inline viewer / editor -->
+        <div id="proj-img-viewer">
+          <img id="proj-img-viewer-img" src="" alt="">
+          <div id="proj-img-viewer-title-row">
+            <input id="proj-img-viewer-title" type="text" placeholder="Title (e.g. Hero portrait, World map…)">
+            <button class="btn btn-sm danger" id="proj-img-viewer-delete-btn">🗑</button>
+          </div>
+          <textarea id="proj-img-viewer-desc" placeholder="AI description or your own notes about this image. This text is used by the AI when writing/editing."></textarea>
+          <div id="proj-img-viewer-hint">✦ This description is used by Writer, Editor &amp; QA — same priority as Codex.</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-sm primary" id="proj-img-viewer-save-btn">💾 Save</button>
+            <button class="btn btn-sm" id="proj-img-viewer-describe-btn" style="display:none">🔍 Describe with AI</button>
+            <button class="btn btn-sm" id="proj-img-viewer-close-btn">✕ Close</button>
+          </div>
+          <div id="proj-img-viewer-status"></div>
+        </div>
+        <input type="file" id="proj-img-upload" accept="image/*" style="display:none">
+      </div>
     </div>
 
     <!-- Style tab -->
@@ -1447,6 +1785,29 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         <option value="light">Light</option>
       </select>
     </div>
+    <!-- ── Role Files ── -->
+    <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">
+    <h3 style="font-size:13px;color:var(--accent);margin-bottom:10px;">🎭 Chat Role Skills</h3>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6;">
+      Each role is defined by a TOML file you can freely edit.
+      Change the background, focus areas, rules, and report format to create
+      specialised roles (e.g. "Fantasy Editor", "Hard Sci-Fi QA").
+      Changes take effect on your next chat message — no restart needed.
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:6px;">
+      <button class="btn" id="role-tab-editor" style="font-size:11px;padding:3px 10px;border-color:var(--yellow);color:var(--yellow);">✏️ Editor</button>
+      <button class="btn" id="role-tab-writer" style="font-size:11px;padding:3px 10px;">🖊 Writer</button>
+      <button class="btn" id="role-tab-qa"     style="font-size:11px;padding:3px 10px;">🔍 QA</button>
+    </div>
+    <div id="role-file-path" style="font-size:10px;color:var(--muted);margin-bottom:4px;font-family:monospace;"></div>
+    <textarea id="role-file-editor" spellcheck="false"
+      style="width:100%;height:260px;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-family:monospace;font-size:11px;resize:vertical;"></textarea>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px;">
+      <button class="btn" id="role-file-reset-btn" style="font-size:12px;padding:5px 14px;" title="Reset to bundled default">Reset to Default</button>
+      <button class="btn primary" id="role-file-save-btn" style="font-size:12px;padding:5px 14px;">Save Role</button>
+    </div>
+    <div id="role-file-status" style="font-size:11px;color:var(--subtext);margin-top:4px;min-height:14px;"></div>
+
     <div class="modal-footer">
       <button class="btn" id="settings-cancel-btn" data-i18n="settings.cancel">Cancel</button>
       <button class="btn primary" id="settings-save-btn" data-i18n="settings.save">Save</button>
@@ -1507,6 +1868,9 @@ const state = {
   isDirty: false,
   settings: {},
   ollamaRunning: false,
+  visionAvailable: false,
+  currentImageId: null,
+  _pendingImageChapterId: null,
 };
 
 const LANGUAGES = {
@@ -1801,7 +2165,13 @@ function setStatus(msg, timeout = 0) {
 }
 
 function countWords(text) {
-  return text.trim() ? text.trim().split(/\s+/).length : 0;
+  if (!text || !text.trim()) return 0;
+  // Count CJK characters individually (each is one word in Chinese/Japanese/Korean)
+  const cjk = (text.match(/[\u3400-\u9FFF\uF900-\uFAFF\uAC00-\uD7AF\u3040-\u309F\u30A0-\u30FF]/g) || []).length;
+  // Count non-CJK words by splitting on whitespace (after removing CJK chars)
+  const nonCjk = text.replace(/[\u3400-\u9FFF\uF900-\uFAFF\uAC00-\uD7AF\u3040-\u309F\u30A0-\u30FF]/g, ' ')
+                     .trim().split(/\s+/).filter(w => w.length > 0).length;
+  return cjk + nonCjk;
 }
 
 function populateLangSelect(selectEl, selectedCode) {
@@ -1870,6 +2240,7 @@ async function checkOllamaStatus() {
   try {
     const data = await apiFetch('/api/ollama/status');
     state.ollamaRunning = data.running;
+    state.visionAvailable = data.vision_available || false;
     el('ollama-dot').className = data.running ? 'running' : '';
     if (!data.running) {
       el('ollama-banner').classList.add('visible');
@@ -2267,6 +2638,8 @@ async function selectProject(pid) {
   await loadDocuments();
   await loadStyleTab();
   await loadPersona();
+  _closeProjImgViewer();
+  loadProjectImages();
 }
 
 async function loadChapters(pid) {
@@ -2279,43 +2652,86 @@ async function loadChapters(pid) {
       const div = document.createElement('div');
       div.className = 'chapter-item' + (ch.id === state.currentChapterId ? ' active' : '');
       div.dataset.id = ch.id;
-      div.textContent = ch.title || 'Untitled Chapter';
-      div.title = 'Double-click to rename';
+      div.style.display = 'flex';
+      div.style.alignItems = 'center';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = ch.title || 'Untitled Chapter';
+      nameSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      div.appendChild(nameSpan);
+
+      const editIcon = document.createElement('span');
+      editIcon.className = 'ch-rename-icon';
+      editIcon.textContent = '✏';
+      editIcon.title = 'Click to rename';
+      editIcon.addEventListener('click', (e) => {
+        e.stopPropagation();
+        startChapterRename(div, ch.id, nameSpan);
+      });
+      div.appendChild(editIcon);
+
+      // Image badge toggle
+      const imgBadge = document.createElement('span');
+      imgBadge.className = 'ch-img-badge visible';
+      imgBadge.dataset.chapterId = ch.id;
+      imgBadge.title = 'Chapter images (click to toggle)';
+      imgBadge.textContent = '📷';
+      imgBadge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        _chImgToggle(ch.id);
+      });
+      div.appendChild(imgBadge);
+
       div.addEventListener('click', () => selectChapter(ch.id));
       div.addEventListener('dblclick', (e) => {
         e.stopPropagation();
-        startChapterRename(div, ch.id);
+        startChapterRename(div, ch.id, nameSpan);
       });
       cl.appendChild(div);
+
+      // Image list sub-node (sibling of chapter item)
+      const imgList = document.createElement('div');
+      imgList.className = 'ch-images-list';
+      imgList.id = 'ch-images-' + ch.id;
+      cl.appendChild(imgList);
     }
   } catch (e) {
     console.error('Failed to load chapters:', e);
   }
 }
 
-function startChapterRename(div, chapterId) {
-  const current = div.textContent;
+function startChapterRename(div, chapterId, nameSpan) {
+  // nameSpan may be omitted (legacy callers) — fall back to div itself
+  const target = nameSpan || div;
+  const current = target.textContent.trim();
   const input = document.createElement('input');
   input.type = 'text';
   input.value = current;
-  input.style.cssText = 'width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--accent);border-radius:4px;padding:1px 6px;color:var(--text);font-size:13px;font-family:inherit;';
-  div.textContent = '';
-  div.appendChild(input);
+  input.style.cssText = 'flex:1;min-width:0;box-sizing:border-box;background:var(--surface2);border:1px solid var(--accent);border-radius:4px;padding:1px 6px;color:var(--text);font-size:12px;font-family:inherit;';
+  target.replaceWith(input);
   input.focus();
   input.select();
 
   async function commit() {
     const title = input.value.trim() || current;
-    div.textContent = title;
+    const newSpan = nameSpan || document.createElement('span');
+    newSpan.textContent = title;
+    if (!nameSpan) {
+      newSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    }
+    input.replaceWith(newSpan);
     if (title === current) return;
     try {
       await apiFetch('/api/chapters/' + chapterId, { method: 'PUT', body: { title } });
       if (state.currentChapterId === chapterId) {
         state.currentChapterTitle = title;
         el('chapter-title').textContent = title;
+        // Also update editor notes / qa notes chapter labels
+        _enRender(chapterId);
+        _qnRender(chapterId);
       }
     } catch (e) {
-      div.textContent = current;
+      newSpan.textContent = current;
       alert('Failed to rename: ' + e.message);
     }
   }
@@ -2323,7 +2739,13 @@ function startChapterRename(div, chapterId) {
   input.addEventListener('blur', commit);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-    if (e.key === 'Escape') { div.textContent = current; input.removeEventListener('blur', commit); }
+    if (e.key === 'Escape') {
+      input.removeEventListener('blur', commit);
+      const restoreSpan = nameSpan || document.createElement('span');
+      restoreSpan.textContent = current;
+      if (!nameSpan) restoreSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      input.replaceWith(restoreSpan);
+    }
   });
 }
 
@@ -2344,6 +2766,10 @@ async function selectChapter(cid) {
   _rwCheckForChapter(cid);
   _enRender(cid);
   _qnRender(cid);
+  // If image viewer is open, close it and go back to editor
+  if (state.currentImageId) _closeImageViewer();
+  // Load images for this chapter (updates badge counts + open list if already expanded)
+  loadChapterImages(cid);
   try {
     const data = await apiFetch('/api/chapters/' + cid + '/content');
     el('editor').innerHTML = data.content || '';
@@ -2611,6 +3037,8 @@ el('generate-btn').addEventListener('click', async () => {
           user_instruction:  instrBase + wordNote,
           style_mode:        el('draft-style-mode').value,
           language:          el('draft-lang').value,
+          editor_note:       _enLoad(state.currentChapterId) || '',
+          qa_note:           _qnLoad(state.currentChapterId) || '',
         }),
       });
       for await (const ev of readSSE(res)) {
@@ -2669,6 +3097,8 @@ el('generate-btn').addEventListener('click', async () => {
           user_instruction: instrBase + wordNote,
           style_mode:       el('draft-style-mode').value,
           language:         el('draft-lang').value,
+          editor_note:      _enLoad(state.currentChapterId) || '',
+          qa_note:          _qnLoad(state.currentChapterId) || '',
         }),
       });
       for await (const ev of readSSE(res)) {
@@ -3680,6 +4110,461 @@ el('qa-notes-clear-btn').addEventListener('click', () => {
   restoreHeights();
   observeResizables();
 }());
+
+// ── Role file editor (in Settings modal) ───────────────────────────────────
+(function () {
+  let _activeRole = 'editor';
+  const ROLE_COLORS = { editor: 'var(--yellow)', writer: 'var(--green)', qa: 'var(--accent)' };
+
+  function _setActiveRoleTab(role) {
+    _activeRole = role;
+    ['editor','writer','qa'].forEach(r => {
+      const btn = el('role-tab-' + r);
+      btn.style.borderColor = r === role ? ROLE_COLORS[r] : 'var(--border)';
+      btn.style.color       = r === role ? ROLE_COLORS[r] : 'var(--muted)';
+      btn.style.fontWeight  = r === role ? '700' : 'normal';
+    });
+    _loadRoleFile(role);
+  }
+
+  async function _loadRoleFile(role) {
+    el('role-file-status').textContent = 'Loading…';
+    try {
+      const data = await apiFetch('/api/roles/' + role);
+      el('role-file-editor').value = data.content || '';
+      el('role-file-path').textContent = data.path || '';
+      el('role-file-status').textContent = '';
+    } catch (e) {
+      el('role-file-status').textContent = 'Error loading role: ' + e.message;
+    }
+  }
+
+  el('role-tab-editor').addEventListener('click', () => _setActiveRoleTab('editor'));
+  el('role-tab-writer').addEventListener('click', () => _setActiveRoleTab('writer'));
+  el('role-tab-qa').addEventListener('click',     () => _setActiveRoleTab('qa'));
+
+  el('role-file-save-btn').addEventListener('click', async () => {
+    el('role-file-save-btn').disabled = true;
+    el('role-file-status').textContent = 'Saving…';
+    try {
+      await apiFetch('/api/roles/' + _activeRole, {
+        method: 'PUT',
+        body: { content: el('role-file-editor').value },
+      });
+      el('role-file-status').textContent = '✔ Saved — takes effect on next chat message.';
+      setTimeout(() => { el('role-file-status').textContent = ''; }, 3000);
+    } catch (e) {
+      el('role-file-status').textContent = 'Error: ' + e.message;
+    } finally {
+      el('role-file-save-btn').disabled = false;
+    }
+  });
+
+  el('role-file-reset-btn').addEventListener('click', async () => {
+    if (!confirm('Reset "' + _activeRole + '" to the bundled default? Your edits will be lost.')) return;
+    el('role-file-status').textContent = 'Resetting…';
+    try {
+      const data = await apiFetch('/api/roles/' + _activeRole, { method: 'DELETE' });
+      el('role-file-editor').value = data.content || '';
+      el('role-file-path').textContent = '(bundled default)';
+      el('role-file-status').textContent = '✔ Reset to default.';
+      setTimeout(() => { el('role-file-status').textContent = ''; }, 3000);
+    } catch (e) {
+      el('role-file-status').textContent = 'Error: ' + e.message;
+    }
+  });
+
+  // Load editor role whenever the Settings modal opens
+  const origSettingsOpen = el('settings-btn') && el('settings-btn').onclick;
+  el('settings-btn') && el('settings-btn').addEventListener('click', () => {
+    // small delay so modal is visible first
+    setTimeout(() => _setActiveRoleTab(_activeRole), 50);
+  });
+}());
+
+// ── Project Image Memory ────────────────────────────────────────────────────
+
+let _projImgActiveId = null;
+
+async function loadProjectImages() {
+  if (!state.currentProjectId) return;
+  const listEl = el('proj-img-list');
+  if (!listEl) return;
+  try {
+    const data = await apiFetch('/api/projects/' + state.currentProjectId + '/images');
+    const images = Array.isArray(data) ? data : [];
+    listEl.innerHTML = '';
+
+    if (images.length === 0) {
+      listEl.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:4px 0;">No images yet. Click "+ Image" to upload.</div>';
+      return;
+    }
+
+    for (const img of images) {
+      const item = document.createElement('div');
+      item.className = 'proj-img-item' + (_projImgActiveId === img.id ? ' active' : '');
+      item.dataset.imageId = img.id;
+
+      const thumb = document.createElement('img');
+      thumb.className = 'proj-img-thumb-sm';
+      thumb.src = '/api/project-images/' + img.id + '/file';
+      thumb.alt = img.title || '';
+      thumb.onerror = () => { thumb.style.display = 'none'; };
+
+      const name = document.createElement('span');
+      name.className = 'proj-img-name';
+      name.textContent = img.title || img.filename || 'Image';
+
+      const hasDesc = document.createElement('span');
+      hasDesc.className = 'proj-img-has-desc';
+      hasDesc.textContent = img.ai_description ? '✦ AI' : '';
+      hasDesc.title = img.ai_description ? 'Has AI description (used by AI roles)' : '';
+
+      const delBtn = document.createElement('span');
+      delBtn.className = 'proj-img-del';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Delete';
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this image from project memory?')) return;
+        try {
+          await apiFetch('/api/project-images/' + img.id, { method: 'DELETE' });
+          if (_projImgActiveId === img.id) _closeProjImgViewer();
+          loadProjectImages();
+        } catch (err) { alert('Delete failed: ' + err.message); }
+      });
+
+      item.appendChild(thumb);
+      item.appendChild(name);
+      item.appendChild(hasDesc);
+      item.appendChild(delBtn);
+      item.addEventListener('click', () => openProjImgViewer(img.id));
+      listEl.appendChild(item);
+    }
+  } catch (e) {
+    console.error('Failed to load project images:', e);
+  }
+}
+
+async function openProjImgViewer(imageId) {
+  try {
+    const img = await apiFetch('/api/project-images/' + imageId);
+    _projImgActiveId = imageId;
+
+    el('proj-img-viewer-img').src = '/api/project-images/' + imageId + '/file?' + Date.now();
+    el('proj-img-viewer-title').value = img.title || '';
+    el('proj-img-viewer-desc').value = img.ai_description || '';
+    el('proj-img-viewer-status').textContent = '';
+    el('proj-img-viewer-describe-btn').style.display = state.visionAvailable ? '' : 'none';
+
+    el('proj-img-viewer').classList.add('open');
+
+    // Mark active in list
+    document.querySelectorAll('.proj-img-item').forEach(el2 => {
+      el2.classList.toggle('active', el2.dataset.imageId === imageId);
+    });
+  } catch (e) {
+    alert('Could not open image: ' + e.message);
+  }
+}
+
+function _closeProjImgViewer() {
+  _projImgActiveId = null;
+  el('proj-img-viewer').classList.remove('open');
+  document.querySelectorAll('.proj-img-item').forEach(el2 => el2.classList.remove('active'));
+}
+
+// Project image viewer button handlers
+el('proj-img-viewer-close-btn').addEventListener('click', _closeProjImgViewer);
+
+el('proj-img-viewer-save-btn').addEventListener('click', async () => {
+  if (!_projImgActiveId) return;
+  el('proj-img-viewer-save-btn').disabled = true;
+  el('proj-img-viewer-status').textContent = 'Saving…';
+  try {
+    await apiFetch('/api/project-images/' + _projImgActiveId, {
+      method: 'PUT',
+      body: {
+        title: el('proj-img-viewer-title').value,
+        ai_description: el('proj-img-viewer-desc').value,
+      },
+    });
+    el('proj-img-viewer-status').textContent = '✔ Saved — AI will use this description.';
+    setTimeout(() => { el('proj-img-viewer-status').textContent = ''; }, 2500);
+    loadProjectImages(); // refresh list to update ✦ AI badge
+  } catch (e) {
+    el('proj-img-viewer-status').textContent = 'Error: ' + e.message;
+  } finally {
+    el('proj-img-viewer-save-btn').disabled = false;
+  }
+});
+
+el('proj-img-viewer-describe-btn').addEventListener('click', async () => {
+  if (!_projImgActiveId) return;
+  el('proj-img-viewer-describe-btn').disabled = true;
+  el('proj-img-viewer-status').textContent = '🔍 Analyzing image…';
+  try {
+    const data = await apiFetch('/api/project-images/' + _projImgActiveId + '/describe', {
+      method: 'POST',
+    });
+    el('proj-img-viewer-desc').value = data.description || data.ai_description || '';
+    el('proj-img-viewer-status').textContent = '✔ Description generated — click Save to keep it.';
+    loadProjectImages();
+  } catch (e) {
+    el('proj-img-viewer-status').textContent = 'Error: ' + e.message;
+  } finally {
+    el('proj-img-viewer-describe-btn').disabled = false;
+  }
+});
+
+el('proj-img-viewer-delete-btn').addEventListener('click', async () => {
+  if (!_projImgActiveId) return;
+  if (!confirm('Delete this image from project memory permanently?')) return;
+  try {
+    await apiFetch('/api/project-images/' + _projImgActiveId, { method: 'DELETE' });
+    _closeProjImgViewer();
+    loadProjectImages();
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
+  }
+});
+
+el('proj-img-add-btn').addEventListener('click', () => {
+  if (!state.currentProjectId) { alert('Select a project first.'); return; }
+  el('proj-img-upload').click();
+});
+
+el('proj-img-upload').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file || !state.currentProjectId) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('title', file.name.replace(/\.[^.]+$/, ''));
+
+  try {
+    const res = await fetch('/api/projects/' + state.currentProjectId + '/images', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || res.statusText);
+    }
+    const data = await res.json();
+    await loadProjectImages();
+    openProjImgViewer(data.id);
+  } catch (err) {
+    alert('Failed to upload image: ' + err.message);
+  } finally {
+    e.target.value = '';
+  }
+});
+
+// ── Chapter Images ──────────────────────────────────────────────────────────
+
+function _chImgToggle(chapterId) {
+  const listEl = document.getElementById('ch-images-' + chapterId);
+  if (!listEl) return;
+  if (listEl.classList.contains('open')) {
+    listEl.classList.remove('open');
+  } else {
+    listEl.classList.add('open');
+    loadChapterImages(chapterId);
+  }
+}
+
+async function loadChapterImages(chapterId) {
+  if (!chapterId) return;
+  const listEl = document.getElementById('ch-images-' + chapterId);
+  // Fetch even if list isn't open yet — we need the count for the badge
+  try {
+    const data = await apiFetch('/api/chapters/' + chapterId + '/images');
+    const images = Array.isArray(data) ? data : (data.images || []);
+
+    // Update badge text
+    const badge = document.querySelector('.ch-img-badge[data-chapter-id="' + chapterId + '"]');
+    if (badge) {
+      badge.textContent = images.length > 0 ? '📷 ' + images.length : '📷';
+    }
+
+    // Only populate list DOM if the list element exists
+    if (!listEl) return;
+    listEl.innerHTML = '';
+
+    for (const img of images) {
+      const item = document.createElement('div');
+      item.className = 'ch-image-item';
+      item.dataset.imageId = img.id;
+
+      const thumb = document.createElement('img');
+      thumb.className = 'ch-img-thumb';
+      thumb.src = '/api/chapter-images/' + img.id + '/file';
+      thumb.alt = img.title || img.filename || '';
+      thumb.onerror = () => { thumb.style.display = 'none'; };
+
+      const name = document.createElement('span');
+      name.className = 'ch-img-name';
+      name.textContent = img.title || img.filename || 'Image';
+      name.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;';
+
+      const delBtn = document.createElement('span');
+      delBtn.className = 'ch-img-del';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Delete image';
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this image?')) return;
+        try {
+          await apiFetch('/api/chapter-images/' + img.id, { method: 'DELETE' });
+          if (state.currentImageId === img.id) _closeImageViewer();
+          loadChapterImages(chapterId);
+        } catch (err) {
+          alert('Failed to delete: ' + err.message);
+        }
+      });
+
+      item.appendChild(thumb);
+      item.appendChild(name);
+      item.appendChild(delBtn);
+      item.addEventListener('click', () => openImageViewer(img.id));
+      listEl.appendChild(item);
+    }
+
+    // "+ Add image" button always at bottom
+    const addBtn = document.createElement('div');
+    addBtn.className = 'ch-images-add';
+    addBtn.textContent = '+ Add image';
+    addBtn.addEventListener('click', () => {
+      state._pendingImageChapterId = chapterId;
+      el('chapter-img-upload').click();
+    });
+    listEl.appendChild(addBtn);
+
+  } catch (e) {
+    console.error('Failed to load chapter images:', e);
+  }
+}
+
+async function openImageViewer(imageId) {
+  try {
+    const img = await apiFetch('/api/chapter-images/' + imageId);
+    state.currentImageId = imageId;
+
+    el('image-viewer-title').textContent = img.title || img.filename || 'Image';
+    el('image-viewer-img').src = '/api/chapter-images/' + imageId + '/file?' + Date.now();
+    el('image-viewer-desc').value = img.ai_description || '';
+    el('image-viewer-desc-status').textContent = '';
+    el('image-viewer-thinking').style.display = 'none';
+
+    // Show "Describe with AI" only when a vision model is available
+    el('image-viewer-describe-btn').style.display = state.visionAvailable ? '' : 'none';
+
+    // Hide regular editor, show image viewer
+    el('editor').style.display = 'none';
+    el('editor-toolbar').style.display = 'none';
+    el('image-viewer').classList.add('visible');
+  } catch (e) {
+    console.error('Failed to open image:', e);
+    alert('Could not open image: ' + e.message);
+  }
+}
+
+function _closeImageViewer() {
+  state.currentImageId = null;
+  el('image-viewer').classList.remove('visible');
+  el('editor').style.display = '';
+  el('editor-toolbar').style.display = '';
+}
+
+// Image viewer button handlers
+el('image-viewer-back').addEventListener('click', _closeImageViewer);
+
+el('image-viewer-describe-btn').addEventListener('click', async () => {
+  if (!state.currentImageId) return;
+  el('image-viewer-thinking').style.display = 'block';
+  el('image-viewer-describe-btn').disabled = true;
+  el('image-viewer-desc-status').textContent = 'Analyzing…';
+  try {
+    const data = await apiFetch('/api/chapter-images/' + state.currentImageId + '/describe', {
+      method: 'POST',
+    });
+    el('image-viewer-desc').value = data.description || data.ai_description || '';
+    el('image-viewer-desc-status').textContent = '✔ Description generated';
+    if (state.currentChapterId) loadChapterImages(state.currentChapterId);
+  } catch (e) {
+    el('image-viewer-desc-status').textContent = 'Error: ' + e.message;
+  } finally {
+    el('image-viewer-thinking').style.display = 'none';
+    el('image-viewer-describe-btn').disabled = false;
+  }
+});
+
+el('image-viewer-save-desc-btn').addEventListener('click', async () => {
+  if (!state.currentImageId) return;
+  el('image-viewer-save-desc-btn').disabled = true;
+  el('image-viewer-desc-status').textContent = 'Saving…';
+  try {
+    await apiFetch('/api/chapter-images/' + state.currentImageId, {
+      method: 'PUT',
+      body: { ai_description: el('image-viewer-desc').value },
+    });
+    el('image-viewer-desc-status').textContent = '✔ Saved';
+    setTimeout(() => { el('image-viewer-desc-status').textContent = ''; }, 2000);
+  } catch (e) {
+    el('image-viewer-desc-status').textContent = 'Error: ' + e.message;
+  } finally {
+    el('image-viewer-save-desc-btn').disabled = false;
+  }
+});
+
+el('image-viewer-delete-btn').addEventListener('click', async () => {
+  if (!state.currentImageId) return;
+  if (!confirm('Delete this image permanently?')) return;
+  try {
+    await apiFetch('/api/chapter-images/' + state.currentImageId, { method: 'DELETE' });
+    const chapterId = state.currentChapterId;
+    _closeImageViewer();
+    if (chapterId) loadChapterImages(chapterId);
+  } catch (e) {
+    alert('Failed to delete image: ' + e.message);
+  }
+});
+
+// Image upload handler
+el('chapter-img-upload').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const chapterId = state._pendingImageChapterId || state.currentChapterId;
+  if (!chapterId) { alert('Select a chapter first.'); return; }
+
+  const formData = new FormData();
+  formData.append('file', file);
+  // Use filename without extension as default title
+  formData.append('title', file.name.replace(/\.[^.]+$/, ''));
+
+  try {
+    const res = await fetch('/api/chapters/' + chapterId + '/images', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || res.statusText);
+    }
+    const data = await res.json();
+    // Expand the image list
+    const listEl = document.getElementById('ch-images-' + chapterId);
+    if (listEl && !listEl.classList.contains('open')) listEl.classList.add('open');
+    await loadChapterImages(chapterId);
+    openImageViewer(data.id);
+  } catch (err) {
+    alert('Failed to upload image: ' + err.message);
+  } finally {
+    e.target.value = '';
+    state._pendingImageChapterId = null;
+  }
+});
 
 // ── Start ──────────────────────────────────────────────────────────────────
 init();

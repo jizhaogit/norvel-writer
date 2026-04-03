@@ -83,12 +83,22 @@ class AppConfig(BaseSettings):
     def logs_path(self) -> Path:
         return self.data_dir / "logs"
 
+    @property
+    def chapter_images_path(self) -> Path:
+        return self.data_dir / "chapter_images"
+
+    @property
+    def project_images_path(self) -> Path:
+        return self.data_dir / "project_images"
+
     def ensure_dirs(self) -> None:
         for p in [
             self.data_dir,
             self.chroma_path,
             self.projects_path,
             self.logs_path,
+            self.chapter_images_path,
+            self.project_images_path,
         ]:
             p.mkdir(parents=True, exist_ok=True)
 
