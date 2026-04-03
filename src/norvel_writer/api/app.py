@@ -698,6 +698,8 @@ async def rewrite_passage(project_id: str, body: RewriteRequest):
 
 class ChatRequest(BaseModel):
     question: str
+    chapter_id: str = ""
+    role: str = "editor"   # "editor" | "writer" | "qa"
     history: Optional[List[Dict[str, str]]] = None
     language: str = "en"
 
@@ -711,6 +713,8 @@ async def chat_with_context(project_id: str, body: ChatRequest):
             stream = await engine.chat_with_context(
                 project_id=project_id,
                 question=body.question,
+                chapter_id=body.chapter_id,
+                role=body.role,
                 history=body.history,
                 language=body.language,
             )

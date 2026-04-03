@@ -609,6 +609,37 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   font-weight:600;
 }
 .ai-mode-opt input[type=radio] { accent-color:var(--accent); width:14px; height:14px; }
+
+/* ── Chat role selector ── */
+.chat-role-selector {
+  display:flex; gap:6px; margin-bottom:6px;
+}
+.chat-role-opt {
+  display:flex; align-items:center; justify-content:center; gap:5px;
+  cursor:pointer; margin:0;
+  font-size:12px; font-weight:500; color:var(--subtext);
+  padding:5px 8px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  flex:1;
+  transition:border-color .15s, background .15s, color .15s;
+  user-select:none;
+}
+.chat-role-opt:has(input:checked) {
+  border-color:var(--accent);
+  background:color-mix(in srgb, var(--accent) 12%, transparent);
+  color:var(--accent);
+  font-weight:700;
+}
+.chat-role-opt input[type=radio] { display:none; }
+.chat-role-hint {
+  font-size:11px; color:var(--muted);
+  margin-bottom:6px; padding:4px 8px;
+  background:var(--surface);
+  border-left:2px solid var(--accent);
+  border-radius:0 4px 4px 0;
+  line-height:1.5;
+}
 /* Word-count row */
 .word-count-row { display:flex; align-items:center; gap:8px; }
 .word-cnt { width:72px !important; }
@@ -816,9 +847,25 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 
     <!-- Chat tab -->
     <div class="tab-pane" id="tab-chat">
+      <!-- Role selector -->
+      <div class="chat-role-selector">
+        <label class="chat-role-opt" title="Publisher editor giving structural, pacing &amp; prose feedback">
+          <input type="radio" name="chat-role" value="editor" checked>
+          <span>✏️ Editor</span>
+        </label>
+        <label class="chat-role-opt" title="Co-author who follows your persona, style, codex &amp; beats">
+          <input type="radio" name="chat-role" value="writer">
+          <span>🖊 Writer</span>
+        </label>
+        <label class="chat-role-opt" title="QA checker for logic, codex compliance &amp; continuity">
+          <input type="radio" name="chat-role" value="qa">
+          <span>🔍 QA</span>
+        </label>
+      </div>
+      <div id="chat-role-hint" class="chat-role-hint">Professional editor: feedback on structure, pacing, voice, dialogue, and prose.</div>
       <div id="chat-history"></div>
-      <div class="form-group">
-        <textarea class="ctrl" id="chat-input" rows="3" placeholder="Ask about your project... (Enter to send, Shift+Enter for newline)"></textarea>
+      <div class="form-group" style="margin-top:6px;">
+        <textarea class="ctrl" id="chat-input" style="min-height:60px;resize:vertical;" placeholder="Ask anything… (Enter to send, Shift+Enter for newline)"></textarea>
       </div>
       <div class="btn-row">
         <button class="btn primary" id="chat-send-btn">Send</button>
@@ -2422,6 +2469,26 @@ function appendChatBubble(role, text) {
   return div;
 }
 
+// ── Chat role selector ──────────────────────────────────────────────────────
+const _chatRoleHints = {
+  editor: 'Professional editor: feedback on structure, pacing, voice, dialogue, and prose.',
+  writer: 'Co-author: writes content following your persona, style, codex, and beats.',
+  qa:     'QA reviewer: checks chapter logic, codex compliance, continuity, and descriptions.',
+};
+document.querySelectorAll('input[name="chat-role"]').forEach(r => {
+  r.addEventListener('change', () => {
+    el('chat-role-hint').textContent = _chatRoleHints[r.value] || '';
+    // Clear history when role changes — the AI persona is completely different
+    state.chatHistory = [];
+    el('chat-history').innerHTML = '';
+  });
+});
+
+function _activeChatRole() {
+  const r = document.querySelector('input[name="chat-role"]:checked');
+  return r ? r.value : 'editor';
+}
+
 async function sendChat() {
   if (!state.currentProjectId) { alert('Please select a project first.'); return; }
   const input = el('chat-input');
@@ -2443,6 +2510,8 @@ async function sendChat() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         question,
+        chapter_id: state.currentChapterId || '',
+        role: _activeChatRole(),
         history: historyToSend,
         language: el('draft-lang').value,
       }),

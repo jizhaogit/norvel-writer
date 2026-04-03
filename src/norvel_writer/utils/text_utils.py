@@ -59,6 +59,21 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
     return truncated + "…"
 
 
+def strip_html(html: str) -> str:
+    """Strip HTML tags and collapse whitespace into plain text."""
+    if not html:
+        return ""
+    if "<" not in html:
+        return normalize_whitespace(html)
+    # Remove tags
+    text = re.sub(r"<(br|p|div|li|h[1-6]|tr|blockquote)[^>]*>", "\n", html, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    # Decode common HTML entities
+    import html as _html
+    text = _html.unescape(text)
+    return normalize_whitespace(text)
+
+
 def extract_title_from_text(text: str) -> Optional[str]:
     """Try to extract a title from the first non-empty line."""
     for line in text.splitlines():
