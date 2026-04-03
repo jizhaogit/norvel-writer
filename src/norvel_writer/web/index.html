@@ -2182,12 +2182,16 @@ document.querySelectorAll('input[name="ai-mode"]').forEach(radio => {
 });
 
 // ── Word-count helper ────────────────────────────────────────────────────────
-function _buildWordCountNote(minEl, maxEl) {
+// fallbackText: the source content whose word count is used when min/max are blank.
+function _buildWordCountNote(minEl, maxEl, fallbackText = '') {
   const mn = parseInt(minEl.value) || 0;
   const mx = parseInt(maxEl.value) || 0;
   if (mn > 0 && mx >= mn) return ` Write between ${mn} and ${mx} words.`;
   if (mn > 0) return ` Write at least ${mn} words.`;
   if (mx > 0) return ` Write at most ${mx} words.`;
+  // Neither field filled — default to the word count of the source content
+  const wc = fallbackText.trim().split(/\s+/).filter(Boolean).length;
+  if (wc > 0) return ` Write approximately ${wc} words.`;
   return '';
 }
 
@@ -2218,7 +2222,7 @@ el('generate-btn').addEventListener('click', async () => {
       startFrom = el('editor').innerText;
     }
 
-    const wordNote  = _buildWordCountNote(el('continue-min-words'), el('continue-max-words'));
+    const wordNote  = _buildWordCountNote(el('continue-min-words'), el('continue-max-words'), startFrom);
     const instrBase = el('draft-instruction').value.trim() || 'Continue the story from where it left off.';
 
     output.textContent = '';
@@ -2265,7 +2269,7 @@ el('generate-btn').addEventListener('click', async () => {
       return;
     }
 
-    const wordNote  = _buildWordCountNote(el('rewrite-min-words'), el('rewrite-max-words'));
+    const wordNote  = _buildWordCountNote(el('rewrite-min-words'), el('rewrite-max-words'), passage);
     const instrBase = el('draft-instruction').value.trim() || 'Rewrite this passage in the same style.';
 
     output.textContent = '';
