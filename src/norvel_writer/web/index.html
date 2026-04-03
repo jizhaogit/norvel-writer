@@ -255,15 +255,18 @@ body {
 }
 .chapter-item:hover { background: var(--surface2); color: var(--text); }
 .chapter-item.active { color: var(--accent); background: rgba(137,180,250,0.08); }
-.chapter-item .ch-rename-icon {
+.chapter-item .ch-rename-icon,
+.chapter-item .ch-delete-icon {
   font-size: 10px;
   color: var(--muted);
-  opacity: 0;
+  opacity: 0.25;
   flex-shrink: 0;
   padding: 0 2px;
-  transition: opacity .15s;
+  cursor: pointer;
+  transition: opacity .15s, color .15s;
 }
 .chapter-item:hover .ch-rename-icon { opacity: 1; }
+.chapter-item:hover .ch-delete-icon { opacity: 1; color: var(--red); }
 .chapter-item .ch-img-badge {
   font-size: 9px;
   color: var(--accent);
@@ -2663,12 +2666,22 @@ async function loadChapters(pid) {
       const editIcon = document.createElement('span');
       editIcon.className = 'ch-rename-icon';
       editIcon.textContent = '✏';
-      editIcon.title = 'Click to rename';
+      editIcon.title = 'Rename chapter';
       editIcon.addEventListener('click', (e) => {
         e.stopPropagation();
         startChapterRename(div, ch.id, nameSpan);
       });
       div.appendChild(editIcon);
+
+      const deleteIcon = document.createElement('span');
+      deleteIcon.className = 'ch-delete-icon';
+      deleteIcon.textContent = '🗑';
+      deleteIcon.title = 'Delete chapter';
+      deleteIcon.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteChapter(ch.id, ch.title || 'Untitled Chapter');
+      });
+      div.appendChild(deleteIcon);
 
       // Image badge toggle
       const imgBadge = document.createElement('span');
@@ -2747,6 +2760,29 @@ function startChapterRename(div, chapterId, nameSpan) {
       input.replaceWith(restoreSpan);
     }
   });
+}
+
+async function deleteChapter(chapterId, chapterTitle) {
+  if (!confirm('Delete chapter "' + chapterTitle + '"?\n\nThis will permanently delete the chapter and all its content. This cannot be undone.')) return;
+  try {
+    await apiFetch('/api/chapters/' + chapterId, { method: 'DELETE' });
+    // If the deleted chapter was open, clear the editor
+    if (state.currentChapterId === chapterId) {
+      state.currentChapterId = null;
+      state.currentChapterTitle = '';
+      state.isDirty = false;
+      el('editor').innerHTML = '';
+      el('chapter-title').textContent = 'Select a chapter to edit';
+      el('word-count').textContent = '0 words';
+      el('rewrite-panel').style.display = 'none';
+      el('editor-notes-box') && (el('editor-notes-box').style.display = 'none');
+      el('qa-notes-box') && (el('qa-notes-box').style.display = 'none');
+    }
+    // Reload the chapter list for the current project
+    if (state.currentProjectId) await loadChapters(state.currentProjectId);
+  } catch (e) {
+    alert('Failed to delete chapter: ' + e.message);
+  }
 }
 
 async function selectChapter(cid) {
