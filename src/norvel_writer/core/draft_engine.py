@@ -573,14 +573,32 @@ def _build_writer_system_prompt(
         task_line = (
             f"Rewrite the passage provided by the author. "
             f"Style guidance: {style_mode.replace('_', ' ')}. "
-            "Preserve the narrative content and plot events. "
-            "Return ONLY the rewritten prose — no preamble, no sign-off."
+            "Preserve the narrative content and plot events, but produce SUBSTANTIALLY DIFFERENT prose. "
+            "Improve sentence structure, word choice, rhythm, imagery, and overall prose quality. "
+            "The rewrite MUST NOT be a near-copy, a paraphrase, or a lightly edited version of the original. "
+            "If the original has weak verbs — strengthen them. If it tells instead of showing — show. "
+            "If sentences are repetitive or flat — vary and energise them. "
+            "Return ONLY the rewritten prose — no preamble, no explanation, no sign-off, "
+            "and do NOT reproduce the original text."
         )
     else:  # chat
         task_line = (
             "Collaborate with the author on their request. "
             "Write only what is asked — new scenes, dialogue, descriptions, revisions, or other content as directed."
         )
+
+    # Rewrite mode: append critical differentiator rule
+    rewrite_rules: List[str] = []
+    if mode == "rewrite":
+        rewrite_rules = [
+            "⚠ REWRITE RULE: Your output MUST be substantially and noticeably different from the original passage",
+            "Do NOT copy sentences verbatim or reproduce the original structure word-by-word",
+            "Do NOT produce a superficial paraphrase — genuinely improve the prose",
+            "You may restructure paragraphs, change sentence order, alter imagery, or vary rhythm freely",
+            "The STORY EVENTS and CHARACTER ACTIONS must remain the same — only the prose changes",
+        ]
+
+    all_rules = rules + rewrite_rules if rewrite_rules else rules
 
     prompt = (
         f"{background}\n\n"
@@ -592,7 +610,7 @@ def _build_writer_system_prompt(
         f"4. {p4}\n"
         f"5. {p5}\n"
         f"6. {p6}\n\n"
-        f"When writing:\n{_bullets(rules)}\n\n"
+        f"When writing:\n{_bullets(all_rules)}\n\n"
         f"ALWAYS write in {lang_display}."
     )
 

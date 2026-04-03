@@ -1405,7 +1405,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <!-- ── Shared instruction ── -->
       <div class="form-group">
         <label>Instruction</label>
-        <textarea class="ctrl" id="draft-instruction" rows="2" placeholder="Additional instructions for the AI…"></textarea>
+        <textarea class="ctrl" id="draft-instruction" rows="2" placeholder="Additional instructions for the AI… (e.g. 'add more tension', 'make it shorter')"></textarea>
       </div>
 
       <!-- ── Action row ── -->
@@ -3002,11 +3002,15 @@ function _isLooping(text) {
 }
 
 // ── Mode radio toggle ───────────────────────────────────────────────────────
+const _INSTR_PH_CONTINUE = 'Additional instructions for the AI…';
+const _INSTR_PH_REWRITE  = 'Describe what to change — e.g. "Make it more intense", "Add more sensory detail", "Shorten it" (leave blank to auto-improve prose quality)';
+
 document.querySelectorAll('input[name="ai-mode"]').forEach(radio => {
   radio.addEventListener('change', () => {
     const isContinue = radio.value === 'continue';
-    el('panel-continue').style.display = isContinue ? '' : 'none';
-    el('panel-rewrite').style.display  = isContinue ? 'none' : '';
+    el('panel-continue').style.display  = isContinue ? '' : 'none';
+    el('panel-rewrite').style.display   = isContinue ? 'none' : '';
+    el('draft-instruction').placeholder = isContinue ? _INSTR_PH_CONTINUE : _INSTR_PH_REWRITE;
   });
 });
 
@@ -3113,7 +3117,7 @@ el('generate-btn').addEventListener('click', async () => {
     }
 
     const wordNote  = _buildWordCountNote(el('rewrite-min-words'), el('rewrite-max-words'), passage);
-    const instrBase = el('draft-instruction').value.trim() || 'Rewrite this passage in the same style.';
+    const instrBase = el('draft-instruction').value.trim() || 'Improve and rewrite this passage. Make the prose stronger, more vivid, and more engaging.';
 
     output.textContent = '';
     state.draftOutput  = '';
