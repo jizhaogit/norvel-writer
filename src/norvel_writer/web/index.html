@@ -2707,6 +2707,8 @@ async function sendChat() {
         role: _activeChatRole(),
         history: historyToSend,
         language: el('draft-lang').value,
+        // Pass the pinned editor note so the Writer can act on it automatically
+        editor_note: _enLoad(state.currentChapterId) || '',
       }),
     });
     for await (const ev of readSSE(res)) {

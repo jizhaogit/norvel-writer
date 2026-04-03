@@ -702,6 +702,7 @@ class ChatRequest(BaseModel):
     role: str = "editor"   # "editor" | "writer" | "qa"
     history: Optional[List[Dict[str, str]]] = None
     language: str = "en"
+    editor_note: str = ""   # pinned editor suggestion forwarded from the browser
 
 
 @app.post("/api/projects/{project_id}/chat")
@@ -717,6 +718,7 @@ async def chat_with_context(project_id: str, body: ChatRequest):
                 role=body.role,
                 history=body.history,
                 language=body.language,
+                editor_note=body.editor_note,
             )
             async for chunk in stream:
                 yield f"data: {json.dumps({'text': chunk})}\n\n"

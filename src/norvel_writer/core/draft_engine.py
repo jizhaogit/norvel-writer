@@ -207,6 +207,7 @@ class DraftEngine:
         role: str = "editor",
         history: Optional[List[Dict[str, str]]] = None,
         language: str = "en",
+        editor_note: str = "",
     ) -> AsyncIterator[str]:
         """
         Role-based chat with full project context.
@@ -362,9 +363,10 @@ class DraftEngine:
                 "established style, voice, characters, and story rules.\n\n"
                 "You MUST honour (in priority order):\n"
                 "1. The author's persona & voice instructions (PRIMARY — overrides everything)\n"
-                "2. The chapter beats (advance the plot in order — do not skip or add beats)\n"
-                "3. The project codex (character traits, world rules, lore, naming)\n"
-                "4. The style samples (match tone, rhythm, sentence structure)\n\n"
+                "2. Pinned editor suggestions — apply every point when rewriting\n"
+                "3. The chapter beats (advance the plot in order — do not skip or add beats)\n"
+                "4. The project codex (character traits, world rules, lore, naming)\n"
+                "5. The style samples (match tone, rhythm, sentence structure)\n\n"
                 "When writing:\n"
                 "- Do NOT add meta-commentary or explain your choices\n"
                 "- Maintain the established POV and tense\n"
@@ -374,6 +376,15 @@ class DraftEngine:
             if persona:
                 system_prompt += (
                     f"\n\n## PRIMARY DIRECTIVE — Author's Voice\n{persona}"
+                )
+            if editor_note:
+                system_prompt += (
+                    f"\n\n╔══════════════════════════════════════════╗\n"
+                    f"║  📌 PINNED EDITOR SUGGESTIONS — APPLY ALL ║\n"
+                    f"╚══════════════════════════════════════════╝\n"
+                    f"{editor_note}\n"
+                    f"(Every point above must be addressed in your rewrite. "
+                    f"Do not ignore any suggestion.)"
                 )
             if rag_context:
                 system_prompt += (
