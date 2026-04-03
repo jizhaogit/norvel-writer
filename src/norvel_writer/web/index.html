@@ -1380,6 +1380,10 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <div class="form-group">
         <div class="ai-mode-selector">
           <label class="ai-mode-opt">
+            <input type="radio" name="ai-mode" id="mode-beats" value="beats">
+            <span>✦ Write from Beats</span>
+          </label>
+          <label class="ai-mode-opt">
             <input type="radio" name="ai-mode" id="mode-continue" value="continue" checked>
             <span>Continue Writing</span>
           </label>
@@ -1387,6 +1391,23 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
             <input type="radio" name="ai-mode" id="mode-rewrite" value="rewrite">
             <span>Rewrite Selection</span>
           </label>
+        </div>
+      </div>
+
+      <!-- ── Write from Beats inputs ── -->
+      <div id="panel-beats" style="display:none;">
+        <div id="beats-status-hint" style="font-size:12px;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);margin-bottom:6px;"></div>
+        <div class="form-group">
+          <label>Target Length</label>
+          <div class="word-count-row">
+            <input type="number" id="beats-min-words" class="ctrl word-cnt" min="100" max="99999" placeholder="Min">
+            <span class="word-cnt-sep">–</span>
+            <input type="number" id="beats-max-words" class="ctrl word-cnt" min="100" max="99999" placeholder="Max">
+            <span class="word-cnt-sep">words</span>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--subtext);padding:5px 0 2px;">
+          ⚡ Writes the full chapter from your beats. The result is <strong style="color:var(--accent);">automatically saved as a new version</strong> when complete.
         </div>
       </div>
 
@@ -3049,13 +3070,32 @@ function _isLooping(text) {
 // ── Mode radio toggle ───────────────────────────────────────────────────────
 const _INSTR_PH_CONTINUE = 'Additional instructions for the AI…';
 const _INSTR_PH_REWRITE  = 'Describe what to change — e.g. "Make it more intense", "Add more sensory detail", "Shorten it" (leave blank to auto-improve prose quality)';
+const _INSTR_PH_BEATS    = 'Additional instructions for the AI… (leave blank to write the chapter faithfully from all beats in order)';
+
+function _updateBeatsStatusHint() {
+  const beats = el('beats-editor').value.trim();
+  const lines = beats ? beats.split('\n').filter(l => l.trim()).length : 0;
+  const hint  = el('beats-status-hint');
+  if (!beats) {
+    hint.innerHTML = '⚠️ No beats found — go to the <strong>Beats</strong> panel (above) and add beats first.';
+    hint.style.color  = 'var(--yellow)';
+    hint.style.border = '1px solid var(--yellow)';
+  } else {
+    hint.textContent  = `✓ ${lines} beat line${lines !== 1 ? 's' : ''} loaded and ready.`;
+    hint.style.color  = 'var(--green)';
+    hint.style.border = '1px solid var(--green)';
+  }
+}
 
 document.querySelectorAll('input[name="ai-mode"]').forEach(radio => {
   radio.addEventListener('change', () => {
-    const isContinue = radio.value === 'continue';
-    el('panel-continue').style.display  = isContinue ? '' : 'none';
-    el('panel-rewrite').style.display   = isContinue ? 'none' : '';
-    el('draft-instruction').placeholder = isContinue ? _INSTR_PH_CONTINUE : _INSTR_PH_REWRITE;
+    const v = radio.value;
+    el('panel-beats').style.display    = v === 'beats'    ? '' : 'none';
+    el('panel-continue').style.display = v === 'continue' ? '' : 'none';
+    el('panel-rewrite').style.display  = v === 'rewrite'  ? '' : 'none';
+    if (v === 'beats')    { el('draft-instruction').placeholder = _INSTR_PH_BEATS;    _updateBeatsStatusHint(); }
+    if (v === 'continue') el('draft-instruction').placeholder = _INSTR_PH_CONTINUE;
+    if (v === 'rewrite')  el('draft-instruction').placeholder = _INSTR_PH_REWRITE;
   });
 });
 
@@ -3082,8 +3122,93 @@ el('generate-btn').addEventListener('click', async () => {
   const mode = document.querySelector('input[name="ai-mode"]:checked').value;
   const output = el('draft-output');
 
+  // ── WRITE FROM BEATS ─────────────────────────────────────────────────────
+  if (mode === 'beats') {
+    const beats = el('beats-editor').value.trim();
+    if (!beats) {
+      _updateBeatsStatusHint();
+      el('panel-beats').style.display = '';
+      setStatus('Add beats to the Beats panel first', 3000);
+      return;
+    }
+
+    const wordNote  = _buildWordCountNote(el('beats-min-words'), el('beats-max-words'), '');
+    const instrBase = el('draft-instruction').value.trim() ||
+      'Write the complete chapter covering ALL the beats provided, in order. ' +
+      'Every single beat must appear in the prose — do not skip or combine any. ' +
+      'Begin with the first beat and conclude with the last.';
+
+    output.textContent = '';
+    state.draftOutput  = '';
+    el('generate-btn').disabled = true;
+    el('generate-btn').textContent = 'Writing from Beats…';
+    _startGenUI();
+    startAiProgress('Writing chapter from beats…');
+
+    try {
+      const res = await fetch('/api/projects/' + state.currentProjectId + '/continue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: _activeAbortCtrl.signal,
+        body: JSON.stringify({
+          chapter_id:        state.currentChapterId,
+          current_text:      '',   // fresh start — write the full chapter from scratch
+          text_after_cursor: '',
+          user_instruction:  instrBase + wordNote,
+          style_mode:        el('draft-style-mode').value,
+          language:          state.projectLang,
+          editor_note:       _enLoad(state.currentChapterId) || '',
+          qa_note:           _qnLoad(state.currentChapterId) || '',
+        }),
+      });
+      for await (const ev of readSSE(res)) {
+        if (ev.error) { showAiError(output, ev.error, true); break; }
+        if (ev.text) {
+          state.draftOutput += ev.text;
+          output.textContent = state.draftOutput;
+          output.scrollTop = output.scrollHeight;
+          if (_isLooping(state.draftOutput)) {
+            _activeAbortCtrl?.abort();
+            output.textContent += '\n\n[Generation stopped: repetition loop detected]';
+            break;
+          }
+        }
+        if (ev.done) {
+          // Auto-save as a new chapter version
+          if (state.draftOutput.trim()) {
+            try {
+              const htmlContent = escHtml(state.draftOutput).replace(/\n/g, '<br>');
+              await apiFetch('/api/chapters/' + state.currentChapterId + '/content', {
+                method: 'PUT',
+                body: { content: htmlContent, model_used: 'beats' },
+              });
+              // Update editor to show the new version
+              el('editor').innerHTML = htmlContent;
+              el('word-count').textContent = countWords(el('editor').innerText) + ' words';
+              state.isDirty = false;
+              setStatus('✓ New version saved', 4000);
+            } catch (saveErr) {
+              console.error('[Write from Beats] auto-save failed:', saveErr);
+              setStatus('Done — auto-save failed. Click "Insert into Editor" to save manually.', 5000);
+            }
+          }
+          break;
+        }
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        console.error('[Write from Beats] fetch error:', e);
+        showAiError(output, e.message);
+      }
+    } finally {
+      el('generate-btn').disabled = false;
+      el('generate-btn').textContent = 'Generate';
+      _stopGenUI();
+      stopAiProgress();
+    }
+
   // ── CONTINUE WRITING ────────────────────────────────────────────────────
-  if (mode === 'continue') {
+  } else if (mode === 'continue') {
     // Beats gate
     if (!_pendingContinue && !el('beats-editor').value.trim()) {
       el('beats-required-modal').style.display = 'flex';
@@ -3153,7 +3278,7 @@ el('generate-btn').addEventListener('click', async () => {
     }
 
   // ── REWRITE ─────────────────────────────────────────────────────────────
-  } else {
+  } else if (mode === 'rewrite') {
     const passage = el('rewrite-content').value.trim();
     if (!passage) {
       el('rewrite-content').focus();

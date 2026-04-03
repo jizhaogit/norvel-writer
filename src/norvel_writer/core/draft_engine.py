@@ -49,21 +49,24 @@ class DraftEngine:
         lang_display = _lang_display(language)
         last_para = _last_paragraphs(current_text, n_tokens=512)
 
-        # RAG — same doc types as Writer chat
+        # RAG — fetch extra candidates then cap to token budget so small local
+        # models aren't silently overflowed (budget ≈ 3500 tok ≈ 14 000 chars).
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
             query=last_para,
-            n_results=8,
+            n_results=14,
             doc_types=active_doc_types or ["codex", "beats", "research", "notes"],
             chapter_id=chapter_id,
         )
         style_results = await self._pm.retrieve_style_examples(
             project_id=project_id,
             query=last_para,
-            n_results=4,
+            n_results=8,
         )
-        rag_context = "\n\n---\n\n".join(r["text"] for r in rag_results)
-        style_chunks = [r["text"] for r in style_results]
+        rag_context = "\n\n---\n\n".join(
+            r["text"] for r in _cap_rag(rag_results, budget_tokens=3500)
+        )
+        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=1500)]
 
         proj = self._pm.get_project(project_id)
         persona = (proj.get("persona") or "").strip() if proj else ""
@@ -125,16 +128,18 @@ class DraftEngine:
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
             query=passage,
-            n_results=6,
+            n_results=12,
             doc_types=["codex", "beats", "research", "notes"],
         )
         style_results = await self._pm.retrieve_style_examples(
             project_id=project_id,
             query=passage,
-            n_results=4,
+            n_results=8,
         )
-        rag_context = "\n\n---\n\n".join(r["text"] for r in rag_results)
-        style_chunks = [r["text"] for r in style_results]
+        rag_context = "\n\n---\n\n".join(
+            r["text"] for r in _cap_rag(rag_results, budget_tokens=3000)
+        )
+        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=1500)]
 
         proj = self._pm.get_project(project_id)
         persona = (proj.get("persona") or "").strip() if proj else ""
@@ -201,10 +206,12 @@ class DraftEngine:
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
             query=passage,
-            n_results=6,
+            n_results=12,
             doc_types=["codex", "beats"],
         )
-        context = "\n\n---\n\n".join(r["text"] for r in rag_results)
+        context = "\n\n---\n\n".join(
+            r["text"] for r in _cap_rag(rag_results, budget_tokens=3000)
+        )
         lang = _lang_display(language)
 
         messages = [
@@ -352,10 +359,12 @@ class DraftEngine:
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
             query=rag_query,
-            n_results=6,
+            n_results=14,
             doc_types=rag_doc_types,
         )
-        rag_context = "\n\n---\n\n".join(r["text"] for r in rag_results)
+        rag_context = "\n\n---\n\n".join(
+            r["text"] for r in _cap_rag(rag_results, budget_tokens=3500)
+        )
 
         # ── Image description context (project-level + chapter-level) ─────────
         # Priority: same as codex — injected alongside rag_context
@@ -370,9 +379,9 @@ class DraftEngine:
             style_results = await self._pm.retrieve_style_examples(
                 project_id=project_id,
                 query=question,
-                n_results=4,
+                n_results=8,
             )
-            style_chunks = [r["text"] for r in style_results]
+            style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=1500)]
 
         # ── Language instruction ───────────────────────────────────────────
         lang_line = (
@@ -787,6 +796,27 @@ def _last_paragraphs(text: str, n_tokens: int = 512) -> str:
     if len(text) <= max_chars:
         return text
     return text[-max_chars:]
+
+
+def _cap_rag(results: list, budget_tokens: int) -> list:
+    """
+    Select as many RAG result chunks as fit within *budget_tokens* total,
+    preserving relevance order (results are already sorted best-first).
+
+    Using a token budget instead of a fixed count means:
+      - Small chunks  → more results fit → richer context
+      - Large chunks  → fewer results fit → prompt stays safe for small models
+    Token estimate: 1 token ≈ 4 chars (consistent with _estimate_tokens in chunker).
+    """
+    selected: list = []
+    used = 0
+    for r in results:
+        tokens = max(1, len(r["text"]) // 4)
+        if used + tokens > budget_tokens:
+            break
+        selected.append(r)
+        used += tokens
+    return selected
 
 
 def _detect_chapter_id(question: str, chapters: list) -> str:

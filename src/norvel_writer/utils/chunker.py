@@ -1,140 +1,90 @@
-"""Sentence-aware text chunker with overlapping windows."""
+"""
+Text chunker — backed by LangChain's battle-tested splitters.
+
+All documents stored in this app are now Markdown, so the primary splitter is
+MarkdownTextSplitter, which respects structural hierarchy:
+
+  ## Heading  →  \n\n paragraph  →  \n line  →  word  →  (char as last resort)
+
+The character-level last resort in LangChain only fires when ALL earlier split
+points are exhausted — i.e. there is no heading, no blank line, no newline, and
+no space in the entire chunk.  In practice this never happens for prose.
+For CJK text with no spaces, character-level splitting is actually *correct*
+(each character is a natural word boundary).
+
+Token estimate: 1 token ≈ 4 chars (consistent with the rest of the codebase).
+"""
 from __future__ import annotations
 
-import re
-from typing import List, Optional
-
-_nltk_ready = False
+from typing import List
 
 
-def _ensure_nltk() -> None:
-    global _nltk_ready
-    if _nltk_ready:
-        return
-    import nltk
-    try:
-        nltk.data.find("tokenizers/punkt_tab")
-    except LookupError:
-        nltk.download("punkt_tab", quiet=True)
-    _nltk_ready = True
-
-
-def _estimate_tokens(text: str) -> int:
-    """Rough token estimate: ~4 chars per token."""
-    return max(1, len(text) // 4)
-
-
-def _sent_tokenize(text: str, language: str = "english") -> List[str]:
-    _ensure_nltk()
-    import nltk
-    try:
-        return nltk.sent_tokenize(text, language=language)
-    except Exception:
-        # Fallback for scripts NLTK has no punkt model for (CJK, Arabic, Thai…).
-        # Split on:
-        #   • ASCII sentence-end punctuation followed by whitespace  (.!?)
-        #   • CJK full-width sentence-end punctuation                (。！？…)
-        #   • Two or more consecutive newlines (paragraph break)
-        return [s for s in re.split(
-            r'(?<=[.!?])\s+|(?<=[。！？…])|(?<=[‼‽])\s*|\n{2,}', text
-        ) if s.strip()]
+def _char_size(tokens: int) -> int:
+    """Convert a token budget to an approximate character budget."""
+    return max(1, tokens * 4)
 
 
 def chunk_text(
     text: str,
     max_tokens: int = 512,
     overlap_tokens: int = 128,
-    language: str = "english",
+    language: str = "english",   # kept for API compatibility; not needed for Markdown
 ) -> List[str]:
     """
-    Split text into overlapping chunks bounded by sentence boundaries.
+    Split *text* into overlapping chunks.
 
-    Returns a list of chunk strings.
+    Uses LangChain's MarkdownTextSplitter so structural boundaries
+    (headings, paragraphs, sentences) are always preferred over arbitrary
+    word or character cuts.
+
+    Parameters
+    ----------
+    text : str
+        The document text, expected to be in Markdown format.
+    max_tokens : int
+        Approximate maximum size of each chunk in tokens (1 token ≈ 4 chars).
+    overlap_tokens : int
+        Approximate overlap between adjacent chunks in tokens.
+    language : str
+        Ignored — kept for backward compatibility with call sites that pass
+        a language code.  Markdown structure is language-agnostic.
+
+    Returns
+    -------
+    List[str]
+        Non-empty chunk strings.
     """
     if not text or not text.strip():
         return []
 
-    sentences = _sent_tokenize(text.strip(), language=language)
-    if not sentences:
-        return [text.strip()]
+    from langchain_text_splitters import MarkdownTextSplitter
 
-    chunks: List[str] = []
-    current: List[str] = []
-    current_tokens = 0
-    overlap_buffer: List[str] = []
-
-    for sent in sentences:
-        sent_tokens = _estimate_tokens(sent)
-
-        # If a single sentence exceeds max_tokens, hard-split it
-        if sent_tokens > max_tokens:
-            # Flush current
-            if current:
-                chunks.append(" ".join(current))
-                current, current_tokens = [], 0
-            # Hard split on word boundaries
-            words = sent.split()
-            sub: List[str] = []
-            sub_tokens = 0
-            for w in words:
-                wt = _estimate_tokens(w)
-                if sub_tokens + wt > max_tokens and sub:
-                    chunks.append(" ".join(sub))
-                    sub, sub_tokens = [], 0
-                sub.append(w)
-                sub_tokens += wt
-            if sub:
-                chunks.append(" ".join(sub))
-            continue
-
-        if current_tokens + sent_tokens > max_tokens and current:
-            chunks.append(" ".join(current))
-            # Keep overlap
-            overlap: List[str] = []
-            ot = 0
-            for s in reversed(current):
-                st = _estimate_tokens(s)
-                if ot + st > overlap_tokens:
-                    break
-                overlap.insert(0, s)
-                ot += st
-            current = overlap
-            current_tokens = ot
-
-        current.append(sent)
-        current_tokens += sent_tokens
-
-    if current:
-        chunks.append(" ".join(current))
-
-    return [c for c in chunks if c.strip()]
+    splitter = MarkdownTextSplitter(
+        chunk_size=_char_size(max_tokens),
+        chunk_overlap=_char_size(overlap_tokens),
+    )
+    return [c.strip() for c in splitter.split_text(text) if c.strip()]
 
 
 def chunk_by_paragraphs(
     text: str,
     max_tokens: int = 512,
-    overlap_tokens: int = 64,
+    overlap_tokens: int = 128,
 ) -> List[str]:
-    """Alternative chunker that preserves paragraph boundaries."""
-    paragraphs = re.split(r"\n{2,}", text.strip())
-    merged: List[str] = []
-    current_parts: List[str] = []
-    current_tokens = 0
+    """
+    Alternative chunker that splits at paragraph boundaries first.
 
-    for para in paragraphs:
-        pt = _estimate_tokens(para)
-        if current_tokens + pt > max_tokens and current_parts:
-            merged.append("\n\n".join(current_parts))
-            # Overlap: keep last paragraph if it fits
-            if _estimate_tokens(current_parts[-1]) <= overlap_tokens:
-                current_parts = [current_parts[-1]]
-                current_tokens = _estimate_tokens(current_parts[0])
-            else:
-                current_parts, current_tokens = [], 0
-        current_parts.append(para)
-        current_tokens += pt
+    Uses RecursiveCharacterTextSplitter with paragraph-first separators.
+    Suitable for plain text that is not structured as Markdown.
+    """
+    if not text or not text.strip():
+        return []
 
-    if current_parts:
-        merged.append("\n\n".join(current_parts))
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-    return [c for c in merged if c.strip()]
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=_char_size(max_tokens),
+        chunk_overlap=_char_size(overlap_tokens),
+        separators=["\n\n", "\n", " ", ""],
+    )
+    return [c.strip() for c in splitter.split_text(text) if c.strip()]
