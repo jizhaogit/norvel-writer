@@ -323,6 +323,99 @@ body {
   color: var(--muted);
   pointer-events: none;
 }
+
+/* ── Rewrite Versions Panel ── */
+#rewrite-panel {
+  border-top: 2px solid var(--accent);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  height: 280px;
+  min-height: 120px;
+  max-height: 70vh;
+  resize: vertical;
+  overflow: hidden;
+}
+#rewrite-panel-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+#rewrite-panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+  margin-right: 4px;
+}
+#rewrite-tabs-row {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  overflow-x: auto;
+}
+.rewrite-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--subtext);
+  transition: border-color .15s, background .15s;
+}
+.rewrite-tab.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.rewrite-tab-del {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 0 2px;
+  cursor: pointer;
+  line-height: 1;
+}
+.rewrite-tab-del:hover { color: var(--red); }
+#rewrite-panel-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+#rewrite-panel-close:hover { color: var(--red); }
+#rewrite-viewer-wrap {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+}
+#rewrite-viewer {
+  flex: 1;
+  resize: none;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.7;
+  padding: 14px 18px;
+  border: none;
+  overflow-y: auto;
+}
+#rewrite-viewer:focus { outline: none; }
 .ai-rewrite-marker { color: var(--accent); font-weight: bold; display: block; margin: 8px 0 4px; white-space: pre; }
 .ai-rewrite-end   { color: var(--accent); font-weight: bold; display: block; margin: 4px 0 8px; white-space: pre; }
 .ai-rewrite-content { background: rgba(137,180,250,0.06); border-left: 3px solid var(--accent); padding-left: 8px; display: block; }
@@ -645,6 +738,65 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   border-radius:0 4px 4px 0;
   line-height:1.5;
 }
+.chat-role-divider {
+  display:flex; align-items:center; gap:8px;
+  font-size:11px; color:var(--muted); font-style:italic;
+  margin:4px 0;
+}
+.chat-role-divider::before,.chat-role-divider::after {
+  content:''; flex:1; height:1px; background:var(--border);
+}
+
+/* ── Editor Notes pinboard ── */
+#editor-notes-box {
+  border: 1px solid color-mix(in srgb, var(--yellow) 35%, var(--border));
+  border-left: 3px solid var(--yellow);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--yellow) 5%, var(--surface));
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.editor-notes-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--yellow);
+  border-bottom: 1px solid color-mix(in srgb, var(--yellow) 18%, var(--border));
+}
+.editor-notes-chapter {
+  flex: 1;
+  font-weight: normal;
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-notes-content {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}
+#editor-notes-clear-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--red);
+  font-size: 10px;
+  padding: 1px 7px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#editor-notes-clear-btn:hover { background: color-mix(in srgb, var(--red) 15%, transparent); }
+
 /* Word-count row */
 .word-count-row { display:flex; align-items:center; gap:8px; }
 .word-cnt { width:72px !important; }
@@ -735,6 +887,18 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <button class="fmt-btn" data-cmd="removeFormat" title="Clear formatting">✕ fmt</button>
     </div>
     <div id="editor" contenteditable="true" spellcheck="true" data-placeholder="Select a chapter from the sidebar to start writing..."></div>
+
+    <!-- Rewrite Versions Panel -->
+    <div id="rewrite-panel" style="display:none;">
+      <div id="rewrite-panel-bar">
+        <span id="rewrite-panel-label">📄 Rewrite Versions</span>
+        <div id="rewrite-tabs-row"></div>
+        <button id="rewrite-panel-close" title="Close versions panel">✕</button>
+      </div>
+      <div id="rewrite-viewer-wrap">
+        <textarea id="rewrite-viewer" readonly placeholder="Select a version tab to read it…"></textarea>
+      </div>
+    </div>
   </div>
 
   <!-- Right panel -->
@@ -868,6 +1032,17 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         </label>
       </div>
       <div id="chat-role-hint" class="chat-role-hint">Professional editor: feedback on structure, pacing, voice, dialogue, and prose.</div>
+
+      <!-- Pinned editor notes for the current chapter -->
+      <div id="editor-notes-box" style="display:none;">
+        <div class="editor-notes-header">
+          <span>📌 Editor Notes</span>
+          <span id="editor-notes-chapter" class="editor-notes-chapter"></span>
+          <button id="editor-notes-clear-btn" title="Clear this note and allow a fresh one">🗑 Clear</button>
+        </div>
+        <div id="editor-notes-content" class="editor-notes-content"></div>
+      </div>
+
       <div id="chat-history"></div>
       <div class="form-group" style="margin-top:6px;">
         <textarea class="ctrl" id="chat-input" style="min-height:60px;resize:vertical;" placeholder="Ask anything — mention chapter names or &quot;codex&quot; naturally, e.g. &quot;Improve chapter 1&quot;, &quot;Check the codex for plot holes&quot;… (Enter to send, Shift+Enter for newline)"></textarea>
@@ -2054,6 +2229,8 @@ async function selectChapter(cid) {
   }
 
   await loadBeats(cid);
+  _rwCheckForChapter(cid);
+  _enRender(cid);
   try {
     const data = await apiFetch('/api/chapters/' + cid + '/content');
     el('editor').innerHTML = data.content || '';
@@ -2480,12 +2657,21 @@ const _chatRoleHints = {
   writer: 'Co-author: writes content following your persona, style, codex, and beats.',
   qa:     'QA reviewer: checks chapter logic, codex compliance, continuity, and descriptions.',
 };
+const _chatRoleLabels = { editor: '✏️ Editor', writer: '🖊 Writer', qa: '🔍 QA' };
+
 document.querySelectorAll('input[name="chat-role"]').forEach(r => {
   r.addEventListener('change', () => {
     el('chat-role-hint').textContent = _chatRoleHints[r.value] || '';
-    // Clear history when role changes — the AI persona is completely different
-    state.chatHistory = [];
-    el('chat-history').innerHTML = '';
+
+    // Keep chat history so the new role can see what the previous role said.
+    // Insert a visual divider so the user knows the persona has changed.
+    if (el('chat-history').children.length > 0) {
+      const div = document.createElement('div');
+      div.className = 'chat-role-divider';
+      div.textContent = 'switched to ' + (_chatRoleLabels[r.value] || r.value);
+      el('chat-history').appendChild(div);
+      el('chat-history').scrollTop = el('chat-history').scrollHeight;
+    }
   });
 });
 
@@ -2532,6 +2718,43 @@ async function sendChat() {
       if (ev.done) break;
     }
     state.chatHistory.push({ role: 'assistant', content: fullText });
+
+    // Role-specific action buttons after response
+    if (fullText && state.currentChapterId) {
+      const role = _activeChatRole();
+
+      if (role === 'writer') {
+        // Writer: save full response as a versioned rewrite
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn btn-sm';
+        saveBtn.style.cssText = 'margin-top:6px;font-size:11px;align-self:flex-end;';
+        saveBtn.textContent = '💾 Save as Rewrite Version';
+        saveBtn.addEventListener('click', () => {
+          _rwAddVersion(state.currentChapterId, state.currentChapterTitle, fullText);
+          _rwRender(state.currentChapterId);
+          saveBtn.textContent = '✔ Saved';
+          saveBtn.disabled = true;
+        });
+        assistantBubble.parentElement.appendChild(saveBtn);
+
+      } else if (role === 'editor') {
+        // Editor: pin suggestion as a persistent note for this chapter
+        const existingNote = _enLoad(state.currentChapterId);
+        const pinBtn = document.createElement('button');
+        pinBtn.className = 'btn btn-sm';
+        pinBtn.style.cssText = 'margin-top:6px;font-size:11px;align-self:flex-start;background:color-mix(in srgb,var(--yellow) 12%,var(--surface2));color:var(--yellow);border-color:color-mix(in srgb,var(--yellow) 30%,var(--border));';
+        pinBtn.textContent = existingNote ? '📌 Update Editor Note' : '📌 Pin as Editor Note';
+        pinBtn.addEventListener('click', () => {
+          _enSave(state.currentChapterId, fullText);
+          _enRender(state.currentChapterId);
+          pinBtn.textContent = '✔ Pinned';
+          pinBtn.disabled = true;
+        });
+        assistantBubble.parentElement.appendChild(pinBtn);
+      }
+
+      el('chat-history').scrollTop = el('chat-history').scrollHeight;
+    }
   } catch (e) {
     showAiError(assistantBubble, e.message);
   } finally {
@@ -2947,6 +3170,163 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ── Rewrite Versions ────────────────────────────────────────────────────────
+const _RW_STORE = 'norvel_rewrite_versions';
+
+function _rwLoad(chapterId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_RW_STORE) || '{}');
+    return all[chapterId] || [];
+  } catch (_) { return []; }
+}
+
+function _rwSave(chapterId, versions) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_RW_STORE) || '{}');
+    all[chapterId] = versions;
+    localStorage.setItem(_RW_STORE, JSON.stringify(all));
+  } catch (_) {}
+}
+
+function _rwAddVersion(chapterId, chapterTitle, content) {
+  const versions = _rwLoad(chapterId);
+  const n = versions.length + 1;
+  versions.push({
+    id:    Date.now().toString(36),
+    label: `${chapterTitle || 'Chapter'} – Rewrite v${n}`,
+    content,
+    createdAt: new Date().toISOString(),
+  });
+  _rwSave(chapterId, versions);
+  return versions;
+}
+
+function _rwDeleteVersion(chapterId, versionId) {
+  let versions = _rwLoad(chapterId).filter(v => v.id !== versionId);
+  // Renumber labels
+  let n = 1;
+  const base = versions[0]?.label.replace(/\s*–\s*Rewrite v\d+$/, '') || 'Chapter';
+  versions = versions.map(v => ({
+    ...v,
+    label: `${base} – Rewrite v${n++}`,
+  }));
+  _rwSave(chapterId, versions);
+  return versions;
+}
+
+let _rwActiveId = null;  // currently selected version id
+
+function _rwRender(chapterId) {
+  const panel   = el('rewrite-panel');
+  const tabsRow = el('rewrite-tabs-row');
+  const viewer  = el('rewrite-viewer');
+  const versions = _rwLoad(chapterId);
+
+  tabsRow.innerHTML = '';
+
+  if (!versions.length) {
+    panel.style.display = 'none';
+    _rwActiveId = null;
+    return;
+  }
+
+  panel.style.display = 'flex';
+
+  // If active version was deleted, pick the last one
+  if (!versions.find(v => v.id === _rwActiveId)) {
+    _rwActiveId = versions[versions.length - 1].id;
+  }
+
+  versions.forEach(v => {
+    const tab = document.createElement('div');
+    tab.className = 'rewrite-tab' + (v.id === _rwActiveId ? ' active' : '');
+    tab.title = v.label;
+
+    const lbl = document.createElement('span');
+    lbl.textContent = v.label;
+    lbl.style.maxWidth = '180px';
+    lbl.style.overflow = 'hidden';
+    lbl.style.textOverflow = 'ellipsis';
+    tab.appendChild(lbl);
+
+    const del = document.createElement('span');
+    del.className = 'rewrite-tab-del';
+    del.textContent = '✕';
+    del.title = 'Delete this version';
+    del.addEventListener('click', e => {
+      e.stopPropagation();
+      if (!confirm(`Delete "${v.label}"?`)) return;
+      _rwDeleteVersion(chapterId, v.id);
+      _rwRender(chapterId);
+    });
+    tab.appendChild(del);
+
+    tab.addEventListener('click', () => {
+      _rwActiveId = v.id;
+      _rwRender(chapterId);
+    });
+    tabsRow.appendChild(tab);
+  });
+
+  const active = versions.find(v => v.id === _rwActiveId);
+  viewer.value = active ? active.content : '';
+}
+
+// Show panel when switching to a chapter that has versions
+function _rwCheckForChapter(chapterId) {
+  if (!chapterId) { el('rewrite-panel').style.display = 'none'; return; }
+  _rwRender(chapterId);
+}
+
+el('rewrite-panel-close').addEventListener('click', () => {
+  el('rewrite-panel').style.display = 'none';
+});
+
+// ── Editor Notes (per-chapter, persisted) ───────────────────────────────────
+const _EN_STORE = 'norvel_editor_notes';
+
+function _enLoad(chapterId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_EN_STORE) || '{}');
+    return all[chapterId] || null;
+  } catch (_) { return null; }
+}
+
+function _enSave(chapterId, text) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_EN_STORE) || '{}');
+    all[chapterId] = text;
+    localStorage.setItem(_EN_STORE, JSON.stringify(all));
+  } catch (_) {}
+}
+
+function _enClear(chapterId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_EN_STORE) || '{}');
+    delete all[chapterId];
+    localStorage.setItem(_EN_STORE, JSON.stringify(all));
+  } catch (_) {}
+}
+
+function _enRender(chapterId) {
+  const box     = el('editor-notes-box');
+  const content = el('editor-notes-content');
+  const chLabel = el('editor-notes-chapter');
+  if (!chapterId) { box.style.display = 'none'; return; }
+  const note = _enLoad(chapterId);
+  if (!note) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  content.textContent = note;
+  chLabel.textContent = '— ' + (state.currentChapterTitle || '');
+}
+
+el('editor-notes-clear-btn').addEventListener('click', () => {
+  if (!state.currentChapterId) return;
+  if (!confirm('Clear the pinned editor note for this chapter?')) return;
+  _enClear(state.currentChapterId);
+  _enRender(state.currentChapterId);
+});
+
 // ── Persist resizable element heights across sessions ───────────────────────
 (function () {
   const STORE_KEY = 'norvel_ui_heights';
@@ -2961,6 +3341,7 @@ function escHtml(str) {
     'continue-end-before',
     'rewrite-content',
     'draft-instruction',
+    'rewrite-viewer',
   ];
 
   // Restore saved heights immediately (before first paint where possible)
