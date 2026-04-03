@@ -416,11 +416,14 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 8px;
+  min-height: 120px;
   height: 220px;
+  max-height: 80vh;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  resize: vertical;
 }
 .chat-bubble {
   padding: 8px 10px;
@@ -433,6 +436,8 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 }
 .chat-bubble.user { background: var(--accent); color: #1e1e2e; align-self: flex-end; }
 .chat-bubble.assistant { background: var(--surface2); color: var(--text); align-self: flex-start; }
+.chat-bubble.chat-thinking { color: var(--muted); font-style: italic; animation: chat-pulse 1.4s ease-in-out infinite; }
+@keyframes chat-pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
 #chat-input { min-height: 60px; resize: vertical; }
 
 /* ── Memory tab ── */
@@ -2497,7 +2502,9 @@ async function sendChat() {
   input.value = '';
 
   appendChatBubble('user', question);
-  const assistantBubble = appendChatBubble('assistant', '...');
+  const assistantBubble = appendChatBubble('assistant', '');
+  assistantBubble.classList.add('chat-thinking');
+  assistantBubble.textContent = 'Thinking…';
   let fullText = '';
 
   state.chatHistory.push({ role: 'user', content: question });
@@ -2516,10 +2523,12 @@ async function sendChat() {
         language: el('draft-lang').value,
       }),
     });
-    assistantBubble.textContent = '';
     for await (const ev of readSSE(res)) {
-      if (ev.error) { showAiError(assistantBubble, ev.error, !!fullText); break; }
-      if (ev.text) { fullText += ev.text; assistantBubble.textContent = fullText; el('chat-history').scrollTop = el('chat-history').scrollHeight; }
+      if (ev.error) { assistantBubble.classList.remove('chat-thinking'); showAiError(assistantBubble, ev.error, !!fullText); break; }
+      if (ev.text) {
+        if (!fullText) { assistantBubble.classList.remove('chat-thinking'); assistantBubble.textContent = ''; }
+        fullText += ev.text; assistantBubble.textContent = fullText; el('chat-history').scrollTop = el('chat-history').scrollHeight;
+      }
       if (ev.done) break;
     }
     state.chatHistory.push({ role: 'assistant', content: fullText });
