@@ -481,6 +481,57 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border); }
+
+/* ── AI Progress Bar ── */
+#ai-progress-bar {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 9999;
+  flex-direction: column;
+  gap: 0;
+  pointer-events: none;
+}
+#ai-progress-track {
+  width: 100%;
+  height: 4px;
+  background: var(--surface2);
+  overflow: hidden;
+}
+#ai-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), #89dceb);
+  transition: width 0.15s ease-out;
+  box-shadow: 0 0 8px var(--accent);
+}
+#ai-progress-info {
+  width: 100%;
+  background: var(--surface1);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 14px;
+  font-size: 11px;
+  color: var(--subtext);
+  box-sizing: border-box;
+}
+#ai-progress-info .ai-prog-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: ai-pulse 1s ease-in-out infinite;
+  flex-shrink: 0;
+}
+#ai-progress-info .ai-prog-label { flex: 1; font-weight: 500; color: var(--text); }
+#ai-progress-info .ai-prog-pct  { color: var(--accent); font-weight: 700; min-width: 38px; text-align: right; }
+#ai-progress-info .ai-prog-time { color: var(--muted); min-width: 40px; text-align: right; }
+@keyframes ai-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: .4; transform: scale(.7); }
+}
 </style>
 </head>
 <body>
@@ -573,7 +624,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
             <button class="btn primary" id="save-beats-btn" data-i18n="draft.save" style="padding:2px 8px;font-size:11px;">Save</button>
           </span>
         </label>
-        <textarea id="beats-editor" rows="5" class="ctrl" placeholder="Enter chapter beats (e.g.)&#10;1. Hero discovers the letter&#10;2. Confronts the villain&#10;3. Escapes the castle"></textarea>
+        <textarea id="beats-editor" class="ctrl" placeholder="Enter chapter beats (e.g.)&#10;1. Hero discovers the letter&#10;2. Confronts the villain&#10;3. Escapes the castle" style="min-height:90px;resize:vertical;"></textarea>
       </div>
       <div class="form-group">
         <label>Instruction</label>
@@ -582,6 +633,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <div class="btn-row">
         <button class="btn primary" id="continue-btn" data-i18n="draft.continue">Continue Writing</button>
         <button class="btn" id="rewrite-btn" data-i18n="draft.rewrite">Rewrite Selection</button>
+        <button class="btn" id="stop-gen-btn" style="display:none;background:var(--surface2);border:1px solid #f38ba8;color:#f38ba8;" title="Stop generation">⏹ Stop</button>
       </div>
       <label>Output</label>
       <div id="draft-output"></div>
@@ -710,6 +762,17 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <button id="beats-gen-run" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;" data-i18n="beats.gen_run">Generate from Chapter</button>
       <button id="beats-gen-accept" style="padding:7px 16px;background:var(--accent);border:none;border-radius:6px;color:#1e1e2e;font-weight:600;cursor:pointer;display:none;" data-i18n="beats.gen_accept">Use These Beats</button>
     </div>
+  </div>
+</div>
+
+<!-- AI Generation Progress Bar -->
+<div id="ai-progress-bar">
+  <div id="ai-progress-track"><div id="ai-progress-fill"></div></div>
+  <div id="ai-progress-info">
+    <span class="ai-prog-dot"></span>
+    <span class="ai-prog-label" id="ai-prog-label">Generating…</span>
+    <span class="ai-prog-pct"  id="ai-prog-pct">0%</span>
+    <span class="ai-prog-time" id="ai-prog-time">0.0s</span>
   </div>
 </div>
 
@@ -1156,6 +1219,79 @@ function applyI18n(lang) {
 // ── Helpers ────────────────────────────────────────────────────────────────
 function el(id) { return document.getElementById(id); }
 
+// ── AI Progress Bar ─────────────────────────────────────────────────────────
+let _aiProgressTimer = null;
+let _aiProgressStart = null;
+let _aiProgressHideTimer = null;
+let _activeAbortCtrl  = null;   // AbortController for the currently running generation
+
+function _startGenUI() {
+  if (_activeAbortCtrl) _activeAbortCtrl.abort();   // cancel any stale request
+  _activeAbortCtrl = new AbortController();
+  el('stop-gen-btn').style.display = '';
+}
+function _stopGenUI() {
+  _activeAbortCtrl = null;
+  el('stop-gen-btn').style.display = 'none';
+}
+
+function startAiProgress(label = 'Generating…') {
+  if (_aiProgressHideTimer) { clearTimeout(_aiProgressHideTimer); _aiProgressHideTimer = null; }
+  if (_aiProgressTimer)     { clearInterval(_aiProgressTimer); _aiProgressTimer = null; }
+  _aiProgressStart = Date.now();
+  el('ai-prog-label').textContent = label;
+  el('ai-prog-pct').textContent   = '0%';
+  el('ai-prog-time').textContent  = '0.0s';
+  el('ai-progress-fill').style.width = '0%';
+  el('ai-progress-bar').style.display = 'flex';
+  _aiProgressTimer = setInterval(() => {
+    if (!_aiProgressStart) return;   // guard: already stopped
+    const t = (Date.now() - _aiProgressStart) / 1000;
+    // Asymptotic curve — approaches 95 % over ~45 s, never reaches 100 % on its own
+    const pct = Math.round(95 * (1 - Math.exp(-t / 22)));
+    el('ai-progress-fill').style.width = pct + '%';
+    el('ai-prog-pct').textContent   = pct + '%';
+    el('ai-prog-time').textContent  = t.toFixed(1) + 's';
+  }, 120);
+}
+
+function stopAiProgress() {
+  // Always clear the interval first
+  if (_aiProgressTimer) { clearInterval(_aiProgressTimer); _aiProgressTimer = null; }
+  // Cancel any pending hide timer
+  if (_aiProgressHideTimer) { clearTimeout(_aiProgressHideTimer); _aiProgressHideTimer = null; }
+
+  const elapsed = _aiProgressStart
+    ? ((Date.now() - _aiProgressStart) / 1000).toFixed(1)
+    : null;
+  _aiProgressStart = null;
+
+  if (!el('ai-progress-bar') || el('ai-progress-bar').style.display === 'none') return;
+
+  if (elapsed !== null) {
+    // Snap to 100 % then fade out
+    el('ai-progress-fill').style.width = '100%';
+    el('ai-prog-pct').textContent  = '100%';
+    el('ai-prog-time').textContent = elapsed + 's';
+    _aiProgressHideTimer = setTimeout(() => {
+      el('ai-progress-bar').style.display = 'none';
+      el('ai-progress-fill').style.width  = '0%';
+      _aiProgressHideTimer = null;
+    }, 500);
+  } else {
+    // Bar was visible but we have no timing data — hide immediately
+    el('ai-progress-bar').style.display = 'none';
+    el('ai-progress-fill').style.width  = '0%';
+  }
+}
+
+// Stop button — aborts whichever generation is active
+document.addEventListener('DOMContentLoaded', () => {
+  el('stop-gen-btn').addEventListener('click', () => {
+    if (_activeAbortCtrl) { _activeAbortCtrl.abort(); }
+  });
+});
+
 function setStatus(msg, timeout = 0) {
   el('save-status').textContent = msg;
   if (timeout) setTimeout(() => { el('save-status').textContent = ''; }, timeout);
@@ -1247,19 +1383,24 @@ async function* readSSE(response) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop();
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        try {
-          yield JSON.parse(line.slice(6));
-        } catch (_) {}
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            yield JSON.parse(line.slice(6));
+          } catch (_) {}
+        }
       }
     }
+  } finally {
+    // Cancel the reader so the HTTP connection is released when caller breaks early
+    reader.cancel().catch(() => {});
   }
 }
 
@@ -1878,11 +2019,14 @@ el('continue-btn').addEventListener('click', async () => {
   state.draftOutput = '';
   el('continue-btn').disabled = true;
   el('continue-btn').textContent = after ? 'Generating (insert)...' : 'Generating...';
+  _startGenUI();
+  startAiProgress(after ? 'Inserting at cursor…' : 'Continuing story…');
 
   try {
     const res = await fetch('/api/projects/' + state.currentProjectId + '/continue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: _activeAbortCtrl.signal,
       body: JSON.stringify({
         chapter_id: state.currentChapterId,
         current_text: before,
@@ -1898,10 +2042,13 @@ el('continue-btn').addEventListener('click', async () => {
       if (ev.done) break;
     }
   } catch (e) {
-    showAiError(output, e.message);
+    if (e.name !== 'AbortError') showAiError(output, e.message);
+    // AbortError = user clicked Stop — silently finish
   } finally {
     el('continue-btn').disabled = false;
     el('continue-btn').textContent = 'Continue Writing';
+    _stopGenUI();
+    stopAiProgress();
   }
 });
 
@@ -1932,12 +2079,15 @@ el('rewrite-btn').addEventListener('click', async () => {
 
   el('rewrite-btn').disabled = true;
   el('rewrite-btn').textContent = 'Rewriting...';
+  _startGenUI();
+  startAiProgress('Rewriting selection…');
 
   let rewriteText = '';
   try {
     const res = await fetch('/api/projects/' + state.currentProjectId + '/rewrite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: _activeAbortCtrl.signal,
       body: JSON.stringify({
         passage,
         user_instruction: el('draft-instruction').value || 'Rewrite this passage in the same style.',
@@ -1959,8 +2109,10 @@ el('rewrite-btn').addEventListener('click', async () => {
       if (ev.done) break;
     }
   } catch (e) {
-    const span = document.getElementById(rewriteId);
-    if (span) span.textContent = 'Error: ' + e.message;
+    if (e.name !== 'AbortError') {
+      const span = document.getElementById(rewriteId);
+      if (span) span.textContent = 'Error: ' + e.message;
+    }
   } finally {
     // Add end marker
     const span = document.getElementById(rewriteId);
@@ -1972,6 +2124,8 @@ el('rewrite-btn').addEventListener('click', async () => {
     }
     el('rewrite-btn').disabled = false;
     el('rewrite-btn').textContent = 'Rewrite Selection';
+    _stopGenUI();
+    stopAiProgress();
     state.isDirty = true;
     clearTimeout(state.autosaveTimer);
     state.autosaveTimer = setTimeout(saveChapterContent, 2000);
@@ -2440,11 +2594,14 @@ el('beats-gen-run').addEventListener('click', async () => {
   el('beats-gen-output').textContent = 'Generating…';
   el('beats-gen-run').disabled = true;
   el('beats-gen-accept').style.display = 'none';
+  _startGenUI();
+  startAiProgress('Generating beats…');
   let result = '';
   try {
     const res = await fetch('/api/chapters/' + state.currentChapterId + '/beats/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: _activeAbortCtrl.signal,
       body: JSON.stringify({ description: chapterText, language: el('draft-lang').value || 'en' }),
     });
     for await (const ev of readSSE(res)) {
@@ -2453,9 +2610,11 @@ el('beats-gen-run').addEventListener('click', async () => {
       if (ev.done) { el('beats-gen-accept').style.display = 'inline-block'; break; }
     }
   } catch (e) {
-    showAiError(el('beats-gen-output'), e.message);
+    if (e.name !== 'AbortError') showAiError(el('beats-gen-output'), e.message);
   } finally {
     el('beats-gen-run').disabled = false;
+    _stopGenUI();
+    stopAiProgress();
   }
 });
 
