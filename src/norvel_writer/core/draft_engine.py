@@ -584,18 +584,27 @@ def _build_writer_system_prompt(
     else:  # chat
         task_line = (
             "Collaborate with the author on their request. "
-            "Write only what is asked — new scenes, dialogue, descriptions, revisions, or other content as directed."
+            "Write only what is asked — new scenes, dialogue, descriptions, revisions, or other content as directed. "
+            "If the user asks you to REWRITE or IMPROVE any content: "
+            "produce SUBSTANTIALLY DIFFERENT prose — not a paraphrase or near-copy of the original. "
+            "Improve sentence structure, word choice, rhythm, and imagery. "
+            "Apply every pinned Editor Suggestion, fix every pinned QA Issue, "
+            "and keep all rewritten content strictly consistent with the memory documents "
+            "(codex, beats, research, notes) in the rewritten output."
         )
 
-    # Rewrite mode: append critical differentiator rule
+    # Rewrite mode and chat mode: append critical differentiator rules.
+    # Chat mode needs them because users can type "rewrite this chapter" at any time.
     rewrite_rules: List[str] = []
-    if mode == "rewrite":
+    if mode in ("rewrite", "chat"):
         rewrite_rules = [
-            "⚠ REWRITE RULE: Your output MUST be substantially and noticeably different from the original passage",
+            "⚠ REWRITE RULE: If rewriting content, your output MUST be substantially and noticeably different from the original",
             "Do NOT copy sentences verbatim or reproduce the original structure word-by-word",
             "Do NOT produce a superficial paraphrase — genuinely improve the prose",
             "You may restructure paragraphs, change sentence order, alter imagery, or vary rhythm freely",
             "The STORY EVENTS and CHARACTER ACTIONS must remain the same — only the prose changes",
+            "Apply ALL pinned Editor Suggestions and fix ALL pinned QA Issues in the rewritten text",
+            "Keep all rewritten content consistent with memory documents — character names, traits, world rules, and plot facts from the Codex and Beats must not be altered or contradicted",
         ]
 
     all_rules = rules + rewrite_rules if rewrite_rules else rules
@@ -670,9 +679,18 @@ def _build_writer_system_prompt(
             f"{beats}"
         )
 
-    # Existing draft / chapter text (context — always shown when present)
+    # Existing draft / chapter text
     if existing_text:
-        label = "Current Draft (for context — do NOT repeat this)" if mode == "continue" else "Current Chapter Content (existing draft — for context only)"
+        if mode == "continue":
+            label = "Current Draft (for context — do NOT repeat this; write NEW content only)"
+        elif mode == "chat":
+            label = (
+                "Current Chapter Content — "
+                "if asked to rewrite: produce SUBSTANTIALLY DIFFERENT prose, apply all Editor Suggestions and QA fixes; "
+                "if asked for feedback or other tasks: use as reference"
+            )
+        else:
+            label = "Current Chapter Content (existing draft)"
         prompt += f"\n\n## {label}\n{existing_text}"
 
     # Continue-specific: style mode + constraints
