@@ -226,25 +226,24 @@ class DraftEngine:
         chapter_title = ""
         resolved_chapter_id = chapter_id
 
-        try:
-            from norvel_writer.storage.repositories.project_repo import ProjectRepo
-            from norvel_writer.storage.db import get_db
-            repo = ProjectRepo(get_db())
+        # Use self._pm directly — it already holds a working DB connection
+        if not resolved_chapter_id:
+            try:
+                all_chapters = self._pm.list_chapters(project_id)
+                resolved_chapter_id = _detect_chapter_id(question, all_chapters)
+            except Exception as exc:
+                log.warning("chat: chapter list failed: %s", exc)
 
-            if not resolved_chapter_id:
-                # Try to find a chapter the user mentioned by title or number
-                resolved_chapter_id = _detect_chapter_id(
-                    question, self._pm.list_chapters(project_id)
-                )
-
-            if resolved_chapter_id:
-                ch_row = repo.get_chapter(resolved_chapter_id)
+        if resolved_chapter_id:
+            try:
+                ch_row = self._pm.get_chapter(resolved_chapter_id)
                 if ch_row:
                     chapter_title = ch_row.get("title") or "Untitled Chapter"
                     raw = ch_row.get("content") or ""
                     chapter_text = truncate_to_tokens(strip_html(raw), max_tokens=3000)
-        except Exception:
-            pass
+                    log.debug("chat: loaded chapter %r (%d chars)", chapter_title, len(chapter_text))
+            except Exception as exc:
+                log.warning("chat: chapter load failed for %r: %s", resolved_chapter_id, exc)
 
         # ── Detect topic focus from question keywords ───────────────────────
         # Lets the user say "check the codex" or "第一章的节拍" and get the right content
