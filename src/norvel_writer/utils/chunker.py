@@ -30,14 +30,20 @@ def _sent_tokenize(text: str, language: str = "english") -> List[str]:
     try:
         return nltk.sent_tokenize(text, language=language)
     except Exception:
-        # Fallback: split on period/newline
-        return re.split(r"(?<=[.!?])\s+|\n{2,}", text)
+        # Fallback for scripts NLTK has no punkt model for (CJK, Arabic, Thai…).
+        # Split on:
+        #   • ASCII sentence-end punctuation followed by whitespace  (.!?)
+        #   • CJK full-width sentence-end punctuation                (。！？…)
+        #   • Two or more consecutive newlines (paragraph break)
+        return [s for s in re.split(
+            r'(?<=[.!?])\s+|(?<=[。！？…])|(?<=[‼‽])\s*|\n{2,}', text
+        ) if s.strip()]
 
 
 def chunk_text(
     text: str,
     max_tokens: int = 512,
-    overlap_tokens: int = 64,
+    overlap_tokens: int = 128,
     language: str = "english",
 ) -> List[str]:
     """

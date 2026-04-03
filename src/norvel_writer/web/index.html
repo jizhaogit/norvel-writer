@@ -1702,11 +1702,11 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     <div id="provider-anthropic-fields" style="display:none;">
       <div class="form-group">
         <label>Anthropic API Key</label>
-        <input type="password" id="cfg-anthropic-key" placeholder="sk-ant-…" style="width:100%;box-sizing:border-box;">
+        <input type="password" id="cfg-anthropic-key" placeholder="sk-ant-…" autocomplete="new-password" style="width:100%;box-sizing:border-box;">
       </div>
       <div class="form-group">
         <label>Claude Model</label>
-        <input type="text" id="cfg-anthropic-model" placeholder="claude-3-5-haiku-20241022" list="anthropic-models-datalist">
+        <input type="text" id="cfg-anthropic-model" placeholder="claude-3-5-haiku-20241022" autocomplete="off" list="anthropic-models-datalist">
         <datalist id="anthropic-models-datalist">
           <option value="claude-opus-4-5">
           <option value="claude-sonnet-4-5">
@@ -1729,11 +1729,11 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     <div id="provider-openai-fields" style="display:none;">
       <div class="form-group">
         <label>OpenAI API Key</label>
-        <input type="password" id="cfg-openai-key" placeholder="sk-…" style="width:100%;box-sizing:border-box;">
+        <input type="password" id="cfg-openai-key" placeholder="sk-…" autocomplete="new-password" style="width:100%;box-sizing:border-box;">
       </div>
       <div class="form-group">
         <label>Chat Model</label>
-        <input type="text" id="cfg-openai-model" placeholder="gpt-4o-mini" list="openai-models-datalist">
+        <input type="text" id="cfg-openai-model" placeholder="gpt-4o-mini" autocomplete="off" list="openai-models-datalist">
         <datalist id="openai-models-datalist">
           <option value="gpt-4o">
           <option value="gpt-4o-mini">
@@ -1743,11 +1743,11 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       </div>
       <div class="form-group">
         <label>Base URL (optional — for compatible APIs)</label>
-        <input type="url" id="cfg-openai-base-url" placeholder="https://api.openai.com/v1">
+        <input type="url" id="cfg-openai-base-url" placeholder="https://api.openai.com/v1" autocomplete="off">
       </div>
       <div class="form-group">
         <label>Embed Model</label>
-        <input type="text" id="cfg-openai-embed-model" placeholder="text-embedding-3-small">
+        <input type="text" id="cfg-openai-embed-model" placeholder="text-embedding-3-small" autocomplete="off">
       </div>
     </div>
 
@@ -1755,11 +1755,11 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     <div id="provider-gemini-fields" style="display:none;">
       <div class="form-group">
         <label>Gemini API Key</label>
-        <input type="password" id="cfg-gemini-key" placeholder="AIza…" style="width:100%;box-sizing:border-box;">
+        <input type="password" id="cfg-gemini-key" placeholder="AIza…" autocomplete="new-password" style="width:100%;box-sizing:border-box;">
       </div>
       <div class="form-group">
         <label>Gemini Model</label>
-        <input type="text" id="cfg-gemini-model" placeholder="gemini-1.5-flash" list="gemini-models-datalist">
+        <input type="text" id="cfg-gemini-model" placeholder="gemini-1.5-flash" autocomplete="off" list="gemini-models-datalist">
         <datalist id="gemini-models-datalist">
           <option value="gemini-2.0-flash">
           <option value="gemini-1.5-pro">

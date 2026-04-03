@@ -573,8 +573,11 @@ async def update_document_content(doc_id: str, body: DocumentContentUpdate):
             vs.delete_by_document(f"style_{project_id}", doc_id)
         repo.delete_chunks(doc_id)
 
-        # 2. Re-chunk
-        chunks = chunk_text(body.text, language="english")
+        # 2. Re-chunk — use the document's stored language so non-English
+        #    content gets the correct NLTK sentence tokeniser.
+        from norvel_writer.ingestion.pipeline import _nltk_lang
+        stored_lang = doc.get("language") or "en"
+        chunks = chunk_text(body.text, language=_nltk_lang(stored_lang))
         if not chunks:
             repo.update_document_status(doc_id, "ready", chunk_count=0)
             return {"ok": True, "chunks": 0}
