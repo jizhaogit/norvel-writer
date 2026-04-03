@@ -177,8 +177,11 @@ class DraftEngine:
             {
                 "role": "system",
                 "content": (
-                    f"You are a writing assistant. Summarise the following chapter "
-                    f"in 1-3 sentences. Write your summary in {lang}. Be concise and factual."
+                    f"You are a writing assistant. "
+                    f"Summarise the following chapter in 1-3 sentences. "
+                    f"IMPORTANT: Write your entire response in {lang}. "
+                    f"Do not respond in English if the target language is not English. "
+                    f"Be concise and factual."
                 ),
             },
             {"role": "user", "content": text},
@@ -208,9 +211,12 @@ class DraftEngine:
             {
                 "role": "system",
                 "content": (
-                    "You are a continuity checker. Given the project reference material, "
-                    "identify any contradictions or inconsistencies in the passage. "
-                    f"Write your response in {lang}. If no issues found, say so briefly."
+                    f"You are a continuity checker. "
+                    f"IMPORTANT: Write your ENTIRE response in {lang}. "
+                    f"Do not respond in English if the target language is not English. "
+                    f"Given the project reference material below, identify any contradictions "
+                    f"or inconsistencies in the passage. "
+                    f"If no issues are found, say so briefly in {lang}."
                 ),
             },
             {
@@ -275,14 +281,48 @@ class DraftEngine:
 
         # ── Detect topic focus from question keywords ───────────────────────
         # Lets the user say "check the codex" or "第一章的节拍" and get the right content
+        # Keywords cover: English, Chinese (Simplified/Traditional), Japanese, Korean,
+        # French, German, Spanish, Italian, Portuguese
         q_lower = question.lower()
         topic_wants_codex = any(kw in q_lower for kw in [
-            "codex", "character", "world", "lore", "rule", "setting",
-            "世界观", "角色", "设定", "人物", "コーデックス", "キャラ", "世界設定",
+            # English
+            "codex", "character", "world", "lore", "rule", "setting", "worldbuilding",
+            # Chinese (Simplified + Traditional)
+            "世界观", "角色", "设定", "人物", "规则", "世界設定", "人設",
+            # Japanese
+            "コーデックス", "キャラ", "世界設定", "設定", "キャラクター",
+            # Korean
+            "세계관", "캐릭터", "설정", "인물", "규칙",
+            # French
+            "personnage", "monde", "univers", "règle", "cadre",
+            # German
+            "charakter", "welt", "regel", "einstellung", "weltenbau",
+            # Spanish
+            "personaje", "mundo", "regla", "ambientación",
+            # Italian
+            "personaggio", "mondo", "regola", "ambientazione",
+            # Portuguese
+            "personagem", "mundo", "regra", "ambientação",
         ])
         topic_wants_beats = any(kw in q_lower for kw in [
-            "beat", "plot", "outline", "structure", "story arc",
-            "节拍", "情节", "大纲", "结构", "ビート", "プロット", "構成",
+            # English
+            "beat", "plot", "outline", "structure", "story arc", "pacing",
+            # Chinese
+            "节拍", "情节", "大纲", "结构", "節拍", "情節",
+            # Japanese
+            "ビート", "プロット", "構成", "あらすじ",
+            # Korean
+            "비트", "플롯", "구성", "개요",
+            # French
+            "intrigue", "structure", "trame", "plan",
+            # German
+            "handlung", "struktur", "gliederung", "plot",
+            # Spanish
+            "trama", "estructura", "argumento",
+            # Italian
+            "trama", "struttura", "intreccio",
+            # Portuguese
+            "trama", "estrutura", "enredo",
         ])
 
         # ── Role-specific RAG doc_types ────────────────────────────────────
@@ -332,7 +372,11 @@ class DraftEngine:
         # ── Language instruction ───────────────────────────────────────────
         lang_line = (
             f"ALWAYS respond in the same language the user writes in. "
-            f"The user appears to be writing in {lang_display} — respond in {lang_display}."
+            f"The user appears to be writing in {lang_display} — respond in {lang_display}. "
+            f"This applies to EVERYTHING in your response: content, section headers, "
+            f"structural labels (e.g. PROBLEM / WHY / SUGGESTION / PASS / ISSUES / SUMMARY "
+            f"/ 问题 / 原因 / 建议), and any meta-commentary. "
+            f"Do NOT use English labels or headings if the response language is not English."
         )
 
         # ── Load role definition from TOML file ───────────────────────────
@@ -358,25 +402,35 @@ class DraftEngine:
                 "Marketability — does it meet genre and audience expectations?",
             ])
             feedback_style = rd.get("feedback", {}).get("style", "").strip() or (
-                "Quote directly from the chapter text to anchor each point.\n"
-                "Explain WHY something works or doesn't.\n"
-                "Give specific, actionable revision suggestions.\n"
-                "Balance positive observations with areas for improvement."
+                "Feedback rules — STRICTLY follow these:\n"
+                "- Report ONLY what needs to be improved — do NOT praise or say what is working well\n"
+                "- For every issue, use this structure (translate the labels into the response language):\n"
+                "    ▸ PROBLEM / 问题 / 問題: Quote the exact passage or describe the specific moment\n"
+                "    ▸ WHY / 原因 / 理由: Explain clearly why this weakens the writing\n"
+                "    ▸ SUGGESTION / 建议 / 提案: Give a concrete, specific revision\n"
+                "- If the user asks about a specific aspect, address that first\n"
+                "- Be direct and specific — vague feedback is not acceptable\n"
+                "- Do NOT add a summary of positives at the end\n"
+                "- Write ALL labels and content in the same language the user writes in"
             )
 
             system_prompt = (
+                # Language instruction FIRST — small models must see this before the English background
+                f"{lang_line}\n\n"
                 f"{background}\n\n"
-                "Your ONLY job right now is to give the author honest, constructive, "
-                "publisher-level editorial feedback on the chapter text provided below.\n"
-                "DO NOT discuss the codex, world-building documents, or project metadata. "
+                "Your ONLY job right now is to identify what needs IMPROVEMENT in the chapter "
+                "and tell the author exactly how to fix it.\n"
+                "Do NOT praise what is working — the author wants actionable improvements only.\n"
+                "Do NOT discuss the codex, world-building documents, or project metadata. "
                 "Focus exclusively on the prose, structure, and craft of the chapter itself.\n\n"
-                f"Your focus areas:\n{_bullets(focus_areas)}\n\n"
-                f"{feedback_style}\n\n"
-                + lang_line
+                f"Your focus areas:\n{_bullets(focus_areas)}\n"
+                f"(When referencing these areas in your response, translate their names into {lang_display}.)\n\n"
+                f"{feedback_style}"
             )
             if not chapter_text:
                 system_prompt += (
-                    "\n\n⚠️ No chapter content is loaded. Tell the user: "
+                    f"\n\n⚠️ No chapter content is loaded. "
+                    f"Tell the user IN {lang_display}: "
                     "Please open and select a chapter in the editor panel first, "
                     "then I can give you editorial feedback on its content."
                 )
@@ -434,21 +488,26 @@ class DraftEngine:
                 "Chaos / confusion — unclear blocking, confusing POV shifts, hard-to-follow scenes",
             ])
             report_format = rd.get("report", {}).get("format", "").strip() or (
-                "Format your response as a structured report:\n"
-                "- ✅ PASS items\n"
-                "- ⚠️ ISSUES (quote the exact location + explain the problem + suggest the fix)\n"
-                "- 📋 SUMMARY (overall verdict and top 3 priorities to fix)"
+                "Format your response as a structured report "
+                "(translate section labels into the response language):\n"
+                "- ✅ PASS / 通过 / 合格: brief list of items that are clearly correct\n"
+                "- ⚠️ ISSUES / 问题 / 問題点: quote exact location + explain problem + suggest fix\n"
+                "- 📋 SUMMARY / 总结 / まとめ: overall verdict and top 3 priorities to fix\n"
+                "Write ALL section labels and content in the same language the user writes in."
             )
 
             system_prompt = (
+                # Language instruction FIRST — small models must see this before the English background
+                f"{lang_line}\n\n"
                 f"{background}\n\n"
-                f"Check all of the following:\n{_bullets(check_areas)}\n\n"
-                f"{report_format}\n\n"
-                + lang_line
+                f"Check all of the following:\n{_bullets(check_areas)}\n"
+                f"(When referencing these check areas in your response, translate their names into {lang_display}.)\n\n"
+                f"{report_format}"
             )
             if not chapter_text:
                 system_prompt += (
-                    "\n\n⚠️ No chapter content is loaded. Tell the user: "
+                    f"\n\n⚠️ No chapter content is loaded. "
+                    f"Tell the user IN {lang_display}: "
                     "Please open and select a chapter in the editor panel first, "
                     "then I can run a QA check on its content."
                 )
@@ -585,8 +644,11 @@ def _build_writer_system_prompt(
         task_line = (
             "Collaborate with the author on their request. "
             "Write only what is asked — new scenes, dialogue, descriptions, revisions, or other content as directed. "
-            "If the user asks you to REWRITE or IMPROVE any content: "
-            "produce SUBSTANTIALLY DIFFERENT prose — not a paraphrase or near-copy of the original. "
+            # Multilingual rewrite intent — critical for non-English users
+            "If the user asks you to REWRITE or IMPROVE any content "
+            "(重写 / 改写 / 重新写 / rewrite / improve / réécrire / umschreiben / riscrivere): "
+            "produce COMPLETELY NEW, SUBSTANTIALLY DIFFERENT prose from scratch. "
+            "Do NOT reproduce the original wording — treat the original as a plot summary only, then write fresh. "
             "Improve sentence structure, word choice, rhythm, and imagery. "
             "Apply every pinned Editor Suggestion, fix every pinned QA Issue, "
             "and keep all rewritten content strictly consistent with the memory documents "
@@ -594,15 +656,16 @@ def _build_writer_system_prompt(
         )
 
     # Rewrite mode and chat mode: append critical differentiator rules.
-    # Chat mode needs them because users can type "rewrite this chapter" at any time.
+    # Chat mode needs them because users can type "rewrite this chapter" in any language.
     rewrite_rules: List[str] = []
     if mode in ("rewrite", "chat"):
         rewrite_rules = [
-            "⚠ REWRITE RULE: If rewriting content, your output MUST be substantially and noticeably different from the original",
-            "Do NOT copy sentences verbatim or reproduce the original structure word-by-word",
-            "Do NOT produce a superficial paraphrase — genuinely improve the prose",
+            # Bilingual so small models catch it regardless of conversation language
+            "⚠ REWRITE RULE / 改写规则: If rewriting (重写/改写/rewrite), your output MUST be completely and noticeably different from the original",
+            "Do NOT copy sentences verbatim — 不得逐字复制原文",
+            "Do NOT produce a superficial paraphrase — genuinely write new prose from scratch",
             "You may restructure paragraphs, change sentence order, alter imagery, or vary rhythm freely",
-            "The STORY EVENTS and CHARACTER ACTIONS must remain the same — only the prose changes",
+            "The STORY EVENTS and CHARACTER ACTIONS must remain the same — only the prose changes / 情节事件不变，只改变文字表达",
             "Apply ALL pinned Editor Suggestions and fix ALL pinned QA Issues in the rewritten text",
             "Keep all rewritten content consistent with memory documents — character names, traits, world rules, and plot facts from the Codex and Beats must not be altered or contradicted",
         ]
@@ -610,6 +673,11 @@ def _build_writer_system_prompt(
     all_rules = rules + rewrite_rules if rewrite_rules else rules
 
     prompt = (
+        # Language instruction FIRST — before the English background so small models
+        # don't default to English when the user writes in another language.
+        f"ALWAYS write in {lang_display}. "
+        f"Every word of your output — prose, labels, commentary — must be in {lang_display}. "
+        f"Do NOT output English if {lang_display} is not English.\n\n"
         f"{background}\n\n"
         f"Task: {task_line}\n\n"
         "You MUST honour the following (in strict priority order):\n"
@@ -619,8 +687,7 @@ def _build_writer_system_prompt(
         f"4. {p4}\n"
         f"5. {p5}\n"
         f"6. {p6}\n\n"
-        f"When writing:\n{_bullets(all_rules)}\n\n"
-        f"ALWAYS write in {lang_display}."
+        f"When writing:\n{_bullets(all_rules)}"
     )
 
     # Priority 2 — Persona
@@ -683,15 +750,22 @@ def _build_writer_system_prompt(
     if existing_text:
         if mode == "continue":
             label = "Current Draft (for context — do NOT repeat this; write NEW content only)"
+            prompt += f"\n\n## {label}\n{existing_text}"
         elif mode == "chat":
-            label = (
-                "Current Chapter Content — "
-                "if asked to rewrite: produce SUBSTANTIALLY DIFFERENT prose, apply all Editor Suggestions and QA fixes; "
-                "if asked for feedback or other tasks: use as reference"
+            # Sandwich the chapter between two warnings so small models don't lose
+            # the instruction by the time they finish reading long chapters.
+            prompt += (
+                f"\n\n## Current Chapter Content"
+                f"\n⚠️ REWRITE WARNING (重写警告): The text below is the ORIGINAL. "
+                f"If the user asks to rewrite (重写/改写/rewrite), you MUST write completely NEW prose. "
+                f"Do NOT copy or closely paraphrase this text — treat it as a plot summary only, then write fresh.\n"
+                f"\n{existing_text}\n"
+                f"\n⚠️ END OF ORIGINAL CHAPTER — 以上是原文。"
+                f"If rewriting: do NOT reproduce the above. Write entirely new prose covering the same events."
             )
         else:
             label = "Current Chapter Content (existing draft)"
-        prompt += f"\n\n## {label}\n{existing_text}"
+            prompt += f"\n\n## {label}\n{existing_text}"
 
     # Continue-specific: style mode + constraints
     if mode == "continue":

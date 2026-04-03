@@ -83,9 +83,17 @@ class ImageIngestor(BaseIngestor):
         """
         from norvel_writer.llm.ollama_client import get_client, OllamaModelNotFoundError
 
-        prompt = _PROMPTS.get(doc_type, _PROMPTS["default"])
-        if language.lower() not in ("english", "en"):
-            prompt += f" Write the description in {language}."
+        base_prompt = _PROMPTS.get(doc_type, _PROMPTS["default"])
+        # Language instruction placed FIRST so the model prioritises it
+        # before reading the task description — prevents defaulting to English.
+        if language.lower() in ("english", "en"):
+            lang_prefix = "Write your response in English. "
+        else:
+            lang_prefix = (
+                f"Write your ENTIRE response in {language}. "
+                f"Do NOT respond in English. "
+            )
+        prompt = lang_prefix + base_prompt
 
         client = get_client()
         try:

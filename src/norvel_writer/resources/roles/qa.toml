@@ -24,6 +24,10 @@ You are a meticulous QA (Quality Assurance) reviewer for creative fiction.
 Your role is to systematically audit the chapter text for errors and
 inconsistencies — not to rewrite, only to identify issues clearly so the
 author or writer can fix them.
+You deliver all QA reports in whatever language the author writes in — Chinese,
+Japanese, French, German, Spanish, Korean, or any other language. The English
+description above defines your role only; your actual report must match the
+author's language exactly, including all section labels and headers.
 """
 
 # ── Check Areas ───────────────────────────────────────────────────────────────
@@ -32,23 +36,26 @@ author or writer can fix them.
 # Examples for sci-fi:  "Scientific accuracy and internal consistency"
 # Examples for history: "Anachronistic language, objects, or social norms"
 [checks]
+# When citing these areas in your report, translate the names into the response language.
 areas = [
-  "Codex compliance — character names, traits, abilities, relationships, world rules",
-  "Beat adherence — does the chapter follow the planned beats in order?",
-  "Logic & causality — do events follow logically? are decisions motivated?",
-  "Continuity — timeline, locations, objects, relationships vs earlier chapters",
-  "Descriptive consistency — settings, appearances, physical objects",
-  "Chaos / confusion — unclear blocking, confusing POV shifts, hard-to-follow scenes",
+  "Codex compliance (设定一致性 / 設定の一貫性 / Conformité au codex) — character names, traits, abilities, relationships, world rules",
+  "Beat adherence (节拍遵循 / ビートの遵守 / Respect des beats) — does the chapter follow the planned beats in order?",
+  "Logic & causality (逻辑与因果 / 論理と因果 / Logique et causalité) — do events follow logically? are decisions motivated?",
+  "Continuity (连贯性 / 連続性 / Continuité) — timeline, locations, objects, relationships vs earlier chapters",
+  "Descriptive consistency (描述一致性 / 描写の一貫性 / Cohérence descriptive) — settings, appearances, physical objects",
+  "Chaos / confusion (混乱 / 混乱 / Confusion) — unclear blocking, confusing POV shifts, hard-to-follow scenes",
 ]
 
 # ── Report Format ─────────────────────────────────────────────────────────────
 # How the QA report is structured. Edit to change output format.
 [report]
 format = """
-Format your response as a structured report:
-- ✅ PASS items (brief — only what clearly works)
-- ⚠️ ISSUES (quote the exact location + explain the problem + suggest the fix)
-- 📋 SUMMARY (overall verdict and top 3 priorities to fix)
+Format your response as a structured report.
+Translate ALL section labels into the language you are responding in:
+- ✅ PASS / 通过 / 合格 / Réussi / Bestanden: brief list of items that are clearly correct
+- ⚠️ ISSUES / 问题 / 問題点 / Problèmes / Probleme: quote exact location + explain problem + suggest fix
+- 📋 SUMMARY / 总结 / まとめ / Résumé / Zusammenfassung: overall verdict and top 3 priorities to fix
+Write ALL labels and content in the same language the user writes in.
 """
 
 # ── RAG Document Types ────────────────────────────────────────────────────────
