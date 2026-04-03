@@ -165,12 +165,39 @@ body {
   overflow: hidden;
 }
 
+/* ── Column drag handles (sidebar ↔ editor, editor ↔ right panel) ── */
+.col-resize-handle {
+  width: 6px;
+  flex-shrink: 0;
+  cursor: ew-resize;
+  background: transparent;
+  position: relative;
+  transition: background .15s;
+  z-index: 5;
+}
+.col-resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 36px;
+  border-radius: 3px;
+  background: var(--border);
+  transition: background .15s;
+}
+.col-resize-handle:hover,
+.col-resize-handle.dragging { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.col-resize-handle:hover::after,
+.col-resize-handle.dragging::after { background: var(--accent); }
+
 /* ── Sidebar ── */
 #sidebar {
   width: 240px;
-  min-width: 180px;
+  min-width: 160px;
   background: var(--surface);
-  border-right: 1px solid var(--border);
+  border-right: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -330,12 +357,34 @@ body {
   background: var(--surface);
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
   height: 280px;
-  min-height: 120px;
-  max-height: 70vh;
-  resize: vertical;
-  overflow: auto;           /* must be auto/scroll for resize handle to show */
+  min-height: 100px;
 }
+#rewrite-drag-handle {
+  height: 6px;
+  background: transparent;
+  cursor: ns-resize;
+  flex-shrink: 0;
+  transition: background .15s;
+  position: relative;
+}
+#rewrite-drag-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--border);
+  transition: background .15s;
+}
+#rewrite-drag-handle:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+#rewrite-drag-handle:hover::after,
+#rewrite-drag-handle.dragging::after { background: var(--accent); }
 #rewrite-panel-bar {
   display: flex;
   align-items: center;
@@ -423,9 +472,9 @@ body {
 /* ── Right panel ── */
 #right-panel {
   width: 320px;
-  min-width: 260px;
+  min-width: 220px;
   background: var(--surface);
-  border-left: 1px solid var(--border);
+  border-left: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -861,6 +910,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     </div>
     <div id="project-tree"></div>
   </div>
+  <div id="sidebar-resize-handle" class="col-resize-handle" title="Drag to resize sidebar"></div>
 
   <!-- Editor -->
   <div id="editor-area">
@@ -890,6 +940,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 
     <!-- Rewrite Versions Panel -->
     <div id="rewrite-panel" style="display:none;">
+      <div id="rewrite-drag-handle" title="Drag to resize"></div>
       <div id="rewrite-panel-bar">
         <span id="rewrite-panel-label">📄 Rewrite Versions</span>
         <div id="rewrite-tabs-row"></div>
@@ -901,6 +952,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     </div>
   </div>
 
+  <div id="right-panel-resize-handle" class="col-resize-handle" title="Drag to resize panel"></div>
   <!-- Right panel -->
   <div id="right-panel">
     <div id="tabs">
@@ -3283,6 +3335,94 @@ function _rwCheckForChapter(chapterId) {
 el('rewrite-panel-close').addEventListener('click', () => {
   el('rewrite-panel').style.display = 'none';
 });
+
+// ── Drag-to-resize: Rewrite Versions panel ──────────────────────────────────
+(function () {
+  const handle = el('rewrite-drag-handle');
+  const panel  = el('rewrite-panel');
+  let startY, startH;
+
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    startY = e.clientY;
+    startH = panel.offsetHeight;
+    handle.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ns-resize';
+
+    function onMove(e) {
+      // Drag upward (negative delta) → increase height
+      const delta  = startY - e.clientY;
+      const newH   = Math.max(100, Math.min(window.innerHeight * 0.8, startH + delta));
+      panel.style.height = newH + 'px';
+    }
+
+    function onUp() {
+      handle.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      // Persist alongside other element heights
+      try {
+        const saved = JSON.parse(localStorage.getItem('norvel_ui_heights') || '{}');
+        saved['rewrite-panel'] = panel.style.height;
+        localStorage.setItem('norvel_ui_heights', JSON.stringify(saved));
+      } catch (_) {}
+    }
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}());
+
+// ── Drag-to-resize: Sidebar & Right panel (horizontal) ─────────────────────
+(function () {
+  function makeColResizer(handleId, targetEl, direction, minW, maxW, storeKey) {
+    const handle = el(handleId);
+    if (!handle) return;
+    let startX, startW;
+
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = targetEl.offsetWidth;
+      handle.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ew-resize';
+
+      function onMove(e) {
+        const delta = (e.clientX - startX) * direction;
+        const newW  = Math.max(minW, Math.min(maxW, startW + delta));
+        targetEl.style.width = newW + 'px';
+      }
+      function onUp() {
+        handle.classList.remove('dragging');
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        try {
+          const saved = JSON.parse(localStorage.getItem('norvel_ui_widths') || '{}');
+          saved[storeKey] = targetEl.style.width;
+          localStorage.setItem('norvel_ui_widths', JSON.stringify(saved));
+        } catch (_) {}
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // Restore saved widths on load
+  try {
+    const saved = JSON.parse(localStorage.getItem('norvel_ui_widths') || '{}');
+    if (saved.sidebar)     el('sidebar').style.width      = saved.sidebar;
+    if (saved['right-panel']) el('right-panel').style.width = saved['right-panel'];
+  } catch (_) {}
+
+  makeColResizer('sidebar-resize-handle',      el('sidebar'),      +1, 160, 520, 'sidebar');
+  makeColResizer('right-panel-resize-handle',  el('right-panel'),  -1, 220, 600, 'right-panel');
+}());
 
 // ── Editor Notes (per-chapter, persisted) ───────────────────────────────────
 const _EN_STORE = 'norvel_editor_notes';
