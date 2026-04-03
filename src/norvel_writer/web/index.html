@@ -1582,6 +1582,14 @@ async function apiFetch(url, opts = {}) {
 }
 
 async function* readSSE(response) {
+  // If the server returned an HTTP error, surface it as an SSE error event
+  // instead of trying to parse the HTML/JSON error body as a stream.
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try { const j = await response.json(); detail = j.detail || detail; } catch (_) {}
+    yield { error: detail };
+    return;
+  }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
@@ -2278,7 +2286,10 @@ el('generate-btn').addEventListener('click', async () => {
         if (ev.done) break;
       }
     } catch (e) {
-      if (e.name !== 'AbortError') showAiError(output, e.message);
+      if (e.name !== 'AbortError') {
+        console.error('[Continue Writing] fetch error:', e);
+        showAiError(output, e.message);
+      }
     } finally {
       el('generate-btn').disabled = false;
       el('generate-btn').textContent = 'Generate';
@@ -2333,7 +2344,10 @@ el('generate-btn').addEventListener('click', async () => {
         if (ev.done) break;
       }
     } catch (e) {
-      if (e.name !== 'AbortError') showAiError(output, e.message);
+      if (e.name !== 'AbortError') {
+        console.error('[Rewrite] fetch error:', e);
+        showAiError(output, e.message);
+      }
     } finally {
       el('generate-btn').disabled = false;
       el('generate-btn').textContent = 'Generate';

@@ -29,3 +29,8 @@ def setup_logging(log_dir: Path, level: int = logging.INFO) -> None:
     # Quiet noisy libraries
     for noisy in ("chromadb", "httpx", "urllib3", "asyncio"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    # ChromaDB's PostHog telemetry client has a broken call signature that
+    # logs ERROR on every event even when telemetry is disabled.
+    # Silence it completely — it carries no actionable information.
+    logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)

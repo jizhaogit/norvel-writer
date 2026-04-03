@@ -609,7 +609,7 @@ async def update_document_content(doc_id: str, body: DocumentContentUpdate):
 # ── AI: Continue / Rewrite / Chat ──────────────────────────────────────────
 
 class ContinueRequest(BaseModel):
-    chapter_id: str
+    chapter_id: str = ""
     current_text: str = ""          # text before the cursor
     text_after_cursor: str = ""     # text after the cursor (empty = cursor at end)
     user_instruction: str = "Continue the story from where it left off."
@@ -625,10 +625,12 @@ async def continue_draft(project_id: str, body: ContinueRequest):
             from norvel_writer.core.draft_engine import DraftEngine
             engine = DraftEngine(project_manager=get_pm())
             # Load beats for this chapter from DB
-            from norvel_writer.storage.repositories.project_repo import ProjectRepo
-            from norvel_writer.storage.db import get_db
-            ch_row = ProjectRepo(get_db()).get_chapter(body.chapter_id)
-            chapter_beats = (ch_row.get("beats") or "").strip() if ch_row else ""
+            chapter_beats = ""
+            if body.chapter_id:
+                from norvel_writer.storage.repositories.project_repo import ProjectRepo
+                from norvel_writer.storage.db import get_db
+                ch_row = ProjectRepo(get_db()).get_chapter(body.chapter_id)
+                chapter_beats = (ch_row.get("beats") or "").strip() if ch_row else ""
             stream = await engine.continue_draft(
                 project_id=project_id,
                 chapter_id=body.chapter_id,
@@ -643,6 +645,9 @@ async def continue_draft(project_id: str, body: ContinueRequest):
             async for chunk in stream:
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"
+        except asyncio.CancelledError:
+            # Client disconnected / request aborted — stop silently
+            return
         except Exception as exc:
             log.error("continue_draft error: %s", exc)
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
@@ -682,6 +687,8 @@ async def rewrite_passage(project_id: str, body: RewriteRequest):
             async for chunk in stream:
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"
+        except asyncio.CancelledError:
+            return
         except Exception as exc:
             log.error("rewrite_passage error: %s", exc)
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
