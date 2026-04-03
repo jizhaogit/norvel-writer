@@ -24,8 +24,9 @@ log = logging.getLogger(__name__)
 
 def _app_root() -> Path:
     """Return the project root directory (where run.bat lives)."""
-    # src/norvel_writer/llm/langchain_bridge.py → up 5 levels
-    return Path(__file__).parent.parent.parent.parent.parent
+    # src/norvel_writer/llm/langchain_bridge.py
+    # parent 1 → llm/   parent 2 → norvel_writer/   parent 3 → src/   parent 4 → project root
+    return Path(__file__).parent.parent.parent.parent
 
 
 def _config_dir() -> Path:

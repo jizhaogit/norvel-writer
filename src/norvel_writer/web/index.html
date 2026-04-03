@@ -2786,7 +2786,7 @@ async function sendChat() {
             assistantBubble.textContent = fullText.slice(0, -LOOP_PROBE);
             assistantBubble.textContent +=
               '\n\n⚠️ Generation stopped — repetition loop detected.\n' +
-              'The model started repeating itself. Save what's here, then ask the Writer to continue from where it left off, or try with fewer beats at a time.';
+              'The model started repeating itself. Save what you have here, then ask the Writer to continue from where it left off, or try with fewer beats at a time.';
             fullText = assistantBubble.textContent;
             break;
           }

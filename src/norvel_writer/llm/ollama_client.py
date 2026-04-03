@@ -313,7 +313,7 @@ def get_client() -> OllamaClient:
         if not base_url:
             try:
                 from dotenv import load_dotenv
-                app_root = Path(__file__).parent.parent.parent.parent.parent
+                app_root = Path(__file__).parent.parent.parent.parent  # llm→norvel_writer→src→project root
                 for candidate in [app_root / ".env"]:
                     if candidate.exists():
                         load_dotenv(candidate, override=False)
