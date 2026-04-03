@@ -2172,6 +2172,23 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
 // ── Draft AI ───────────────────────────────────────────────────────────────
 
+// ── Repetition-loop detector ─────────────────────────────────────────────────
+// Returns true when the tail of `text` contains a phrase repeating 4+ times.
+// Only checks once the output is long enough to avoid false positives.
+function _isLooping(text) {
+  if (text.length < 200) return false;
+  const tail = text.slice(-400);
+  // Try pattern lengths from 15 to 100 chars
+  for (let len = 15; len <= 100; len++) {
+    const pattern = tail.slice(-len);
+    if (!pattern.trim()) continue;
+    let count = 0, pos = 0;
+    while ((pos = tail.indexOf(pattern, pos)) !== -1) { count++; pos += len; }
+    if (count >= 4) return true;
+  }
+  return false;
+}
+
 // ── Mode radio toggle ───────────────────────────────────────────────────────
 document.querySelectorAll('input[name="ai-mode"]').forEach(radio => {
   radio.addEventListener('change', () => {
@@ -2248,8 +2265,17 @@ el('generate-btn').addEventListener('click', async () => {
       });
       for await (const ev of readSSE(res)) {
         if (ev.error) { showAiError(output, ev.error, true); break; }
-        if (ev.text)  { state.draftOutput += ev.text; output.textContent = state.draftOutput; output.scrollTop = output.scrollHeight; }
-        if (ev.done)  break;
+        if (ev.text) {
+          state.draftOutput += ev.text;
+          output.textContent = state.draftOutput;
+          output.scrollTop = output.scrollHeight;
+          if (_isLooping(state.draftOutput)) {
+            _activeAbortCtrl?.abort();
+            output.textContent += '\n\n[Generation stopped: repetition loop detected]';
+            break;
+          }
+        }
+        if (ev.done) break;
       }
     } catch (e) {
       if (e.name !== 'AbortError') showAiError(output, e.message);
@@ -2293,8 +2319,17 @@ el('generate-btn').addEventListener('click', async () => {
       });
       for await (const ev of readSSE(res)) {
         if (ev.error) { showAiError(output, ev.error, true); break; }
-        if (ev.text)  { state.draftOutput += ev.text; output.textContent = state.draftOutput; output.scrollTop = output.scrollHeight; }
-        if (ev.done)  break;
+        if (ev.text) {
+          state.draftOutput += ev.text;
+          output.textContent = state.draftOutput;
+          output.scrollTop = output.scrollHeight;
+          if (_isLooping(state.draftOutput)) {
+            _activeAbortCtrl?.abort();
+            output.textContent += '\n\n[Generation stopped: repetition loop detected]';
+            break;
+          }
+        }
+        if (ev.done) break;
       }
     } catch (e) {
       if (e.name !== 'AbortError') showAiError(output, e.message);

@@ -98,6 +98,7 @@ def get_llm():
                 "model": _env("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
                 "api_key": _env("OPENAI_API_KEY"),
                 "temperature": 0.7,
+                "max_tokens": 4096,
                 "streaming": True,
             }
             base_url = _env("OPENAI_BASE_URL")
@@ -122,6 +123,7 @@ def get_llm():
                 model=_env("GEMINI_CHAT_MODEL", "gemini-1.5-flash"),
                 google_api_key=_env("GEMINI_API_KEY"),
                 temperature=0.7,
+                max_output_tokens=4096,
             )
             log.info("LLM: Gemini %s", _llm.model)
 
@@ -131,6 +133,11 @@ def get_llm():
                 base_url=_env("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
                 model=_env("OLLAMA_CHAT_MODEL", "gemma3:4b"),
                 temperature=0.7,
+                # Hard cap so a looping model cannot stream forever.
+                # repeat_penalty > 1.0 penalises repeated tokens and breaks
+                # most repetition loops before they start.
+                num_predict=4096,
+                repeat_penalty=1.15,
             )
             log.info("LLM: Ollama %s @ %s", _llm.model, _llm.base_url)
 

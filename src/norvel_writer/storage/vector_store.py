@@ -25,13 +25,7 @@ class VectorStore:
     def __init__(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
         import chromadb
-        # Disable ChromaDB's PostHog telemetry — their integration has a bug
-        # ("capture() takes 1 positional argument but 3 were given") that spams
-        # the log on every collection event.
-        self._client = chromadb.PersistentClient(
-            path=str(path),
-            settings=chromadb.Settings(anonymized_telemetry=False),
-        )
+        self._client = chromadb.PersistentClient(path=str(path))
         self._dim_cache: Dict[str, int] = {}
 
     def _collection(self, name: str):
