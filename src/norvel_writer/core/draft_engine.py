@@ -220,28 +220,68 @@ class DraftEngine:
         # ── Auto-detect response language ──────────────────────────────────
         lang_display = _lang_display(detect_language(question))
 
-        # ── Load current chapter text ──────────────────────────────────────
+        # ── Resolve which chapter the user is asking about ─────────────────
+        # Priority: explicitly open chapter_id → chapter mentioned by name/number in question
         chapter_text = ""
         chapter_title = ""
-        if chapter_id:
-            try:
-                from norvel_writer.storage.repositories.project_repo import ProjectRepo
-                from norvel_writer.storage.db import get_db
-                ch_row = ProjectRepo(get_db()).get_chapter(chapter_id)
+        resolved_chapter_id = chapter_id
+
+        try:
+            from norvel_writer.storage.repositories.project_repo import ProjectRepo
+            from norvel_writer.storage.db import get_db
+            repo = ProjectRepo(get_db())
+
+            if not resolved_chapter_id:
+                # Try to find a chapter the user mentioned by title or number
+                resolved_chapter_id = _detect_chapter_id(
+                    question, self._pm.list_chapters(project_id)
+                )
+
+            if resolved_chapter_id:
+                ch_row = repo.get_chapter(resolved_chapter_id)
                 if ch_row:
                     chapter_title = ch_row.get("title") or "Untitled Chapter"
                     raw = ch_row.get("content") or ""
                     chapter_text = truncate_to_tokens(strip_html(raw), max_tokens=3000)
-            except Exception:
-                pass
+        except Exception:
+            pass
 
-        # ── RAG retrieval (codex / beats / research) ───────────────────────
+        # ── Detect topic focus from question keywords ───────────────────────
+        # Lets the user say "check the codex" or "第一章的节拍" and get the right content
+        q_lower = question.lower()
+        topic_wants_codex = any(kw in q_lower for kw in [
+            "codex", "character", "world", "lore", "rule", "setting",
+            "世界观", "角色", "设定", "人物", "コーデックス", "キャラ", "世界設定",
+        ])
+        topic_wants_beats = any(kw in q_lower for kw in [
+            "beat", "plot", "outline", "structure", "story arc",
+            "节拍", "情节", "大纲", "结构", "ビート", "プロット", "構成",
+        ])
+
+        # ── Role-specific RAG doc_types ────────────────────────────────────
+        # Editor: beats only by default (knows chapter intent without codex noise).
+        #         Expand to codex if user explicitly asks about codex/characters.
+        # QA:     codex + beats (compliance checking)
+        # Writer: everything
+        if role == "editor":
+            rag_doc_types = ["beats"]
+            if topic_wants_codex:
+                rag_doc_types.append("codex")
+        elif role == "qa":
+            rag_doc_types = ["codex", "beats"]
+        else:
+            rag_doc_types = ["codex", "beats", "research"]
+
+        # If the user is specifically asking about beats/plot, always include beats
+        if topic_wants_beats and "beats" not in rag_doc_types:
+            rag_doc_types.append("beats")
+
         rag_query = f"{chapter_title}: {question}" if chapter_title else question
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
             query=rag_query,
-            n_results=8,
-            doc_types=["codex", "beats", "research"],
+            n_results=6,
+            doc_types=rag_doc_types,
         )
         rag_context = "\n\n---\n\n".join(r["text"] for r in rag_results)
 
@@ -251,7 +291,6 @@ class DraftEngine:
         if role == "writer":
             proj = self._pm.get_project(project_id)
             persona = (proj.get("persona") or "").strip() if proj else ""
-
             style_results = await self._pm.retrieve_style_examples(
                 project_id=project_id,
                 query=question,
@@ -259,33 +298,57 @@ class DraftEngine:
             )
             style_chunks = [r["text"] for r in style_results]
 
-        # ── Build role-specific system prompt ──────────────────────────────
+        # ── Language instruction ───────────────────────────────────────────
         lang_line = (
             f"ALWAYS respond in the same language the user writes in. "
             f"The user appears to be writing in {lang_display} — respond in {lang_display}."
         )
 
+        # ── Build role-specific system prompt ──────────────────────────────
         if role == "editor":
             system_prompt = (
                 "You are a senior professional book editor with 20+ years of experience "
-                "at major publishing houses. Your role is to give the author honest, "
-                "constructive, publisher-level editorial feedback.\n\n"
+                "at major publishing houses. Your ONLY job right now is to give the author "
+                "honest, constructive, publisher-level editorial feedback on the chapter text "
+                "provided below.\n\n"
+                "DO NOT discuss the codex, world-building documents, or project metadata. "
+                "Focus exclusively on the prose, structure, and craft of the chapter itself.\n\n"
                 "Your focus areas:\n"
-                "• Narrative structure & pacing — does the chapter flow well? are scene transitions clear?\n"
-                "• Character voice & consistency — does each character sound distinct and believable?\n"
-                "• Dialogue — is it natural? does it serve the scene? does it reveal character?\n"
+                "• Narrative structure & pacing — does the chapter flow? are transitions clear?\n"
+                "• Character voice & consistency — does each character sound distinct?\n"
+                "• Dialogue — is it natural? does it serve the scene? reveal character?\n"
                 "• Show vs tell — flag where emotions/actions are told rather than shown\n"
                 "• Prose clarity & style — unclear sentences, overwriting, repetition\n"
                 "• Tension & reader engagement — does the chapter hold attention?\n"
                 "• Marketability — does it meet genre and audience expectations?\n\n"
                 "When giving feedback:\n"
                 "- Quote directly from the chapter text to anchor each point\n"
-                "- Explain WHY something works or doesn't work\n"
+                "- Explain WHY something works or doesn't\n"
                 "- Give specific, actionable revision suggestions\n"
-                "- Balance positive observations with areas for improvement\n"
-                "- Be honest but respectful — the goal is to strengthen the work\n\n"
+                "- Balance positive observations with areas for improvement\n\n"
                 + lang_line
             )
+            # Chapter content is the PRIMARY subject — place it prominently
+            if not chapter_text:
+                system_prompt += (
+                    "\n\n⚠️ No chapter content is loaded. Tell the user: "
+                    "'Please open and select a chapter in the editor panel first, "
+                    "then I can give you editorial feedback on its content.'"
+                )
+            else:
+                system_prompt += (
+                    f"\n\n════════════════════════════════════════\n"
+                    f"CHAPTER TO REVIEW: {chapter_title}\n"
+                    f"════════════════════════════════════════\n"
+                    f"{chapter_text}\n"
+                    f"════════════════════════════════════════\n"
+                    f"(End of chapter. Give feedback on the text above only.)"
+                )
+            if rag_context:
+                system_prompt += (
+                    f"\n\n## Planned Chapter Beats (for context only)\n"
+                    f"{rag_context}"
+                )
 
         elif role == "writer":
             system_prompt = (
@@ -293,70 +356,73 @@ class DraftEngine:
                 "Your role is to help the author write new content — scenes, dialogue, "
                 "descriptions, chapter continuations — while faithfully following their "
                 "established style, voice, characters, and story rules.\n\n"
-                "You MUST honour:\n"
-                "1. The author's persona & voice instructions (PRIMARY — override everything else)\n"
+                "You MUST honour (in priority order):\n"
+                "1. The author's persona & voice instructions (PRIMARY — overrides everything)\n"
                 "2. The chapter beats (advance the plot in order — do not skip or add beats)\n"
-                "3. The project codex (character traits, world rules, lore, naming conventions)\n"
+                "3. The project codex (character traits, world rules, lore, naming)\n"
                 "4. The style samples (match tone, rhythm, sentence structure)\n\n"
                 "When writing:\n"
                 "- Do NOT add meta-commentary or explain your choices\n"
-                "- Do NOT use character names differently from the codex\n"
                 "- Maintain the established POV and tense\n"
                 "- Write directly usable prose — not outlines or summaries\n\n"
                 + lang_line
             )
+            if persona:
+                system_prompt += (
+                    f"\n\n## PRIMARY DIRECTIVE — Author's Voice\n{persona}"
+                )
+            if rag_context:
+                system_prompt += (
+                    f"\n\n## Project Reference Material (Codex / Beats / Research)\n"
+                    f"{rag_context}"
+                )
+            if style_chunks:
+                system_prompt += "\n\n## Style Reference Samples\n"
+                for chunk in style_chunks:
+                    system_prompt += f"---\n{chunk}\n"
+            if chapter_text:
+                system_prompt += (
+                    f"\n\n## Current Chapter Content (for context)\n"
+                    f"{chapter_text}"
+                )
 
         else:  # qa
             system_prompt = (
                 "You are a meticulous QA (Quality Assurance) reviewer for creative fiction. "
-                "Your role is to systematically audit the author's chapter for errors, "
-                "inconsistencies, and problems — not to rewrite, just to identify issues.\n\n"
+                "Your role is to systematically audit the chapter text below for errors "
+                "and inconsistencies — not to rewrite, only to identify issues.\n\n"
                 "Check all of the following:\n"
-                "• Codex compliance — do character names, traits, abilities, and relationships "
-                "match the codex exactly? Are world rules respected?\n"
-                "• Beat adherence — does the chapter follow the planned beats in order? "
-                "Are any beats missing, skipped, or contradicted?\n"
-                "• Logic & causality — do events follow logically? Are character decisions "
-                "consistent with their established motivations?\n"
-                "• Continuity — does anything contradict what was established earlier "
-                "(timeline, locations, objects, relationships)?\n"
-                "• Descriptive consistency — do settings, appearances, and physical objects "
-                "stay consistent throughout the chapter?\n"
-                "• Chaos or confusion — are there scenes that are hard to follow, "
-                "unclear action blocking, or confusing POV shifts?\n\n"
+                "• Codex compliance — character names, traits, abilities, relationships, world rules\n"
+                "• Beat adherence — does the chapter follow the planned beats in order?\n"
+                "• Logic & causality — do events follow logically? are decisions motivated?\n"
+                "• Continuity — timeline, locations, objects, relationships vs earlier chapters\n"
+                "• Descriptive consistency — settings, appearances, physical objects\n"
+                "• Chaos / confusion — unclear blocking, confusing POV shifts, hard-to-follow scenes\n\n"
                 "Format your response as a structured report:\n"
-                "- ✅ PASS items (things that are correct)\n"
-                "- ⚠️ ISSUES (specific problems with location in text and explanation)\n"
-                "- 📋 SUMMARY (overall verdict)\n\n"
+                "- ✅ PASS items\n"
+                "- ⚠️ ISSUES (quote the exact location + explain the problem)\n"
+                "- 📋 SUMMARY\n\n"
                 + lang_line
             )
-
-        # ── Attach chapter content ─────────────────────────────────────────
-        if chapter_text:
-            system_prompt += (
-                f"\n\n## Current Chapter: {chapter_title}\n"
-                f"{chapter_text}"
-            )
-
-        # ── Attach persona (Writer only) ───────────────────────────────────
-        if persona:
-            system_prompt += (
-                f"\n\n## Author's Personal Style Instructions (PRIMARY DIRECTIVE)\n"
-                f"{persona}"
-            )
-
-        # ── Attach style samples (Writer only) ────────────────────────────
-        if style_chunks:
-            system_prompt += "\n\n## Style Reference Samples\n"
-            for chunk in style_chunks:
-                system_prompt += f"---\n{chunk}\n"
-
-        # ── Attach codex / beats / research ───────────────────────────────
-        if rag_context:
-            system_prompt += (
-                f"\n\n## Project Reference Material (Codex / Beats / Research)\n"
-                f"{rag_context}"
-            )
+            if not chapter_text:
+                system_prompt += (
+                    "\n\n⚠️ No chapter content is loaded. Tell the user: "
+                    "'Please open and select a chapter in the editor panel first, "
+                    "then I can run a QA check on its content.'"
+                )
+            else:
+                system_prompt += (
+                    f"\n\n════════════════════════════════════════\n"
+                    f"CHAPTER TO AUDIT: {chapter_title}\n"
+                    f"════════════════════════════════════════\n"
+                    f"{chapter_text}\n"
+                    f"════════════════════════════════════════"
+                )
+            if rag_context:
+                system_prompt += (
+                    f"\n\n## Reference Material to Check Against (Codex / Beats)\n"
+                    f"{rag_context}"
+                )
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         if history:
@@ -372,3 +438,74 @@ def _last_paragraphs(text: str, n_tokens: int = 512) -> str:
     if len(text) <= max_chars:
         return text
     return text[-max_chars:]
+
+
+def _detect_chapter_id(question: str, chapters: list) -> str:
+    """
+    Try to identify which chapter the user is asking about by scanning
+    their question for chapter numbers or titles.  Works cross-language.
+
+    Strategies (in order):
+    1. Numeric chapter reference: "chapter 1", "第1章", "チャプター2", "章节1" etc.
+    2. Ordinal words mapped to numbers (first/second/第一/第二/一/二…)
+    3. Chapter title substring match (case-insensitive)
+
+    Returns the chapter_id string if found, else "".
+    """
+    import re
+
+    if not chapters:
+        return ""
+
+    q = question.lower()
+
+    # ── Map ordinal words → integer ────────────────────────────────────────
+    ORDINALS: dict = {
+        # English
+        "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+        "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+        # Chinese / Japanese shared characters
+        "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+        "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+        # Korean
+        "첫": 1, "둘": 2, "셋": 3,
+    }
+
+    # ── Pattern 1: explicit numeric references ─────────────────────────────
+    # Matches: "chapter 3", "ch3", "第3章", "チャプター3", "章节3", "cap 3",
+    #          "kap 3", "kapitel 3", "chapitre 3", "capitulo 3" etc.
+    num_patterns = [
+        r"(?:chapter|chap|ch|第|章节|チャプター|챕터|capitulo|chapitre|kapitel|kap|cap)[.\s\-_]*(\d+)",
+        r"(\d+)(?:st|nd|rd|th)?\s*(?:chapter|chap|章|章节)",
+    ]
+    for pat in num_patterns:
+        m = re.search(pat, q, re.IGNORECASE | re.UNICODE)
+        if m:
+            n = int(m.group(1))
+            # Match by position (1-based) or by numeric suffix in title
+            if 1 <= n <= len(chapters):
+                return chapters[n - 1]["id"]
+            # Also try matching title containing the number
+            for ch in chapters:
+                title = (ch.get("title") or "").lower()
+                if str(n) in title:
+                    return ch["id"]
+
+    # ── Pattern 2: ordinal words ───────────────────────────────────────────
+    for word, n in ORDINALS.items():
+        if word in q:
+            # Check it's near a chapter-related word
+            ctx_pattern = rf"{re.escape(word)}.{{0,20}}(?:chapter|chap|章|章节|チャプター|챕터)"
+            ctx_pattern2 = rf"(?:chapter|chap|章|章节|チャプター|챕터).{{0,20}}{re.escape(word)}"
+            if re.search(ctx_pattern, q, re.IGNORECASE | re.UNICODE) or \
+               re.search(ctx_pattern2, q, re.IGNORECASE | re.UNICODE):
+                if 1 <= n <= len(chapters):
+                    return chapters[n - 1]["id"]
+
+    # ── Pattern 3: chapter title substring match ───────────────────────────
+    for ch in chapters:
+        title = (ch.get("title") or "").strip().lower()
+        if title and title in q:
+            return ch["id"]
+
+    return ""
