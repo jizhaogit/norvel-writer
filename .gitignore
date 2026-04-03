@@ -1,1 +1,6 @@
 .claude/worktrees/naughty-dewdney/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
