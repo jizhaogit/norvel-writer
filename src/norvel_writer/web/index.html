@@ -846,6 +846,56 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 }
 #editor-notes-clear-btn:hover { background: color-mix(in srgb, var(--red) 15%, transparent); }
 
+/* ── QA Notes pinboard ── */
+#qa-notes-box {
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.qa-notes-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+.qa-notes-chapter {
+  flex: 1;
+  font-weight: normal;
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qa-notes-content {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}
+#qa-notes-clear-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--red);
+  font-size: 10px;
+  padding: 1px 7px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#qa-notes-clear-btn:hover { background: color-mix(in srgb, var(--red) 15%, transparent); }
+
 /* Word-count row */
 .word-count-row { display:flex; align-items:center; gap:8px; }
 .word-cnt { width:72px !important; }
@@ -1093,6 +1143,16 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
           <button id="editor-notes-clear-btn" title="Clear this note and allow a fresh one">🗑 Clear</button>
         </div>
         <div id="editor-notes-content" class="editor-notes-content"></div>
+      </div>
+
+      <!-- Pinned QA notes for the current chapter -->
+      <div id="qa-notes-box" style="display:none;">
+        <div class="qa-notes-header">
+          <span>🔍 QA Notes</span>
+          <span id="qa-notes-chapter" class="qa-notes-chapter"></span>
+          <button id="qa-notes-clear-btn" title="Clear this QA note">🗑 Clear</button>
+        </div>
+        <div id="qa-notes-content" class="qa-notes-content"></div>
       </div>
 
       <div id="chat-history"></div>
@@ -2283,6 +2343,7 @@ async function selectChapter(cid) {
   await loadBeats(cid);
   _rwCheckForChapter(cid);
   _enRender(cid);
+  _qnRender(cid);
   try {
     const data = await apiFetch('/api/chapters/' + cid + '/content');
     el('editor').innerHTML = data.content || '';
@@ -2766,8 +2827,9 @@ async function sendChat() {
         role: _activeChatRole(),
         history: historyToSend,
         language: el('draft-lang').value,
-        // Pass the pinned editor note so the Writer can act on it automatically
+        // Pass pinned notes so the Writer can act on them automatically
         editor_note: _enLoad(state.currentChapterId) || '',
+        qa_note: _qnLoad(state.currentChapterId) || '',
       }),
     });
     for await (const ev of readSSE(res)) {
@@ -2828,6 +2890,21 @@ async function sendChat() {
           pinBtn.disabled = true;
         });
         assistantBubble.parentElement.appendChild(pinBtn);
+
+      } else if (role === 'qa') {
+        // QA: pin report as a persistent note for this chapter
+        const existingQaNote = _qnLoad(state.currentChapterId);
+        const qaPinBtn = document.createElement('button');
+        qaPinBtn.className = 'btn btn-sm';
+        qaPinBtn.style.cssText = 'margin-top:6px;font-size:11px;align-self:flex-start;background:color-mix(in srgb,var(--accent) 12%,var(--surface2));color:var(--accent);border-color:color-mix(in srgb,var(--accent) 30%,var(--border));';
+        qaPinBtn.textContent = existingQaNote ? '📌 Update QA Note' : '📌 Pin as QA Note';
+        qaPinBtn.addEventListener('click', () => {
+          _qnSave(state.currentChapterId, fullText);
+          _qnRender(state.currentChapterId);
+          qaPinBtn.textContent = '✔ Pinned';
+          qaPinBtn.disabled = true;
+        });
+        assistantBubble.parentElement.appendChild(qaPinBtn);
       }
 
       el('chat-history').scrollTop = el('chat-history').scrollHeight;
@@ -3490,6 +3567,51 @@ el('editor-notes-clear-btn').addEventListener('click', () => {
   if (!confirm('Clear the pinned editor note for this chapter?')) return;
   _enClear(state.currentChapterId);
   _enRender(state.currentChapterId);
+});
+
+// ── QA Notes (per-chapter, persisted) ──────────────────────────────────────
+const _QN_STORE = 'norvel_qa_notes';
+
+function _qnLoad(chapterId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_QN_STORE) || '{}');
+    return all[chapterId] || null;
+  } catch (_) { return null; }
+}
+
+function _qnSave(chapterId, text) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_QN_STORE) || '{}');
+    all[chapterId] = text;
+    localStorage.setItem(_QN_STORE, JSON.stringify(all));
+  } catch (_) {}
+}
+
+function _qnClear(chapterId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_QN_STORE) || '{}');
+    delete all[chapterId];
+    localStorage.setItem(_QN_STORE, JSON.stringify(all));
+  } catch (_) {}
+}
+
+function _qnRender(chapterId) {
+  const box     = el('qa-notes-box');
+  const content = el('qa-notes-content');
+  const chLabel = el('qa-notes-chapter');
+  if (!chapterId) { box.style.display = 'none'; return; }
+  const note = _qnLoad(chapterId);
+  if (!note) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  content.textContent = note;
+  chLabel.textContent = '— ' + (state.currentChapterTitle || '');
+}
+
+el('qa-notes-clear-btn').addEventListener('click', () => {
+  if (!state.currentChapterId) return;
+  if (!confirm('Clear the pinned QA note for this chapter?')) return;
+  _qnClear(state.currentChapterId);
+  _qnRender(state.currentChapterId);
 });
 
 // ── Persist resizable element heights across sessions ───────────────────────

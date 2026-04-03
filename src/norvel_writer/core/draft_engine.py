@@ -208,6 +208,7 @@ class DraftEngine:
         history: Optional[List[Dict[str, str]]] = None,
         language: str = "en",
         editor_note: str = "",
+        qa_note: str = "",
     ) -> AsyncIterator[str]:
         """
         Role-based chat with full project context.
@@ -275,7 +276,7 @@ class DraftEngine:
         elif role == "qa":
             rag_doc_types = ["codex", "beats"]
         else:
-            rag_doc_types = ["codex", "beats", "research"]
+            rag_doc_types = ["codex", "beats", "research", "notes"]
 
         # If the user is specifically asking about beats/plot, always include beats
         if topic_wants_beats and "beats" not in rag_doc_types:
@@ -361,48 +362,56 @@ class DraftEngine:
                 "Your role is to help the author write new content — scenes, dialogue, "
                 "descriptions, chapter continuations — while faithfully following their "
                 "established style, voice, characters, and story rules.\n\n"
-                "You MUST honour (in priority order):\n"
-                "1. The author's persona & voice instructions (PRIMARY — overrides everything)\n"
-                "2. Pinned editor suggestions — apply every point when rewriting\n"
-                "3. The chapter beats (advance the plot in order — do not skip or add beats)\n"
-                "4. The project codex (character traits, world rules, lore, naming)\n"
-                "5. The style samples (match tone, rhythm, sentence structure)\n\n"
+                "You MUST honour the following (in strict priority order):\n"
+                "1. The author's CURRENT REQUEST — what you are being asked to do right now\n"
+                "2. The author's persona & voice instructions — overrides stylistic choices\n"
+                "3. Pinned editor suggestions — apply every improvement point to your writing\n"
+                "4. All memory documents — codex, beats, notes, research — follow them strictly\n"
+                "5. Pinned QA issues — fix every flagged problem; do not reintroduce them\n"
+                "6. Style samples — match the established tone, rhythm, and sentence structure\n\n"
                 "When writing:\n"
                 "- Output ONLY the prose — no beat labels, no beat numbers, no headings,\n"
                 "  no annotations, no 'Beat 1:', no '[Beat: ...]', nothing except the story text\n"
-                "- Do NOT add meta-commentary or explain your choices\n"
-                "- Maintain the established POV and tense\n"
+                "- Do NOT add meta-commentary, preambles, or explain your choices\n"
+                "- Maintain the established POV and tense throughout\n"
                 "- Write directly usable prose — not outlines or summaries\n"
-                "- Cover each beat EXACTLY ONCE — once a beat is written, move on\n"
+                "- Cover each beat EXACTLY ONCE — once written, move on\n"
                 "- NEVER repeat a sentence, paragraph, or scene you have already written\n"
                 "- When you reach the final beat, end the chapter naturally and STOP\n\n"
                 + lang_line
             )
             if persona:
                 system_prompt += (
-                    f"\n\n## PRIMARY DIRECTIVE — Author's Voice\n{persona}"
+                    f"\n\n## PRIORITY 2 — Author's Voice & Persona\n{persona}"
                 )
             if editor_note:
                 system_prompt += (
                     f"\n\n╔══════════════════════════════════════════╗\n"
-                    f"║  📌 PINNED EDITOR SUGGESTIONS — APPLY ALL ║\n"
+                    f"║  PRIORITY 3 — EDITOR SUGGESTIONS (APPLY ALL) ║\n"
                     f"╚══════════════════════════════════════════╝\n"
                     f"{editor_note}\n"
-                    f"(Every point above must be addressed in your rewrite. "
-                    f"Do not ignore any suggestion.)"
+                    f"(Every point above must be addressed in your writing.)"
                 )
             if rag_context:
                 system_prompt += (
-                    f"\n\n## Project Reference Material (Codex / Beats / Research)\n"
+                    f"\n\n## PRIORITY 4 — Project Memory (Codex / Beats / Notes / Research)\n"
                     f"{rag_context}"
                 )
+            if qa_note:
+                system_prompt += (
+                    f"\n\n╔══════════════════════════════════════════╗\n"
+                    f"║  PRIORITY 5 — QA ISSUES (FIX ALL OF THESE) ║\n"
+                    f"╚══════════════════════════════════════════╝\n"
+                    f"{qa_note}\n"
+                    f"(Every issue above must be corrected. Do not reintroduce any of them.)"
+                )
             if style_chunks:
-                system_prompt += "\n\n## Style Reference Samples\n"
+                system_prompt += "\n\n## PRIORITY 6 — Style Reference Samples\n"
                 for chunk in style_chunks:
                     system_prompt += f"---\n{chunk}\n"
             if chapter_text:
                 system_prompt += (
-                    f"\n\n## Current Chapter Content (for context)\n"
+                    f"\n\n## Current Chapter Content (existing draft — for context only)\n"
                     f"{chapter_text}"
                 )
 
