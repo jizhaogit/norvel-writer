@@ -627,6 +627,29 @@ body {
 .ai-rewrite-end   { color: var(--accent); font-weight: bold; display: block; margin: 4px 0 8px; white-space: pre; }
 .ai-rewrite-content { background: rgba(137,180,250,0.06); border-left: 3px solid var(--accent); padding-left: 8px; display: block; }
 
+/* ── AI Language bar ── */
+#ai-lang-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#ai-lang-bar .ai-lang-icon { font-size: 13px; flex-shrink: 0; }
+#ai-lang-bar label { font-size: 11px; color: var(--subtext); flex-shrink: 0; margin: 0; }
+#ai-lang-bar select {
+  flex: 1;
+  font-size: 11px;
+  padding: 2px 4px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
 /* ── Right panel ── */
 #right-panel {
   width: 320px;
@@ -1325,12 +1348,15 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <button class="tab-btn" data-tab="persona" data-i18n="tab.persona">Persona</button>
     </div>
 
+    <!-- Unified AI language selector — applies to Draft AI, Chat, Editor, QA -->
+    <div id="ai-lang-bar">
+      <span class="ai-lang-icon">🌐</span>
+      <label for="ai-lang">AI Language</label>
+      <select id="ai-lang"></select>
+    </div>
+
     <!-- Draft AI tab -->
     <div class="tab-pane active" id="tab-draft">
-      <div class="form-group">
-        <label>Language</label>
-        <select id="draft-lang"></select>
-      </div>
       <div class="form-group">
         <label>Style Mode</label>
         <select id="draft-style-mode">
@@ -1762,12 +1788,8 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <div id="llm-env-status" style="font-size:11px;color:var(--subtext);margin-top:4px;min-height:14px;"></div>
     </div>
     <div class="form-group">
-      <label>Default Content Language</label>
+      <label>Default Language for New Projects</label>
       <select id="cfg-content-lang"></select>
-    </div>
-    <div class="form-group">
-      <label>Default Project Language</label>
-      <select id="cfg-project-lang"></select>
     </div>
     <div class="form-group">
       <label data-i18n="settings.ui_lang">App UI Language</label>
@@ -1874,6 +1896,7 @@ const state = {
   visionAvailable: false,
   currentImageId: null,
   _pendingImageChapterId: null,
+  projectLang: 'en',
 };
 
 const LANGUAGES = {
@@ -2190,9 +2213,8 @@ function populateLangSelect(selectEl, selectedCode) {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  populateLangSelect(el('draft-lang'), 'en');
+  populateLangSelect(el('ai-lang'), 'en');
   populateLangSelect(el('cfg-content-lang'), 'en');
-  populateLangSelect(el('cfg-project-lang'), 'en');
 
   await checkOllamaStatus();
   checkModelHealth();           // non-blocking; pills start as "checking"
@@ -2207,6 +2229,23 @@ async function init() {
     if (lastCid) await selectChapter(lastCid);
   }
 }
+
+// ── AI Language bar ─────────────────────────────────────────────────────────
+el('ai-lang').addEventListener('change', async () => {
+  const newLang = el('ai-lang').value;
+  state.projectLang = newLang;
+  // Persist to current project if one is selected
+  if (state.currentProjectId) {
+    try {
+      await apiFetch('/api/projects/' + state.currentProjectId, {
+        method: 'PUT',
+        body: { language: newLang },
+      });
+    } catch (e) {
+      console.warn('[ai-lang] failed to persist language to project:', e.message);
+    }
+  }
+});
 
 // ── Model health indicators ─────────────────────────────────────────────────
 function _applyMhPill(pillId, data) {
@@ -2335,8 +2374,9 @@ async function loadSettings() {
     // loaded from .env by loadDotEnv() — not from settings.toml.
     el('cfg-theme').value = state.settings.theme || 'dark';
     populateLangSelect(el('cfg-content-lang'), state.settings.default_content_language || 'en');
-    populateLangSelect(el('cfg-project-lang'), state.settings.default_project_language || 'en');
-    populateLangSelect(el('draft-lang'), state.settings.default_content_language || 'en');
+    // ai-lang bar default — will be overridden when a project is selected
+    populateLangSelect(el('ai-lang'), state.settings.default_content_language || 'en');
+    state.projectLang = state.settings.default_content_language || 'en';
     if (s.ui_language) {
       el('cfg-ui-lang').value = s.ui_language;
       applyI18n(s.ui_language);
@@ -2561,7 +2601,6 @@ el('settings-save-btn').addEventListener('click', async () => {
       body: {
         theme: el('cfg-theme').value,
         default_content_language: el('cfg-content-lang').value,
-        default_project_language: el('cfg-project-lang').value,
         ui_language: el('cfg-ui-lang').value,
       },
     });
@@ -2627,6 +2666,10 @@ async function selectProject(pid) {
   localStorage.setItem('lastProjectId', pid);
   const proj = state.projects.find(p => p.id === pid);
   el('current-project-name').textContent = proj ? proj.name : '';
+
+  // Sync AI language from project (falls back to global setting, then 'en')
+  state.projectLang = proj?.language || state.settings.default_content_language || 'en';
+  populateLangSelect(el('ai-lang'), state.projectLang);
 
   // Update tree
   document.querySelectorAll('.project-item').forEach(el => el.classList.remove('active', 'expanded'));
@@ -3076,7 +3119,7 @@ el('generate-btn').addEventListener('click', async () => {
           text_after_cursor: endBefore,
           user_instruction:  instrBase + wordNote,
           style_mode:        el('draft-style-mode').value,
-          language:          el('draft-lang').value,
+          language:          state.projectLang,
           editor_note:       _enLoad(state.currentChapterId) || '',
           qa_note:           _qnLoad(state.currentChapterId) || '',
         }),
@@ -3136,7 +3179,7 @@ el('generate-btn').addEventListener('click', async () => {
           chapter_id:       state.currentChapterId || '',
           user_instruction: instrBase + wordNote,
           style_mode:       el('draft-style-mode').value,
-          language:         el('draft-lang').value,
+          language:         state.projectLang,
           editor_note:      _enLoad(state.currentChapterId) || '',
           qa_note:          _qnLoad(state.currentChapterId) || '',
         }),
@@ -3213,7 +3256,7 @@ el('summarise-btn').addEventListener('click', async () => {
   out.textContent = 'Summarising…';
   el('summarise-btn').disabled = true;
   try {
-    const lang = el('draft-lang').value || 'en';
+    const lang = state.projectLang || 'en';
     const data = await apiFetch('/api/chapters/' + state.currentChapterId + '/summary?language=' + lang);
     out.textContent = data.summary || '(Chapter is empty — nothing to summarise.)';
   } catch (e) {
@@ -3296,7 +3339,7 @@ async function sendChat() {
         chapter_id: state.currentChapterId || '',
         role: _activeChatRole(),
         history: historyToSend,
-        language: el('draft-lang').value,
+        language: state.projectLang,
         // Pass pinned notes so the Writer can act on them automatically
         editor_note: _enLoad(state.currentChapterId) || '',
         qa_note: _qnLoad(state.currentChapterId) || '',
@@ -3747,7 +3790,7 @@ el('beats-gen-run').addEventListener('click', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: _activeAbortCtrl.signal,
-      body: JSON.stringify({ description: chapterText, language: el('draft-lang').value || 'en' }),
+      body: JSON.stringify({ description: chapterText, language: state.projectLang || 'en' }),
     });
     for await (const ev of readSSE(res)) {
       if (ev.error) { showAiError(el('beats-gen-output'), ev.error, !!result); break; }

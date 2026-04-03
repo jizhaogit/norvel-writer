@@ -240,14 +240,19 @@ class DraftEngine:
         """
         Role-based chat with full project context.
         role: "editor" | "writer" | "qa"
-        Responds in the same language the user writes in.
+        Responds in the project language by default; switches if the user
+        explicitly requests a different language (e.g. "respond in Japanese").
         """
         from norvel_writer.llm.langchain_bridge import chat_stream
-        from norvel_writer.utils.text_utils import detect_language, strip_html, truncate_to_tokens
+        from norvel_writer.utils.text_utils import strip_html, truncate_to_tokens
         from norvel_writer.llm.prompt_builder import _lang_display
 
-        # ── Auto-detect response language ──────────────────────────────────
-        lang_display = _lang_display(detect_language(question))
+        # ── Resolve response language ──────────────────────────────────────
+        # Priority: explicit override in the user's message > project language
+        override = _detect_language_override(question)
+        effective_lang = override if override else (language or "en")
+        lang_display = _lang_display(effective_lang)
+        log.debug("chat: lang=%r (override=%r, project=%r)", effective_lang, override, language)
 
         # ── Resolve which chapter the user is asking about ─────────────────
         # Priority: explicitly open chapter_id → chapter mentioned by name/number in question
@@ -853,3 +858,70 @@ def _detect_chapter_id(question: str, chapters: list) -> str:
             return ch["id"]
 
     return ""
+
+
+def _detect_language_override(question: str) -> Optional[str]:
+    """
+    Detect when the user explicitly requests a specific response language.
+
+    Examples (all return the matching ISO code):
+      "respond in Japanese"    → "ja"
+      "用日语回答"               → "ja"
+      "répondez en français"   → "fr"
+      "write in Korean"        → "ko"
+      "antworte auf Deutsch"   → "de"
+
+    Returns None if no explicit override is detected.
+    """
+    import re
+
+    # Map of keywords to ISO codes — keywords may appear in any language
+    OVERRIDE_PATTERNS: list = [
+        # Japanese
+        (r"(?:respond|reply|write|answer|output|日语|日文|japanese|japanisch|japonais|japonés)\s*(?:in\s+)?(?:japanese|日语|日文|日本語|にほんご)", "ja"),
+        (r"(?:用|以|用日语|用日文|日本語で|일본어로)", "ja"),
+        # Chinese Simplified
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:chinese simplified|simplified chinese|简体中文|简体)", "zh"),
+        (r"(?:用|以)\s*(?:简体中文|中文简体|中文)", "zh"),
+        # Chinese Traditional
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:chinese traditional|traditional chinese|繁体中文|繁體中文|繁體)", "zh-tw"),
+        (r"(?:用|以)\s*(?:繁體中文|繁體|繁体)", "zh-tw"),
+        # Korean
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:korean|한국어|한글|koreanisch|coréen|coreano)", "ko"),
+        (r"(?:用|以|한국어로|韓国語で)", "ko"),
+        # French
+        (r"(?:respond|reply|write|answer|output|répondez|réponds|écris)?\s*(?:in\s+|en\s+)?(?:french|français|franzöisch|francés|francese)", "fr"),
+        # German
+        (r"(?:respond|reply|write|answer|output|antworte|antwortet|schreibe)?\s*(?:in\s+|auf\s+)?(?:german|deutsch|allemand|alemán|tedesco)", "de"),
+        # Spanish
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+|en\s+)?(?:spanish|español|espagnol|spagnolo|spanisch)", "es"),
+        # Italian
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:italian|italiano|italien|italienisch|italiani)", "it"),
+        # Portuguese
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:portuguese|português|portugais|portugiesisch|portoghese)", "pt"),
+        # Russian
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:russian|русский|russe|russisch|ruso)", "ru"),
+        # Arabic
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:arabic|عربي|عربية|arabe|arabisch)", "ar"),
+        # Hindi
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:hindi|हिन्दी|hindou|hindi)", "hi"),
+        # Dutch
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:dutch|nederlands|néerlandais|niederländisch|olandese)", "nl"),
+        # Turkish
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:turkish|türkçe|turc|türkisch|turco)", "tr"),
+        # Polish
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:polish|polski|polonais|polnisch|polacco)", "pl"),
+        # Vietnamese
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:vietnamese|tiếng việt|vietnamien|vietnamesisch)", "vi"),
+        # Thai
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:thai|ภาษาไทย|thaïlandais|thailändisch)", "th"),
+        # English (explicit switch back)
+        (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:english|anglais|inglés|inglese|englisch)", "en"),
+    ]
+
+    q = question.lower()
+    for pattern, code in OVERRIDE_PATTERNS:
+        if re.search(pattern, q, re.IGNORECASE | re.UNICODE):
+            return code
+
+    return None

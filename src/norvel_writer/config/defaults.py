@@ -73,9 +73,22 @@ LANGUAGES: dict[str, tuple[str, str]] = {
 
 # Full display label used in prompts, e.g. "Chinese (中文)"
 def language_display(code: str) -> str:
-    """Return 'English Name (Native Name)' for use in AI prompts."""
+    """Return 'English Name (Native Name)' for use in AI prompts.
+
+    Normalises langdetect variant codes (zh-cn, pt-br, etc.) to our registry
+    keys before lookup so the AI always receives a proper language name rather
+    than a raw ISO code like 'zh-cn'.
+    """
+    _aliases: dict = {
+        "zh-cn": "zh",
+        "zh-tw": "zh-tw",
+        "pt-br": "pt",
+        "pt-pt": "pt",
+        "he":    "he",   # Hebrew — not in registry, returned as-is below
+    }
+    code = _aliases.get(code, code)
     if code not in LANGUAGES:
-        return code
+        return code   # last resort: return raw code
     eng, native = LANGUAGES[code]
     return f"{eng} ({native})" if eng != native else eng
 
