@@ -345,8 +345,8 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   font-size: 12px;
   line-height: 1.6;
   min-height: 120px;
-  max-height: 200px;
-  overflow-y: auto;
+  overflow: auto;
+  resize: vertical;
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
@@ -375,7 +375,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
 }
 .chat-bubble.user { background: var(--accent); color: #1e1e2e; align-self: flex-end; }
 .chat-bubble.assistant { background: var(--surface2); color: var(--text); align-self: flex-start; }
-#chat-input { min-height: 60px; max-height: 120px; resize: vertical; }
+#chat-input { min-height: 60px; resize: vertical; }
 
 /* ── Memory tab ── */
 #doc-list {
@@ -532,6 +532,32 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: .4; transform: scale(.7); }
 }
+/* ── AI Mode selector ── */
+.ai-mode-selector { display:flex; gap:20px; margin-top:2px; }
+.ai-mode-opt {
+  display:flex; align-items:center; gap:7px;
+  cursor:pointer; margin:0;
+  font-size:13px; color:var(--text);
+  padding:6px 10px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  flex:1; justify-content:center;
+  transition:border-color .15s, background .15s;
+}
+.ai-mode-opt:has(input:checked) {
+  border-color:var(--accent);
+  background:color-mix(in srgb, var(--accent) 10%, transparent);
+  color:var(--accent);
+  font-weight:600;
+}
+.ai-mode-opt input[type=radio] { accent-color:var(--accent); width:14px; height:14px; }
+/* Word-count row */
+.word-count-row { display:flex; align-items:center; gap:8px; }
+.word-cnt { width:72px !important; }
+.word-cnt-sep { color:var(--muted); font-size:12px; white-space:nowrap; }
+/* Field hint */
+.field-hint { color:var(--subtext); font-weight:normal; font-size:10px; }
+
 </style>
 </head>
 <body>
@@ -626,15 +652,70 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         </label>
         <textarea id="beats-editor" class="ctrl" placeholder="Enter chapter beats (e.g.)&#10;1. Hero discovers the letter&#10;2. Confronts the villain&#10;3. Escapes the castle" style="min-height:90px;resize:vertical;"></textarea>
       </div>
+      <!-- ── AI Mode selector ── -->
+      <div class="form-group">
+        <div class="ai-mode-selector">
+          <label class="ai-mode-opt">
+            <input type="radio" name="ai-mode" id="mode-continue" value="continue" checked>
+            <span>Continue Writing</span>
+          </label>
+          <label class="ai-mode-opt">
+            <input type="radio" name="ai-mode" id="mode-rewrite" value="rewrite">
+            <span>Rewrite Selection</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- ── Continue Writing inputs ── -->
+      <div id="panel-continue">
+        <div class="form-group">
+          <label>Start From <small class="field-hint">— leave blank to auto-fill from editor cursor</small></label>
+          <textarea id="continue-start-from" class="ctrl" style="min-height:68px;resize:vertical;" placeholder="Paste the text to continue from, or leave blank to use your cursor position…"></textarea>
+        </div>
+        <div class="form-group">
+          <label>End Before <small class="field-hint">— optional, AI bridges into this text</small></label>
+          <textarea id="continue-end-before" class="ctrl" style="min-height:46px;resize:vertical;" placeholder="Optional: paste the text that follows the insertion point…"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Target Length</label>
+          <div class="word-count-row">
+            <input type="number" id="continue-min-words" class="ctrl word-cnt" min="10" max="9999" placeholder="Min">
+            <span class="word-cnt-sep">–</span>
+            <input type="number" id="continue-max-words" class="ctrl word-cnt" min="10" max="9999" placeholder="Max">
+            <span class="word-cnt-sep">words</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Rewrite inputs ── -->
+      <div id="panel-rewrite" style="display:none;">
+        <div class="form-group">
+          <label>Content to Rewrite</label>
+          <textarea id="rewrite-content" class="ctrl" style="min-height:100px;resize:vertical;" placeholder="Paste the text you want to rewrite here…"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Target Length</label>
+          <div class="word-count-row">
+            <input type="number" id="rewrite-min-words" class="ctrl word-cnt" min="10" max="9999" placeholder="Min">
+            <span class="word-cnt-sep">–</span>
+            <input type="number" id="rewrite-max-words" class="ctrl word-cnt" min="10" max="9999" placeholder="Max">
+            <span class="word-cnt-sep">words</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Shared instruction ── -->
       <div class="form-group">
         <label>Instruction</label>
-        <textarea class="ctrl" id="draft-instruction" rows="2" placeholder="Continue the story..."></textarea>
+        <textarea class="ctrl" id="draft-instruction" rows="2" placeholder="Additional instructions for the AI…"></textarea>
       </div>
+
+      <!-- ── Action row ── -->
       <div class="btn-row">
-        <button class="btn primary" id="continue-btn" data-i18n="draft.continue">Continue Writing</button>
-        <button class="btn" id="rewrite-btn" data-i18n="draft.rewrite">Rewrite Selection</button>
+        <button class="btn primary" id="generate-btn">Generate</button>
         <button class="btn" id="stop-gen-btn" style="display:none;background:var(--surface2);border:1px solid #f38ba8;color:#f38ba8;" title="Stop generation">⏹ Stop</button>
       </div>
+
       <label>Output</label>
       <div id="draft-output"></div>
       <div class="btn-row">
@@ -1003,7 +1084,6 @@ const state = {
   isDirty: false,
   settings: {},
   ollamaRunning: false,
-  savedCursorRange: null,   // Range captured when Continue is clicked; restored by Insert
 };
 
 const LANGUAGES = {
@@ -1968,167 +2048,135 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // ── Draft AI ───────────────────────────────────────────────────────────────
-// ── Cursor-split helper ─────────────────────────────────────────────────────
-// Returns { before, after, savedRange } where:
-//   before = plain text left of cursor in the editor
-//   after  = plain text right of cursor (empty if cursor is at end)
-//   savedRange = cloned Range for restoring the cursor on Insert
-function getEditorCursorSplit() {
-  const editor = el('editor');
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
-    // No cursor inside editor — treat as end-of-document
-    return { before: editor.innerText, after: '', savedRange: null };
-  }
-  const cursorRange = sel.getRangeAt(0).cloneRange();
-  // Collapse to start (handles selected text — treat selection start as cursor)
-  cursorRange.collapse(true);
 
-  const beforeRange = document.createRange();
-  beforeRange.selectNodeContents(editor);
-  beforeRange.setEnd(cursorRange.startContainer, cursorRange.startOffset);
+// ── Mode radio toggle ───────────────────────────────────────────────────────
+document.querySelectorAll('input[name="ai-mode"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    const isContinue = radio.value === 'continue';
+    el('panel-continue').style.display = isContinue ? '' : 'none';
+    el('panel-rewrite').style.display  = isContinue ? 'none' : '';
+  });
+});
 
-  const afterRange = document.createRange();
-  afterRange.selectNodeContents(editor);
-  afterRange.setStart(cursorRange.startContainer, cursorRange.startOffset);
-
-  return {
-    before: beforeRange.toString(),
-    after: afterRange.toString().trimStart(),
-    savedRange: cursorRange,
-  };
+// ── Word-count helper ────────────────────────────────────────────────────────
+function _buildWordCountNote(minEl, maxEl) {
+  const mn = parseInt(minEl.value) || 0;
+  const mx = parseInt(maxEl.value) || 0;
+  if (mn > 0 && mx >= mn) return ` Write between ${mn} and ${mx} words.`;
+  if (mn > 0) return ` Write at least ${mn} words.`;
+  if (mx > 0) return ` Write at most ${mx} words.`;
+  return '';
 }
 
-el('continue-btn').addEventListener('click', async () => {
+// ── Unified Generate button ──────────────────────────────────────────────────
+el('generate-btn').addEventListener('click', async () => {
   if (!state.currentProjectId || !state.currentChapterId) {
     alert('Please select a chapter first.'); return;
   }
-  // Gate: require beats unless skip was chosen
-  if (!_pendingContinue && !el('beats-editor').value.trim()) {
-    el('beats-required-modal').style.display = 'flex';
-    return;
-  }
-  _pendingContinue = false;
 
-  // Capture cursor position BEFORE the button steals focus
-  const { before, after, savedRange } = getEditorCursorSplit();
-  state.savedCursorRange = savedRange;   // used by Insert button
-
+  const mode = document.querySelector('input[name="ai-mode"]:checked').value;
   const output = el('draft-output');
-  output.textContent = '';
-  state.draftOutput = '';
-  el('continue-btn').disabled = true;
-  el('continue-btn').textContent = after ? 'Generating (insert)...' : 'Generating...';
-  _startGenUI();
-  startAiProgress(after ? 'Inserting at cursor…' : 'Continuing story…');
 
-  try {
-    const res = await fetch('/api/projects/' + state.currentProjectId + '/continue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: _activeAbortCtrl.signal,
-      body: JSON.stringify({
-        chapter_id: state.currentChapterId,
-        current_text: before,
-        text_after_cursor: after,
-        user_instruction: el('draft-instruction').value || 'Continue the story from where it left off.',
-        style_mode: el('draft-style-mode').value,
-        language: el('draft-lang').value,
-      }),
-    });
-    for await (const ev of readSSE(res)) {
-      if (ev.error) { showAiError(output, ev.error, true); break; }
-      if (ev.text) { state.draftOutput += ev.text; output.textContent = state.draftOutput; output.scrollTop = output.scrollHeight; }
-      if (ev.done) break;
+  // ── CONTINUE WRITING ────────────────────────────────────────────────────
+  if (mode === 'continue') {
+    // Beats gate
+    if (!_pendingContinue && !el('beats-editor').value.trim()) {
+      el('beats-required-modal').style.display = 'flex';
+      return;
     }
-  } catch (e) {
-    if (e.name !== 'AbortError') showAiError(output, e.message);
-    // AbortError = user clicked Stop — silently finish
-  } finally {
-    el('continue-btn').disabled = false;
-    el('continue-btn').textContent = 'Continue Writing';
-    _stopGenUI();
-    stopAiProgress();
-  }
-});
+    _pendingContinue = false;
 
-el('rewrite-btn').addEventListener('click', async () => {
-  if (!state.currentProjectId) { alert('Please select a project first.'); return; }
+    // Resolve start/end text — use field values, fall back to editor cursor
+    let startFrom = el('continue-start-from').value;   // may be empty
+    let endBefore  = el('continue-end-before').value.trim();
 
-  const sel = window.getSelection();
-  const passage = sel ? sel.toString().trim() : '';
-  if (!passage) { alert('Please select text in the editor to rewrite.'); return; }
+    if (!startFrom.trim()) {
+      // Auto-fill from the full editor content when left blank
+      startFrom = el('editor').innerText;
+    }
 
-  // 1. Apply strikethrough to selection
-  document.execCommand('strikeThrough', false, null);
+    const wordNote  = _buildWordCountNote(el('continue-min-words'), el('continue-max-words'));
+    const instrBase = el('draft-instruction').value.trim() || 'Continue the story from where it left off.';
 
-  // 2. Collapse selection to end and insert markers
-  if (sel.rangeCount > 0) {
-    const range = sel.getRangeAt(0);
-    range.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(range);
-  }
+    output.textContent = '';
+    state.draftOutput  = '';
+    el('generate-btn').disabled = true;
+    el('generate-btn').textContent = endBefore ? 'Generating (insert)…' : 'Generating…';
+    _startGenUI();
+    startAiProgress(endBefore ? 'Inserting at cursor…' : 'Continuing story…');
 
-  // 3. Insert rewrite block
-  document.execCommand('insertHTML', false, '<br><span class="ai-rewrite-marker">=============== AI Rewrite ===============</span><br>');
-
-  // 4. Create a live-updating span for streamed text
-  const rewriteId = 'rw-' + Date.now();
-  document.execCommand('insertHTML', false, `<span class="ai-rewrite-content" id="${rewriteId}"></span>`);
-
-  el('rewrite-btn').disabled = true;
-  el('rewrite-btn').textContent = 'Rewriting...';
-  _startGenUI();
-  startAiProgress('Rewriting selection…');
-
-  let rewriteText = '';
-  try {
-    const res = await fetch('/api/projects/' + state.currentProjectId + '/rewrite', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: _activeAbortCtrl.signal,
-      body: JSON.stringify({
-        passage,
-        user_instruction: el('draft-instruction').value || 'Rewrite this passage in the same style.',
-        style_mode: el('draft-style-mode').value,
-        language: el('draft-lang').value,
-      }),
-    });
-    for await (const ev of readSSE(res)) {
-      if (ev.error) {
-        const span = document.getElementById(rewriteId);
-        if (span) showAiError(span, ev.error, !!rewriteText);
-        break;
+    try {
+      const res = await fetch('/api/projects/' + state.currentProjectId + '/continue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: _activeAbortCtrl.signal,
+        body: JSON.stringify({
+          chapter_id:        state.currentChapterId,
+          current_text:      startFrom,
+          text_after_cursor: endBefore,
+          user_instruction:  instrBase + wordNote,
+          style_mode:        el('draft-style-mode').value,
+          language:          el('draft-lang').value,
+        }),
+      });
+      for await (const ev of readSSE(res)) {
+        if (ev.error) { showAiError(output, ev.error, true); break; }
+        if (ev.text)  { state.draftOutput += ev.text; output.textContent = state.draftOutput; output.scrollTop = output.scrollHeight; }
+        if (ev.done)  break;
       }
-      if (ev.text) {
-        rewriteText += ev.text;
-        const span = document.getElementById(rewriteId);
-        if (span) span.textContent = rewriteText;
+    } catch (e) {
+      if (e.name !== 'AbortError') showAiError(output, e.message);
+    } finally {
+      el('generate-btn').disabled = false;
+      el('generate-btn').textContent = 'Generate';
+      _stopGenUI();
+      stopAiProgress();
+    }
+
+  // ── REWRITE ─────────────────────────────────────────────────────────────
+  } else {
+    const passage = el('rewrite-content').value.trim();
+    if (!passage) {
+      el('rewrite-content').focus();
+      setStatus('Paste the text to rewrite first', 2500);
+      return;
+    }
+
+    const wordNote  = _buildWordCountNote(el('rewrite-min-words'), el('rewrite-max-words'));
+    const instrBase = el('draft-instruction').value.trim() || 'Rewrite this passage in the same style.';
+
+    output.textContent = '';
+    state.draftOutput  = '';
+    el('generate-btn').disabled = true;
+    el('generate-btn').textContent = 'Rewriting…';
+    _startGenUI();
+    startAiProgress('Rewriting selection…');
+
+    try {
+      const res = await fetch('/api/projects/' + state.currentProjectId + '/rewrite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: _activeAbortCtrl.signal,
+        body: JSON.stringify({
+          passage,
+          user_instruction: instrBase + wordNote,
+          style_mode:       el('draft-style-mode').value,
+          language:         el('draft-lang').value,
+        }),
+      });
+      for await (const ev of readSSE(res)) {
+        if (ev.error) { showAiError(output, ev.error, true); break; }
+        if (ev.text)  { state.draftOutput += ev.text; output.textContent = state.draftOutput; output.scrollTop = output.scrollHeight; }
+        if (ev.done)  break;
       }
-      if (ev.done) break;
+    } catch (e) {
+      if (e.name !== 'AbortError') showAiError(output, e.message);
+    } finally {
+      el('generate-btn').disabled = false;
+      el('generate-btn').textContent = 'Generate';
+      _stopGenUI();
+      stopAiProgress();
     }
-  } catch (e) {
-    if (e.name !== 'AbortError') {
-      const span = document.getElementById(rewriteId);
-      if (span) span.textContent = 'Error: ' + e.message;
-    }
-  } finally {
-    // Add end marker
-    const span = document.getElementById(rewriteId);
-    if (span) {
-      const endMarker = document.createElement('span');
-      endMarker.className = 'ai-rewrite-end';
-      endMarker.textContent = '=========================================';
-      span.after(endMarker);
-    }
-    el('rewrite-btn').disabled = false;
-    el('rewrite-btn').textContent = 'Rewrite Selection';
-    _stopGenUI();
-    stopAiProgress();
-    state.isDirty = true;
-    clearTimeout(state.autosaveTimer);
-    state.autosaveTimer = setTimeout(saveChapterContent, 2000);
   }
 });
 
@@ -2138,13 +2186,8 @@ el('insert-btn').addEventListener('click', () => {
   editor.focus();
   const sel = window.getSelection();
 
-  // Restore the exact cursor position captured when Continue was clicked
-  if (state.savedCursorRange && editor.contains(state.savedCursorRange.startContainer)) {
-    sel.removeAllRanges();
-    sel.addRange(state.savedCursorRange);
-    state.savedCursorRange = null;
-  } else if (!sel || sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
-    // Fallback: move caret to end
+  // If caret is not inside the editor, move it to the end
+  if (!sel || sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) {
     const range = document.createRange();
     range.selectNodeContents(editor);
     range.collapse(false);
@@ -2152,7 +2195,7 @@ el('insert-btn').addEventListener('click', () => {
     sel.addRange(range);
   }
 
-  // When inserting mid-document add a single leading newline; for end-of-doc add two
+  // Two line-breaks at end-of-doc, one when inserting mid-document
   const atEnd = sel.rangeCount > 0 && (() => {
     const r = sel.getRangeAt(0);
     const endRange = document.createRange();
@@ -2637,7 +2680,7 @@ let _pendingContinue = false;
 el('beats-req-skip').addEventListener('click', () => {
   el('beats-required-modal').style.display = 'none';
   _pendingContinue = true;
-  el('continue-btn').click();
+  el('generate-btn').click();
 });
 
 // ── Utilities ──────────────────────────────────────────────────────────────
