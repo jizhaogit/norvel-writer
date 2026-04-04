@@ -605,12 +605,18 @@ class DraftEngine:
         if role == "writer":
             proj = self._pm.get_project(project_id)
             persona = (proj.get("persona") or "").strip() if proj else ""
+            # Style query: for chapter rewrites the user's instruction text
+            # ("rewrite this chapter…") has zero semantic similarity to uploaded
+            # prose samples.  Use the chapter text itself as the retrieval anchor
+            # so uploaded style references (e.g. a Dumas novel) are found by
+            # content similarity.  For all other paths keep rag_query.
+            _style_query = (
+                (chapter_text or "")[:2000] if (_is_chapter_rewrite and chapter_text)
+                else rag_query
+            )
             style_results = await self._pm.retrieve_style_examples(
                 project_id=project_id,
-                # Use rag_query (beats text or chapter-title-prefixed question) so
-                # the style embedding is anchored to the actual writing context —
-                # consistent with continue_draft behaviour.
-                query=rag_query,
+                query=_style_query,
                 n_results=8,
             )
             style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
@@ -721,7 +727,10 @@ class DraftEngine:
                     beats=ch_beats,
                     existing_text="",          # NOT in system prompt
                     mode="rewrite",
-                    style_mode="preserve_tone_rhythm",
+                    # If the user has uploaded style samples, write toward them.
+                    # "preserve_tone_rhythm" would lock the model to the old draft's
+                    # style, defeating the purpose of uploading a style reference.
+                    style_mode="inspired_by" if style_chunks else "preserve_tone_rhythm",
                 )
                 _en_block = (
                     f"\n\nApply ALL editor suggestions above to the rewritten text."
@@ -1000,9 +1009,19 @@ def _build_writer_system_prompt(
         else:
             task_line = "Continue the story directly from where the current draft ends."
     elif mode == "rewrite":
+        if style_chunks:
+            _style_directive = (
+                "Write this rewrite in the voice and style of the Style Reference Samples "
+                "provided in Priority 6 — match their sentence structure, rhythm, vocabulary, "
+                "narrative tone, and prose characteristics. "
+                "The samples define the TARGET style; treat the original passage as a plot "
+                "summary only and write entirely fresh prose in that target style."
+            )
+        else:
+            _style_directive = f"Style guidance: {style_mode.replace('_', ' ')}."
         task_line = (
             f"Rewrite the passage provided by the author. "
-            f"Style guidance: {style_mode.replace('_', ' ')}. "
+            f"{_style_directive} "
             "Preserve the narrative content and plot events, but produce SUBSTANTIALLY DIFFERENT prose. "
             "Improve sentence structure, word choice, rhythm, imagery, and overall prose quality. "
             "The rewrite MUST NOT be a near-copy, a paraphrase, or a lightly edited version of the original. "

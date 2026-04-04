@@ -1413,6 +1413,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
           placeholder="Select a version tab — or click + for a blank sheet you can type and generate into…"></textarea>
         <div id="rewrite-viewer-actions">
           <span id="rewrite-active-label"></span>
+          <span id="rewrite-word-count" style="font-size:11px;color:var(--muted);margin-left:auto;flex-shrink:0;"></span>
           <button id="rewrite-apply-btn" title="Copy this sheet into the main editor and save">✓ Apply to Editor</button>
         </div>
       </div>
@@ -4344,6 +4345,7 @@ async function _rwRender(chapterId) {
   // Autosave viewer edits — debounced to avoid flooding the API
   viewer.oninput = active ? () => {
     _rwUpdateContent(chapterId, _rwActiveId, viewer.value);
+    el('rewrite-word-count').textContent = countWords(viewer.value) + ' words';
   } : null;
 
   if (active) {
@@ -4351,8 +4353,10 @@ async function _rwRender(chapterId) {
     activeLabel.textContent  = active.is_sheet
       ? `\u270F Editing: ${active.label}`
       : `\uD83D\uDC41 Viewing: ${active.label}`;
+    el('rewrite-word-count').textContent = countWords(active.content) + ' words';
   } else {
     actionsBar.style.display = 'none';
+    el('rewrite-word-count').textContent = '';
   }
 }
 
