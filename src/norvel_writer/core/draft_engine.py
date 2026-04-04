@@ -191,11 +191,12 @@ class DraftEngine:
         language: str = "en",
     ) -> str:
         """Return a 1-3 sentence summary of a chapter."""
-        from norvel_writer.llm.langchain_bridge import chat_complete
+        from norvel_writer.llm.langchain_bridge import chat_complete, get_context_limits
         from norvel_writer.llm.prompt_builder import _lang_display
         from norvel_writer.utils.text_utils import truncate_to_tokens
 
-        text = truncate_to_tokens(chapter_text, max_tokens=3000)
+        limits = get_context_limits()
+        text = truncate_to_tokens(chapter_text, max_tokens=limits["text_budget"])
         lang = _lang_display(language)
         messages = [
             {
@@ -219,17 +220,18 @@ class DraftEngine:
         language: str = "en",
     ) -> str:
         """Check passage for contradictions with project codex/beats."""
-        from norvel_writer.llm.langchain_bridge import chat_complete
+        from norvel_writer.llm.langchain_bridge import chat_complete, get_context_limits
         from norvel_writer.llm.prompt_builder import _lang_display
 
+        limits = get_context_limits()
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
             query=passage,
-            n_results=12,
+            n_results=14,
             doc_types=["codex", "beats"],
         )
         context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=3000)
+            r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
         )
         lang = _lang_display(language)
 
