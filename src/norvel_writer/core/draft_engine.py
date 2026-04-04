@@ -1178,16 +1178,11 @@ def _build_writer_system_prompt(
             label = "Current Draft (for context — do NOT repeat this; write NEW content only)"
             prompt += f"\n\n## {label}\n{existing_text}"
         elif mode == "chat":
-            # Sandwich the chapter between two warnings so small models don't lose
-            # the instruction by the time they finish reading long chapters.
             prompt += (
-                f"\n\n## Current Chapter Content"
-                f"\n⚠️ REWRITE NOTICE (重写提示): The text below is the EXISTING draft. "
-                f"If the user asks to rewrite (重写/改写/rewrite), you MUST produce completely NEW prose — "
-                f"NOT a summary, NOT a paraphrase. Write full scenes with the same events but entirely new wording.\n"
-                f"\n{existing_text}\n"
-                f"\n⚠️ END OF EXISTING DRAFT — 以上是原稿。"
-                f"If rewriting: produce complete, full-length new prose — do NOT summarise."
+                f"\n\n## Current Chapter Draft\n"
+                f"(EXISTING text — do NOT reproduce it verbatim. "
+                f"If the user asks to rewrite, produce completely new prose covering the same events.)\n"
+                f"\n{existing_text}"
             )
         else:
             label = "Current Chapter Content (existing draft)"

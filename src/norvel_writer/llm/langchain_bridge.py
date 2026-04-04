@@ -145,6 +145,9 @@ def get_llm():
                 # repeat_last_n — how many tokens back to scan (default 64 is too short
                 #   for long chapter rewrites; 512 catches multi-paragraph loops).
                 # repeat_penalty > 1.0 discourages reusing those tokens.
+                #   Llama/Gemma models: 1.05–1.18 recommended.
+                #   GPT-family models:  set to 1.0 (off) — their training already
+                #   handles repetition; external penalty degrades prose quality.
                 "repeat_last_n": int(_env("OLLAMA_REPEAT_LAST_N",   "512")),
                 "repeat_penalty":float(_env("OLLAMA_REPEAT_PENALTY", "1.1")),
             }
