@@ -96,10 +96,16 @@ class VectorStore:
         # ChromaDB raises a warning (and clamps internally) when n_results
         # exceeds the collection size — e.g. right after a small upload.
         # Doing it ourselves avoids the noisy log line.
-        actual_count = col.count()
-        if actual_count == 0:
-            return []
-        n_results = min(n_results, actual_count)
+        # Both count() and query() are wrapped so a ChromaDB error never
+        # propagates to the caller — we simply return empty results.
+        try:
+            actual_count = col.count()
+            if actual_count == 0:
+                return []
+            n_results = min(n_results, actual_count)
+        except Exception as exc:
+            log.warning("Vector count failed for %r: %s", collection_name, exc)
+            # Fall through with original n_results — ChromaDB will clamp internally
         kwargs: Dict[str, Any] = {
             "query_embeddings": [query_embedding],
             "n_results": n_results,

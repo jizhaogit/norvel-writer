@@ -1540,11 +1540,11 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <!-- Role selector -->
       <div class="chat-role-selector">
         <label class="chat-role-opt" title="Publisher editor giving structural, pacing &amp; prose feedback">
-          <input type="radio" name="chat-role" value="editor" checked>
+          <input type="radio" name="chat-role" value="editor">
           <span>✏️ Editor</span>
         </label>
         <label class="chat-role-opt" title="Co-author who follows your persona, style, codex &amp; beats">
-          <input type="radio" name="chat-role" value="writer">
+          <input type="radio" name="chat-role" value="writer" checked>
           <span>🖊 Writer</span>
         </label>
         <label class="chat-role-opt" title="QA checker for logic, codex compliance &amp; continuity">
@@ -1552,7 +1552,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
           <span>🔍 QA</span>
         </label>
       </div>
-      <div id="chat-role-hint" class="chat-role-hint">Professional editor: feedback on structure, pacing, voice, dialogue, and prose.</div>
+      <div id="chat-role-hint" class="chat-role-hint">Co-author: writes content following your persona, style, codex, and beats.</div>
 
       <!-- Pinned editor notes for the current chapter -->
       <div id="editor-notes-box" style="display:none;">
@@ -3588,6 +3588,12 @@ async function sendChat() {
         }
       }
       if (ev.done) break;
+    }
+    // If the model returned nothing at all, clear the "Thinking…" state
+    // so the bubble doesn't stay stuck forever.
+    if (!fullText) {
+      assistantBubble.classList.remove('chat-thinking');
+      assistantBubble.textContent = '⚠️ No response — the model returned empty output. Try rephrasing your request or check the Ollama logs.';
     }
     state.chatHistory.push({ role: 'assistant', content: fullText });
 
