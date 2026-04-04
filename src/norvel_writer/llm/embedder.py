@@ -15,6 +15,13 @@ RETRY_DELAY = 2.0
 # nomic-embed-text = 768; text-embedding-3-small = 1536
 _ZERO_DIM = 768
 
+# nomic-embed-text has an 8 192-token context limit.
+# As a RAG *query*, anything beyond ~500 tokens gives no additional retrieval
+# benefit — semantic meaning is captured in the first few sentences.
+# Capping here prevents HTTP 400 errors when the caller passes a long passage
+# (e.g. a full chapter section selected for rewrite) as the query string.
+_EMBED_QUERY_MAX_CHARS = 2000  # ≈ 500 tokens at ~4 chars/token
+
 
 class EmbeddingService:
     def __init__(
@@ -77,5 +84,14 @@ class EmbeddingService:
         return all_embeddings
 
     async def embed_single(self, text: str) -> List[float]:
+        # Truncate long inputs — embedding models have a context limit and a
+        # long passage doesn't improve query quality over a short representative
+        # excerpt.  Prevents HTTP 400 "input length exceeds context length".
+        if len(text) > _EMBED_QUERY_MAX_CHARS:
+            log.debug(
+                "embed_single: truncating query from %d → %d chars",
+                len(text), _EMBED_QUERY_MAX_CHARS,
+            )
+            text = text[:_EMBED_QUERY_MAX_CHARS]
         results = await self.embed_texts([text])
         return results[0] if results else []
