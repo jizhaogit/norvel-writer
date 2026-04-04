@@ -137,7 +137,14 @@ class DraftEngine:
                     len(_cx_results), len(_cx_raw), _cx_threshold,
                 )
 
-            rag_results = _bn_results + _cx_results
+            # Merge and re-sort by distance so _cap_rag's relevance ordering is
+            # correct across both sub-lists.  Without this, non-codex chunks
+            # (appended first) would consume the entire budget and all codex
+            # chunks would be silently abandoned.
+            rag_results = sorted(
+                _bn_results + _cx_results,
+                key=lambda r: r.get("distance", 0.0),
+            )
         else:
             rag_results = await self._pm.retrieve_context(
                 project_id=project_id,
@@ -152,8 +159,17 @@ class DraftEngine:
             query=rag_query,
             n_results=8,
         )
+        # In beats mode, apply the codex distance threshold across the entire
+        # merged list so that irrelevant non-codex chunks (research / notes with
+        # high distance) don't crowd out relevant codex entries.
+        # In normal mode no distance filter is applied (max_distance default=1.0).
+        _rag_max_dist = limits["codex_distance_threshold"] if is_beats_mode else 1.0
         rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
+            r["text"] for r in _cap_rag(
+                rag_results,
+                budget_tokens=limits["rag_budget"],
+                max_distance=_rag_max_dist,
+            )
         )
         style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
 
@@ -489,7 +505,10 @@ class DraftEngine:
             persona = (proj.get("persona") or "").strip() if proj else ""
             style_results = await self._pm.retrieve_style_examples(
                 project_id=project_id,
-                query=question,
+                # Use rag_query (chapter-title prefixed) so the style embedding
+                # is anchored to the actual writing context, not just the raw
+                # user question — consistent with continue_draft behaviour.
+                query=rag_query,
                 n_results=8,
             )
             style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
@@ -511,6 +530,10 @@ class DraftEngine:
             return "\n".join(f"{prefix} {item}" for item in items)
 
         # ── Build role-specific system prompt ──────────────────────────────
+        # user_message is set per-role; for editor/QA it's always the plain
+        # question; for writer it may be enhanced for rewrite requests.
+        user_message = question
+
         if role == "editor":
             rd = load_role("editor")
             background = rd.get("identity", {}).get("background", "").strip() or (
@@ -584,18 +607,70 @@ class DraftEngine:
                 except Exception:
                     pass
 
-            system_prompt = _build_writer_system_prompt(
-                lang_display=lang_display,
-                persona=persona,
-                editor_note=editor_note,
-                rag_context=rag_context,
-                image_context=image_context,
-                qa_note=qa_note,
-                style_chunks=style_chunks,
-                beats=ch_beats,
-                existing_text=chapter_text,
-                mode="chat",
+            # ── Detect chapter-rewrite intent ─────────────────────────────
+            # When the user asks to rewrite the whole chapter, we switch to
+            # rewrite mode so the chapter text lands in the USER message
+            # (where small models give it the most attention) rather than
+            # being buried in the system prompt behind the rewrite warning.
+            # This also ensures editor notes are explicitly applied.
+            _rewrite_kws = [
+                "rewrite", "re-write", "re write", "rewrite the chapter",
+                "重写", "改写", "重新写", "重新改写",
+                "réécrire", "umschreiben", "riscrivere", "reescribir",
+            ]
+            _is_chapter_rewrite = (
+                chapter_text
+                and any(kw in question.lower() for kw in _rewrite_kws)
             )
+
+            if _is_chapter_rewrite:
+                # Rewrite mode: chapter goes into the USER message as the
+                # explicit target; system prompt carries context only.
+                system_prompt = _build_writer_system_prompt(
+                    lang_display=lang_display,
+                    persona=persona,
+                    editor_note=editor_note,
+                    rag_context=rag_context,
+                    image_context=image_context,
+                    qa_note=qa_note,
+                    style_chunks=style_chunks,
+                    beats=ch_beats,
+                    existing_text="",          # NOT in system prompt
+                    mode="rewrite",
+                    style_mode="preserve_tone_rhythm",
+                )
+                # Put chapter text in user message — this is the most
+                # prominent position for small models.
+                _en_block = (
+                    f"\n\nApply ALL editor suggestions above to the rewritten text."
+                    if editor_note else ""
+                )
+                user_message = (
+                    f"{question}{_en_block}\n\n"
+                    f"════════════════════════════════════════\n"
+                    f"CHAPTER TO REWRITE: {chapter_title or 'Current Chapter'}\n"
+                    f"════════════════════════════════════════\n"
+                    f"{chapter_text}\n"
+                    f"════════════════════════════════════════\n"
+                    f"Rewrite the entire chapter above. Produce completely new prose "
+                    f"covering the same events and scenes. Do NOT summarise — "
+                    f"write full, publication-quality prose from start to finish."
+                )
+            else:
+                # Normal collaborative chat mode
+                system_prompt = _build_writer_system_prompt(
+                    lang_display=lang_display,
+                    persona=persona,
+                    editor_note=editor_note,
+                    rag_context=rag_context,
+                    image_context=image_context,
+                    qa_note=qa_note,
+                    style_chunks=style_chunks,
+                    beats=ch_beats,
+                    existing_text=chapter_text,
+                    mode="chat",
+                )
+                user_message = question
 
         else:  # qa
             rd = load_role("qa")
@@ -649,10 +724,13 @@ class DraftEngine:
             if image_context:
                 system_prompt += f"\n\n## Visual Reference Descriptions (check visual consistency)\n{image_context}"
 
+        # user_message defaults to `question` at the top of this block.
+        # The writer role may replace it with a structured rewrite message
+        # that includes the full chapter text as the explicit target.
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         if history:
             messages.extend(history)
-        messages.append({"role": "user", "content": question})
+        messages.append({"role": "user", "content": user_message})
 
         return await chat_stream(messages)
 
@@ -973,12 +1051,12 @@ def _build_writer_system_prompt(
             # the instruction by the time they finish reading long chapters.
             prompt += (
                 f"\n\n## Current Chapter Content"
-                f"\n⚠️ REWRITE WARNING (重写警告): The text below is the ORIGINAL. "
-                f"If the user asks to rewrite (重写/改写/rewrite), you MUST write completely NEW prose. "
-                f"Do NOT copy or closely paraphrase this text — treat it as a plot summary only, then write fresh.\n"
+                f"\n⚠️ REWRITE NOTICE (重写提示): The text below is the EXISTING draft. "
+                f"If the user asks to rewrite (重写/改写/rewrite), you MUST produce completely NEW prose — "
+                f"NOT a summary, NOT a paraphrase. Write full scenes with the same events but entirely new wording.\n"
                 f"\n{existing_text}\n"
-                f"\n⚠️ END OF ORIGINAL CHAPTER — 以上是原文。"
-                f"If rewriting: do NOT reproduce the above. Write entirely new prose covering the same events."
+                f"\n⚠️ END OF EXISTING DRAFT — 以上是原稿。"
+                f"If rewriting: produce complete, full-length new prose — do NOT summarise."
             )
         else:
             label = "Current Chapter Content (existing draft)"
@@ -1036,15 +1114,25 @@ def _cap_rag(results: list, budget_tokens: int, max_distance: float = 1.0) -> li
                     Because ChromaDB returns results sorted best-first,
                     once a chunk exceeds the threshold all subsequent ones
                     will too, so we break early for efficiency.
+
+    Note on budget overflow: when a chunk is individually larger than the
+    remaining budget we *skip* it (continue) rather than stopping — a later
+    smaller chunk may still fit.  The max_distance check uses break because
+    the list is sorted ascending; all subsequent chunks are equally or more
+    distant.
     """
     selected: list = []
     used = 0
     for r in results:
         if r.get("distance", 0.0) > max_distance:
-            break  # sorted ascending; all remaining are equally or more distant
+            # List is sorted ascending by distance — every remaining chunk is
+            # equally or more distant.  No point continuing.
+            break
         tokens = max(1, len(r["text"]) // 4)
         if used + tokens > budget_tokens:
-            break
+            # This chunk alone is too large for the remaining space, but a
+            # subsequent smaller chunk might still fit — skip, don't break.
+            continue
         selected.append(r)
         used += tokens
     return selected

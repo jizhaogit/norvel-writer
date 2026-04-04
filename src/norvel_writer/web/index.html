@@ -1197,6 +1197,17 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   max-height: 180px;
   overflow-y: auto;
 }
+#editor-notes-expand-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--subtext);
+  font-size: 11px;
+  padding: 1px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#editor-notes-expand-btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 #editor-notes-clear-btn {
   background: none;
   border: 1px solid var(--border);
@@ -1247,6 +1258,17 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   max-height: 180px;
   overflow-y: auto;
 }
+#qa-notes-expand-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--subtext);
+  font-size: 11px;
+  padding: 1px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#qa-notes-expand-btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 #qa-notes-clear-btn {
   background: none;
   border: 1px solid var(--border);
@@ -1559,6 +1581,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         <div class="editor-notes-header">
           <span>📌 Editor Notes</span>
           <span id="editor-notes-chapter" class="editor-notes-chapter"></span>
+          <button id="editor-notes-expand-btn" title="Expand / collapse the note">⤢ Expand</button>
           <button id="editor-notes-clear-btn" title="Clear this note and allow a fresh one">🗑 Clear</button>
         </div>
         <div id="editor-notes-content" class="editor-notes-content"></div>
@@ -1569,6 +1592,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         <div class="qa-notes-header">
           <span>🔍 QA Notes</span>
           <span id="qa-notes-chapter" class="qa-notes-chapter"></span>
+          <button id="qa-notes-expand-btn" title="Expand / collapse the note">⤢ Expand</button>
           <button id="qa-notes-clear-btn" title="Clear this QA note">🗑 Clear</button>
         </div>
         <div id="qa-notes-content" class="qa-notes-content"></div>
@@ -4420,7 +4444,18 @@ function _enRender(chapterId) {
   box.style.display = 'block';
   content.textContent = note;
   chLabel.textContent = '— ' + (state.currentChapterTitle || '');
+  // Reset expand state whenever the note is re-rendered
+  content.style.maxHeight = '180px';
+  el('editor-notes-expand-btn').textContent = '⤢ Expand';
 }
+
+el('editor-notes-expand-btn').addEventListener('click', () => {
+  const content = el('editor-notes-content');
+  const btn     = el('editor-notes-expand-btn');
+  const expanded = content.style.maxHeight === 'none';
+  content.style.maxHeight = expanded ? '180px' : 'none';
+  btn.textContent = expanded ? '⤢ Expand' : '⤡ Collapse';
+});
 
 el('editor-notes-clear-btn').addEventListener('click', () => {
   if (!state.currentChapterId) return;
@@ -4465,7 +4500,18 @@ function _qnRender(chapterId) {
   box.style.display = 'block';
   content.textContent = note;
   chLabel.textContent = '— ' + (state.currentChapterTitle || '');
+  // Reset expand state whenever the note is re-rendered
+  content.style.maxHeight = '180px';
+  el('qa-notes-expand-btn').textContent = '⤢ Expand';
 }
+
+el('qa-notes-expand-btn').addEventListener('click', () => {
+  const content = el('qa-notes-content');
+  const btn     = el('qa-notes-expand-btn');
+  const expanded = content.style.maxHeight === 'none';
+  content.style.maxHeight = expanded ? '180px' : 'none';
+  btn.textContent = expanded ? '⤢ Expand' : '⤡ Collapse';
+});
 
 el('qa-notes-clear-btn').addEventListener('click', () => {
   if (!state.currentChapterId) return;
