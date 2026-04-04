@@ -3194,9 +3194,10 @@ el('generate-btn').addEventListener('click', async () => {
 
     const wordNote  = _buildWordCountNote(el('beats-min-words'), el('beats-max-words'), '');
     const instrBase = el('draft-instruction').value.trim() ||
-      'Write the complete chapter covering ALL the beats provided, in order. ' +
-      'Every single beat must appear in the prose — do not skip or combine any. ' +
-      'Begin with the first beat and conclude with the last.';
+      'Write the chapter by dramatising each beat in the order listed. ' +
+      'Start at Beat 1 and stop as soon as the final beat is complete. ' +
+      'Do NOT add scenes, events, or content that are not in the beats list. ' +
+      'Do NOT continue writing after the last beat ends.';
 
     output.textContent = '';
     state.draftOutput  = '';

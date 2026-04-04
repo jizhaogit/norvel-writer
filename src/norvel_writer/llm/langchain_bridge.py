@@ -302,9 +302,14 @@ def get_context_limits() -> dict:
       (remaining ≈ 0.10 for beats, editor note, QA note, persona)
     """
     return {
-        "rag_budget":   int(_env("CONTEXT_RAG_BUDGET",   "3500")),
-        "style_budget": int(_env("CONTEXT_STYLE_BUDGET", "1500")),
-        "text_budget":  int(_env("CONTEXT_TEXT_BUDGET",  "3000")),
+        "rag_budget":              int(_env("CONTEXT_RAG_BUDGET",      "3500")),
+        "style_budget":            int(_env("CONTEXT_STYLE_BUDGET",    "1500")),
+        "text_budget":             int(_env("CONTEXT_TEXT_BUDGET",     "3000")),
+        # Cosine distance ceiling for codex chunks in beats mode.
+        # Chunks with distance above this are excluded — they are too
+        # semantically distant from the beats query to be useful.
+        # Range 0.0–1.0: lower = stricter filtering.
+        "codex_distance_threshold": float(_env("CONTEXT_CODEX_THRESHOLD", "0.50")),
     }
 
 
@@ -413,6 +418,19 @@ OLLAMA_REPEAT_PENALTY=1.1
 CONTEXT_RAG_BUDGET=3500
 CONTEXT_STYLE_BUDGET=1500
 CONTEXT_TEXT_BUDGET=3000
+#
+# CONTEXT_CODEX_THRESHOLD  (cosine distance, 0.0 – 1.0)
+#   In "Write from Beats" mode, codex chunks are only included when their
+#   cosine distance to the beats query is at or below this value.
+#   This prevents large, only-vaguely-related codex documents from filling
+#   the context window and distracting the model from the beats structure.
+#
+#   0.35 = very strict  — only chunks that closely match a named character/place in the beats
+#   0.50 = moderate     — recommended default (relevant details in, noise out)
+#   0.65 = permissive   — lets in most of the codex; useful for very short beats
+#   1.00 = off          — no filtering (original behaviour)
+#
+CONTEXT_CODEX_THRESHOLD=0.50
 
 
 # ── OpenAI (https://platform.openai.com) ──────────────────────────────────

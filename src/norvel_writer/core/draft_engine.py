@@ -69,13 +69,55 @@ class DraftEngine:
 
         # RAG — fetch extra candidates then cap to token budget so small local
         # models aren't silently overflowed (budget ≈ 3500 tok ≈ 14 000 chars).
-        rag_results = await self._pm.retrieve_context(
-            project_id=project_id,
-            query=rag_query,
-            n_results=14,
-            doc_types=active_doc_types or ["codex", "beats", "research", "notes"],
-            chapter_id=chapter_id,
-        )
+        _all_types = active_doc_types or ["codex", "beats", "research", "notes"]
+
+        if is_beats_mode:
+            # In beats mode, codex documents can be very large and are only
+            # useful when they directly relate to the beats being written.
+            # Strategy: retrieve beats/notes/research unconditionally (they are
+            # always structurally relevant), then retrieve codex separately and
+            # filter out chunks that are semantically distant from the beats query.
+            _cx_threshold = limits["codex_distance_threshold"]
+            _non_codex    = [t for t in _all_types if t != "codex"]
+            _wants_codex  = "codex" in _all_types
+
+            if _non_codex:
+                _bn_results = await self._pm.retrieve_context(
+                    project_id=project_id,
+                    query=rag_query,
+                    n_results=8,
+                    doc_types=_non_codex,
+                    chapter_id=chapter_id,
+                )
+            else:
+                _bn_results = []
+
+            _cx_results = []
+            if _wants_codex:
+                _cx_raw = await self._pm.retrieve_context(
+                    project_id=project_id,
+                    query=rag_query,
+                    n_results=10,
+                    doc_types=["codex"],
+                    chapter_id=chapter_id,
+                )
+                # Only keep codex chunks close enough to the beats query
+                _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
+                log.debug(
+                    "beats RAG: %d/%d codex chunks passed distance threshold %.2f",
+                    len(_cx_results), len(_cx_raw), _cx_threshold,
+                )
+
+            rag_results = _bn_results + _cx_results
+        else:
+            rag_results = await self._pm.retrieve_context(
+                project_id=project_id,
+                query=rag_query,
+                n_results=14,
+                doc_types=_all_types,
+                chapter_id=chapter_id,
+            )
+
         style_results = await self._pm.retrieve_style_examples(
             project_id=project_id,
             query=rag_query,
@@ -760,6 +802,24 @@ def _build_writer_system_prompt(
         f"When writing:\n{_bullets(all_rules)}"
     )
 
+    # ── BEATS MODE: beats appear FIRST — they are the structural directive. ──
+    # Memory/codex is demoted to "supporting detail" and must not introduce
+    # new events.  Small models follow the most prominent recent block, so
+    # placing beats before the codex prevents the codex from overriding them.
+    if beats and mode == "beats":
+        prompt += (
+            f"\n\n╔══════════════════════════════════════════╗\n"
+            f"║  YOUR WRITING DIRECTIVES — CHAPTER BEATS  ║\n"
+            f"╚══════════════════════════════════════════╝\n"
+            f"The beats below define the COMPLETE structure of this chapter.\n"
+            f"► Start writing at Beat 1. Stop writing after the final beat.\n"
+            f"► Do NOT write scenes, events, or plot points that are not listed here.\n"
+            f"► Do NOT continue past the last beat.\n"
+            f"Each beat is a dramatic moment to bring fully to life — "
+            f"then move directly to the next beat.\n\n"
+            f"{beats}"
+        )
+
     # Priority 2 — Persona
     if persona:
         prompt += (
@@ -783,12 +843,24 @@ def _build_writer_system_prompt(
         )
 
     # Priority 4 — Memory (codex / beats / notes / research) + visual references
+    # In beats mode this is supporting context only — label it accordingly so the
+    # model does not treat it as a source of new plot events.
     combined_memory = rag_context
     if image_context:
         sep = "\n\n---\n\n" if combined_memory else ""
         combined_memory += f"{sep}### Visual Reference Descriptions\n{image_context}"
     if combined_memory:
-        prompt += f"\n\n## PRIORITY 4 — Project Memory (Codex / Beats / Notes / Research / Visuals)\n{combined_memory}"
+        if mode == "beats":
+            prompt += (
+                f"\n\n## SUPPORTING CONTEXT — Character & World Details\n"
+                f"Use the following ONLY to fill in consistent character names, physical descriptions, "
+                f"world details, and established facts. "
+                f"Do NOT derive new plot events, scenes, or sub-plots from this context — "
+                f"the beats listed above are your sole structural guide.\n\n"
+                f"{combined_memory}"
+            )
+        else:
+            prompt += f"\n\n## PRIORITY 4 — Project Memory (Codex / Beats / Notes / Research / Visuals)\n{combined_memory}"
 
     # Priority 5 — QA issues
     if qa_note:
@@ -808,26 +880,14 @@ def _build_writer_system_prompt(
         for chunk in style_chunks:
             prompt += f"---\n{chunk}\n"
 
-    # Chapter beats (belongs with memory context but shown separately for clarity)
-    if beats:
-        if mode == "beats":
-            prompt += (
-                f"\n\n╔══════════════════════════════════════════╗\n"
-                f"║  CHAPTER BLUEPRINT — BEATS TO DRAMATISE     ║\n"
-                f"╚══════════════════════════════════════════╝\n"
-                f"These beats are the dramatic spine of your chapter. They tell you WHAT happens — "
-                f"your job is to make the reader FEEL it. Bring each beat to life as a full scene: "
-                f"ground it in place and time, reveal it through character action and reaction, "
-                f"and write through it with the pacing and prose quality it deserves.\n\n"
-                f"Cover all beats in order. Do not skip or merge any. Do not invent beats outside this list.\n\n"
-                f"{beats}"
-            )
-        else:
-            prompt += (
-                f"\n\n## Chapter Beats — FOLLOW THESE EXACTLY\n"
-                f"Cover each beat in order. Do NOT skip any. Do NOT add unlisted beats.\n\n"
-                f"{beats}"
-            )
+    # Chapter beats — for non-beats modes, append here as before.
+    # For beats mode the beats were already placed at the top of the context.
+    if beats and mode != "beats":
+        prompt += (
+            f"\n\n## Chapter Beats — FOLLOW THESE EXACTLY\n"
+            f"Cover each beat in order. Do NOT skip any. Do NOT add unlisted beats.\n\n"
+            f"{beats}"
+        )
 
     # Existing draft / chapter text
     if existing_text:
@@ -867,19 +927,28 @@ def _last_paragraphs(text: str, n_tokens: int = 512) -> str:
     return text[-max_chars:]
 
 
-def _cap_rag(results: list, budget_tokens: int) -> list:
+def _cap_rag(results: list, budget_tokens: int, max_distance: float = 1.0) -> list:
     """
     Select as many RAG result chunks as fit within *budget_tokens* total,
-    preserving relevance order (results are already sorted best-first).
+    preserving relevance order (results are already sorted best-first by
+    ChromaDB cosine distance — lower distance = more similar).
 
-    Using a token budget instead of a fixed count means:
-      - Small chunks  → more results fit → richer context
-      - Large chunks  → fewer results fit → prompt stays safe for small models
-    Token estimate: 1 token ≈ 4 chars (consistent with _estimate_tokens in chunker).
+    Parameters
+    ----------
+    results       : list of dicts with keys 'text' and 'distance'
+    budget_tokens : maximum total tokens to include (1 token ≈ 4 chars)
+    max_distance  : cosine distance ceiling — chunks with distance ABOVE
+                    this value are skipped entirely.  Use < 1.0 to exclude
+                    low-relevance chunks.  Default 1.0 = no distance filter.
+                    Because ChromaDB returns results sorted best-first,
+                    once a chunk exceeds the threshold all subsequent ones
+                    will too, so we break early for efficiency.
     """
     selected: list = []
     used = 0
     for r in results:
+        if r.get("distance", 0.0) > max_distance:
+            break  # sorted ascending; all remaining are equally or more distant
         tokens = max(1, len(r["text"]) // 4)
         if used + tokens > budget_tokens:
             break

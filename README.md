@@ -137,6 +137,53 @@ src/norvel_writer/
 - **Embeddings**: `nomic-embed-text` via Ollama
 - **Image storage**: Local filesystem under platform data directory
 
+## Configuration
+
+All settings live in `.env` (copy `.env.example` to get started). The app also exposes **Settings → LLM Config** to edit `.env` directly from the UI.
+
+### LLM Provider
+
+| Variable | Default | Options |
+|---|---|---|
+| `LLM_PROVIDER` | `ollama` | `ollama` · `openai` · `anthropic` · `gemini` |
+| `EMBEDDINGS_PROVIDER` | `ollama` | `ollama` · `openai` |
+
+### Gemma 4 e2b — Context Window Tiers
+
+Gemma 4 e2b supports up to 128 K tokens. Match your settings to your available VRAM:
+
+| Tier / VRAM | `OLLAMA_NUM_CTX` | `OLLAMA_NUM_PREDICT` | RAG budget | Style budget | Text budget |
+|---|---|---|---|---|---|
+| Tier 1 — 8 GB  | 32 768  | 8 192 | 9 000  | 3 500 | 8 000  |
+| Tier 2 — 16 GB | 65 536  | 8 192 | 22 000 | 8 000 | 19 000 |
+| Tier 3 — 24 GB+| 131 072 | 8 192 | 48 000 | 18 000| 42 000 |
+
+Recommended Gemma 4 sampling parameters: `OLLAMA_TEMPERATURE=1.0`, `OLLAMA_TOP_P=0.95`, `OLLAMA_TOP_K=64`.
+
+### Context Budgets
+
+These cap how many tokens of each section are included in every prompt (applies to all writers, Editor, QA, and Chat Writer):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CONTEXT_RAG_BUDGET` | `9000` | Codex + beats + notes + research chunks |
+| `CONTEXT_STYLE_BUDGET` | `3500` | Style reference sample chunks |
+| `CONTEXT_TEXT_BUDGET` | `8000` | Existing chapter draft text |
+
+Budget formula: `input_budget = NUM_CTX − NUM_PREDICT − 1000` (prompt overhead).
+Then: RAG ≈ 40 %, Style ≈ 15 %, Text ≈ 35 %, remaining 10 % for beats block / editor note / QA note / persona.
+
+### Codex Distance Threshold (Write from Beats)
+
+In **Write from Beats** mode, codex chunks are retrieved separately and filtered by their cosine distance to the beats query. This prevents large world-building documents from consuming the token budget with irrelevant content.
+
+| `CONTEXT_CODEX_THRESHOLD` | Behaviour |
+|---|---|
+| `0.35` | Very strict — only chunks that closely match a named character/place in the beats |
+| `0.50` | Moderate — relevant details in, noise out ← **recommended default** |
+| `0.65` | Permissive — lets in most of the codex; useful for very short beats |
+| `1.00` | Off — no filtering (original behaviour) |
+
 ## Development
 
 ```bash
