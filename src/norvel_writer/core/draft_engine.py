@@ -42,31 +42,49 @@ class DraftEngine:
         qa_note: str = "",
     ) -> AsyncIterator[str]:
         """Stream continuation tokens — uses the Writer role skill, same priority as chat Writer."""
-        from norvel_writer.llm.langchain_bridge import chat_stream
+        from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
         from norvel_writer.llm.prompt_builder import _lang_display
         from norvel_writer.utils.text_utils import truncate_to_tokens
 
+        limits = get_context_limits()
         lang_display = _lang_display(language)
         last_para = _last_paragraphs(current_text, n_tokens=512)
+
+        # Detect write-from-beats mode: no existing text but beats are present.
+        is_beats_mode = bool(beats.strip()) and not current_text.strip()
+
+        # RAG query strategy — mirrors chat_with_context which uses the user's
+        # actual words as the semantic query, not just the last paragraph.
+        # • beats mode  → beats text (what's about to be written)
+        # • normal mode → combine user instruction + last paragraph so that
+        #   a request like "write a tense confrontation" pulls the right characters
+        #   and world rules, not just whatever prose was written last.
+        _default_instr = "Continue the story from where it left off."
+        if is_beats_mode:
+            rag_query = beats
+        elif user_instruction and user_instruction.strip() != _default_instr:
+            rag_query = f"{user_instruction}\n{last_para}".strip()
+        else:
+            rag_query = last_para
 
         # RAG — fetch extra candidates then cap to token budget so small local
         # models aren't silently overflowed (budget ≈ 3500 tok ≈ 14 000 chars).
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
-            query=last_para,
+            query=rag_query,
             n_results=14,
             doc_types=active_doc_types or ["codex", "beats", "research", "notes"],
             chapter_id=chapter_id,
         )
         style_results = await self._pm.retrieve_style_examples(
             project_id=project_id,
-            query=last_para,
+            query=rag_query,
             n_results=8,
         )
         rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=3500)
+            r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
         )
-        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=1500)]
+        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
 
         proj = self._pm.get_project(project_id)
         persona = (proj.get("persona") or "").strip() if proj else ""
@@ -74,7 +92,7 @@ class DraftEngine:
         # Image descriptions — same as Writer chat
         image_context = _fetch_image_context(self._pm._db, project_id, chapter_id)
 
-        context_text = truncate_to_tokens(current_text, max_tokens=2048)
+        context_text = truncate_to_tokens(current_text, max_tokens=limits["text_budget"])
 
         system_prompt = _build_writer_system_prompt(
             lang_display=lang_display,
@@ -86,7 +104,7 @@ class DraftEngine:
             style_chunks=style_chunks,
             beats=beats,
             existing_text=context_text,
-            mode="continue",
+            mode="beats" if is_beats_mode else "continue",
             text_after_cursor=text_after_cursor.strip(),
             style_mode=style_mode,
             constraints=constraints,
@@ -120,15 +138,16 @@ class DraftEngine:
         qa_note: str = "",
     ) -> AsyncIterator[str]:
         """Stream rewritten passage tokens — uses the Writer role skill, same priority as chat Writer."""
-        from norvel_writer.llm.langchain_bridge import chat_stream
+        from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
         from norvel_writer.llm.prompt_builder import _lang_display
 
+        limits = get_context_limits()
         lang_display = _lang_display(language)
 
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
             query=passage,
-            n_results=12,
+            n_results=14,
             doc_types=["codex", "beats", "research", "notes"],
         )
         style_results = await self._pm.retrieve_style_examples(
@@ -137,9 +156,9 @@ class DraftEngine:
             n_results=8,
         )
         rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=3000)
+            r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
         )
-        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=1500)]
+        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
 
         proj = self._pm.get_project(project_id)
         persona = (proj.get("persona") or "").strip() if proj else ""
@@ -250,9 +269,11 @@ class DraftEngine:
         Responds in the project language by default; switches if the user
         explicitly requests a different language (e.g. "respond in Japanese").
         """
-        from norvel_writer.llm.langchain_bridge import chat_stream
+        from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
         from norvel_writer.utils.text_utils import strip_html, truncate_to_tokens
         from norvel_writer.llm.prompt_builder import _lang_display
+
+        limits = get_context_limits()
 
         # ── Resolve response language ──────────────────────────────────────
         # Priority: explicit override in the user's message > project language
@@ -284,7 +305,7 @@ class DraftEngine:
                 draft = self._pm.get_accepted_draft(resolved_chapter_id)
                 if draft:
                     raw = draft.get("content") or ""
-                    chapter_text = truncate_to_tokens(strip_html(raw), max_tokens=3000)
+                    chapter_text = truncate_to_tokens(strip_html(raw), max_tokens=limits["text_budget"])
                     log.debug("chat: loaded chapter %r (%d chars)", chapter_title, len(chapter_text))
                 else:
                     log.debug("chat: no accepted draft for chapter %r", resolved_chapter_id)
@@ -363,7 +384,7 @@ class DraftEngine:
             doc_types=rag_doc_types,
         )
         rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=3500)
+            r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
         )
 
         # ── Image description context (project-level + chapter-level) ─────────
@@ -381,7 +402,7 @@ class DraftEngine:
                 query=question,
                 n_results=8,
             )
-            style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=1500)]
+            style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
 
         # ── Language instruction ───────────────────────────────────────────
         lang_line = (
@@ -587,7 +608,7 @@ def _build_writer_system_prompt(
     style_chunks: List[str],
     beats: str,
     existing_text: str,
-    mode: str,          # "continue" | "rewrite"
+    mode: str,          # "continue" | "beats" | "rewrite" | "chat"
     text_after_cursor: str = "",
     style_mode: str = "",
     constraints: Optional[List[str]] = None,
@@ -633,8 +654,33 @@ def _build_writer_system_prompt(
         "When you reach the final beat, end the chapter naturally and STOP",
     ])
 
+    # Beats-mode quality rules — layered on top of base rules.
+    # Replace the mechanical checklist mindset with literary craft guidance.
+    beats_quality_rules: List[str] = []
+    if mode == "beats":
+        beats_quality_rules = [
+            "Treat each beat as a dramatic SCENE to write — not a sentence to paraphrase or summarise",
+            "SHOW, don't tell — render action, emotion, and revelation through specific concrete detail",
+            "Write with sensory richness: what characters see, hear, feel, smell, think, and want",
+            "Give characters interiority — their inner reactions make beats feel alive, not mechanical",
+            "Vary your pacing deliberately — build tension through action, then let it breathe in reflection or dialogue",
+            "Let transitions between beats flow naturally; avoid abrupt 'next, this happened' jumps",
+            "Strong verbs, precise nouns — avoid vague filler words and weak verb+adverb combinations",
+            "Dialogue should reveal character and advance the scene, not just deliver information",
+            "Scene-setting should be selective and purposeful — ground the reader without slowing momentum",
+        ]
+
     # Mode-specific task description
-    if mode == "continue":
+    if mode == "beats":
+        task_line = (
+            "Write a complete, compelling chapter from scratch, using the Chapter Blueprint below as your structural backbone. "
+            "Each beat is a dramatic milestone — not a script to recite word-for-word. "
+            "Bring every beat fully to life as a scene: vivid setting, character interiority, "
+            "concrete sensory detail, rising tension, and dynamic prose. "
+            "Move through all beats in order, giving each one the space and depth it deserves. "
+            "Write like a skilled novelist, not like someone filling in a form."
+        )
+    elif mode == "continue":
         if text_after_cursor:
             task_line = (
                 "Write new content to INSERT at the cursor position (marked ✍ in the draft below). "
@@ -672,6 +718,9 @@ def _build_writer_system_prompt(
     # Rewrite mode and chat mode: append critical differentiator rules.
     # Chat mode needs them because users can type "rewrite this chapter" in any language.
     rewrite_rules: List[str] = []
+    if mode == "beats":
+        # beats_quality_rules already set above — merged below
+        pass
     if mode in ("rewrite", "chat"):
         rewrite_rules = [
             # Bilingual so small models catch it regardless of conversation language
@@ -684,7 +733,12 @@ def _build_writer_system_prompt(
             "Keep all rewritten content consistent with memory documents — character names, traits, world rules, and plot facts from the Codex and Beats must not be altered or contradicted",
         ]
 
-    all_rules = rules + rewrite_rules if rewrite_rules else rules
+    if mode == "beats":
+        all_rules = rules + beats_quality_rules
+    elif rewrite_rules:
+        all_rules = rules + rewrite_rules
+    else:
+        all_rules = rules
 
     prompt = (
         # Language instruction FIRST — before the English background so small models
@@ -754,11 +808,24 @@ def _build_writer_system_prompt(
 
     # Chapter beats (belongs with memory context but shown separately for clarity)
     if beats:
-        prompt += (
-            f"\n\n## Chapter Beats — FOLLOW THESE EXACTLY\n"
-            f"Cover each beat in order. Do NOT skip any. Do NOT add unlisted beats.\n\n"
-            f"{beats}"
-        )
+        if mode == "beats":
+            prompt += (
+                f"\n\n╔══════════════════════════════════════════╗\n"
+                f"║  CHAPTER BLUEPRINT — BEATS TO DRAMATISE     ║\n"
+                f"╚══════════════════════════════════════════╝\n"
+                f"These beats are the dramatic spine of your chapter. They tell you WHAT happens — "
+                f"your job is to make the reader FEEL it. Bring each beat to life as a full scene: "
+                f"ground it in place and time, reveal it through character action and reaction, "
+                f"and write through it with the pacing and prose quality it deserves.\n\n"
+                f"Cover all beats in order. Do not skip or merge any. Do not invent beats outside this list.\n\n"
+                f"{beats}"
+            )
+        else:
+            prompt += (
+                f"\n\n## Chapter Beats — FOLLOW THESE EXACTLY\n"
+                f"Cover each beat in order. Do NOT skip any. Do NOT add unlisted beats.\n\n"
+                f"{beats}"
+            )
 
     # Existing draft / chapter text
     if existing_text:
@@ -781,8 +848,8 @@ def _build_writer_system_prompt(
             label = "Current Chapter Content (existing draft)"
             prompt += f"\n\n## {label}\n{existing_text}"
 
-    # Continue-specific: style mode + constraints
-    if mode == "continue":
+    # Style guidance + constraints (shared by continue and beats modes)
+    if mode in ("continue", "beats"):
         prompt += f"\n\nStyle guidance: {style_mode.replace('_', ' ')}"
         if constraints:
             prompt += "\n\n## Additional Constraints\n" + _bullets(constraints)

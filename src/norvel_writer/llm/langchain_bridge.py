@@ -267,6 +267,32 @@ async def chat_complete(messages: list[dict]) -> str:
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────
 
+def get_context_limits() -> dict:
+    """
+    Return token budget limits used when assembling system prompts.
+
+    All values are in *tokens* (1 token ≈ 4 characters for English prose).
+    They control how much of each context section is fed to the LLM.
+
+    Defaults are tuned for gemma3:4b (OLLAMA_NUM_CTX=8192).
+    When using a large-context model such as Gemma 4 (128 K), raise
+    OLLAMA_NUM_CTX and all CONTEXT_* values accordingly — see the
+    'Large-context models' block in .env for recommended values.
+
+    Rule of thumb for sizing:
+      input_budget  = OLLAMA_NUM_CTX - OLLAMA_NUM_PREDICT - ~1000 (prompt overhead)
+      RAG_BUDGET    ≈ input_budget × 0.40
+      STYLE_BUDGET  ≈ input_budget × 0.15
+      TEXT_BUDGET   ≈ input_budget × 0.35
+      (remaining ≈ 0.10 for beats, editor note, QA note, persona)
+    """
+    return {
+        "rag_budget":   int(_env("CONTEXT_RAG_BUDGET",   "3500")),
+        "style_budget": int(_env("CONTEXT_STYLE_BUDGET", "1500")),
+        "text_budget":  int(_env("CONTEXT_TEXT_BUDGET",  "3000")),
+    }
+
+
 def reset_singletons() -> None:
     """
     Clear cached LLM and embeddings instances.
@@ -340,6 +366,30 @@ OLLAMA_NUM_CTX=8192
 OLLAMA_NUM_PREDICT=4096
 OLLAMA_REPEAT_LAST_N=512
 OLLAMA_REPEAT_PENALTY=1.18
+
+# ── Context budget (all providers) ────────────────────────────────────────
+#
+# These control how many tokens of each context section are fed to the LLM.
+# The defaults below are tuned for small 8 K models (gemma3:4b).
+# For large-context models raise all three values proportionally.
+#
+# Rule of thumb:
+#   input_budget  = NUM_CTX - NUM_PREDICT - 1000  (prompt overhead)
+#   RAG_BUDGET    ≈ input_budget × 0.40   (codex, notes, research)
+#   STYLE_BUDGET  ≈ input_budget × 0.15   (style samples)
+#   TEXT_BUDGET   ≈ input_budget × 0.35   (existing chapter draft)
+#
+# ── Gemma 4 / large-context recommended settings ──────────────────────────
+#   OLLAMA_CHAT_MODEL=gemma4:12b   (or gemma4:4b, gemma4:27b)
+#   OLLAMA_NUM_CTX=131072          (128 K — Gemma 4's full window)
+#   OLLAMA_NUM_PREDICT=8192        (generate longer chapters in one pass)
+#   CONTEXT_RAG_BUDGET=12000       (rich codex / notes retrieval)
+#   CONTEXT_STYLE_BUDGET=4000      (more style examples)
+#   CONTEXT_TEXT_BUDGET=10000      (full medium chapter for context)
+#
+CONTEXT_RAG_BUDGET=3500
+CONTEXT_STYLE_BUDGET=1500
+CONTEXT_TEXT_BUDGET=3000
 
 
 # ── OpenAI (https://platform.openai.com) ──────────────────────────────────
