@@ -3602,18 +3602,14 @@ async function sendChat() {
       const role = _activeChatRole();
 
       if (role === 'writer') {
-        // Writer: save full response as a versioned rewrite
-        const saveBtn = document.createElement('button');
-        saveBtn.className = 'btn btn-sm';
-        saveBtn.style.cssText = 'margin-top:6px;font-size:11px;align-self:flex-end;';
-        saveBtn.textContent = '💾 Save as Rewrite Version';
-        saveBtn.addEventListener('click', () => {
-          _rwAddVersion(state.currentChapterId, state.currentChapterTitle, fullText);
-          _rwRender(state.currentChapterId);
-          saveBtn.textContent = '✔ Saved';
-          saveBtn.disabled = true;
-        });
-        assistantBubble.parentElement.appendChild(saveBtn);
+        // Writer: auto-save result directly to the versions panel (same as
+        // Write from Beats / Continue Write / Rewrite Selection in Draft AI).
+        _rwAddVersion(state.currentChapterId, state.currentChapterTitle, fullText);
+        _rwRender(state.currentChapterId);
+        const savedNote = document.createElement('div');
+        savedNote.style.cssText = 'margin-top:5px;font-size:11px;color:var(--subtext);align-self:flex-end;';
+        savedNote.textContent = '✔ Saved as new version — select it in the Versions panel and click Apply to Editor when ready.';
+        assistantBubble.parentElement.appendChild(savedNote);
 
       } else if (role === 'editor') {
         // Editor: pin suggestion as a persistent note for this chapter
@@ -4159,13 +4155,21 @@ function _rwRender(chapterId) {
   tabsRow.innerHTML = '';
 
   if (!versions.length) {
-    panel.style.display = 'none';
+    // Always keep the panel visible so the user can hit + to create a blank
+    // sheet even before any content has been generated.
+    panel.style.display = 'flex';
     _rwActiveId = null;
+    viewer.value = '';
+    viewer.placeholder = 'No versions yet.\nClick  +  to create a blank sheet, or generate content with Draft AI / Chat Writer.';
+    viewer.disabled = true;
     viewer.oninput = null;
     actionsBar.style.display = 'none';
+    activeLabel.textContent = '';
     return;
   }
 
+  viewer.disabled = false;
+  viewer.placeholder = '';
   panel.style.display = 'flex';
 
   // If active version was deleted, pick the last one
@@ -4247,9 +4251,11 @@ function _rwRender(chapterId) {
   }
 }
 
-// Show panel when switching to a chapter that has versions
+// Show the versions panel whenever a chapter is selected — even if it has no
+// versions yet — so the user can always hit + to create a blank sheet.
 function _rwCheckForChapter(chapterId) {
   if (!chapterId) { el('rewrite-panel').style.display = 'none'; return; }
+  el('rewrite-panel').style.display = 'flex';
   _rwRender(chapterId);
 }
 
