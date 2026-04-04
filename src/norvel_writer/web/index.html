@@ -3220,6 +3220,7 @@ el('generate-btn').addEventListener('click', async () => {
           language:          state.projectLang,
           editor_note:       _enLoad(state.currentChapterId) || '',
           qa_note:           _qnLoad(state.currentChapterId) || '',
+          beats:             beats,  // always send current textarea value (even if unsaved)
         }),
       });
       for await (const ev of readSSE(res)) {

@@ -636,6 +636,7 @@ class ContinueRequest(BaseModel):
     active_doc_types: Optional[List[str]] = None
     editor_note: str = ""           # pinned editor suggestion from the browser
     qa_note: str = ""               # pinned QA report from the browser
+    beats: str = ""                 # beats from the UI textarea (may be unsaved)
 
 
 @app.post("/api/projects/{project_id}/continue")
@@ -644,9 +645,10 @@ async def continue_draft(project_id: str, body: ContinueRequest):
         try:
             from norvel_writer.core.draft_engine import DraftEngine
             engine = DraftEngine(project_manager=get_pm())
-            # Load beats for this chapter from DB
-            chapter_beats = ""
-            if body.chapter_id:
+            # Beats resolution: prefer what the UI sent (may be unsaved edits),
+            # fall back to the DB value so Continue Write still gets chapter beats.
+            chapter_beats = body.beats.strip()
+            if not chapter_beats and body.chapter_id:
                 from norvel_writer.storage.repositories.project_repo import ProjectRepo
                 from norvel_writer.storage.db import get_db
                 ch_row = ProjectRepo(get_db()).get_chapter(body.chapter_id)
