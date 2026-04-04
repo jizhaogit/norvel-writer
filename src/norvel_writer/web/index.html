@@ -594,6 +594,29 @@ body {
   line-height: 1;
 }
 .rewrite-tab-del:hover { color: var(--red); }
+/* Blank sheet tabs — teal accent to distinguish from AI-generated rewrites */
+.rewrite-tab.sheet { border-color: #34d399; color: #34d399; }
+.rewrite-tab.sheet.active {
+  border-color: #34d399;
+  background: color-mix(in srgb, #34d399 14%, transparent);
+  color: #34d399;
+  font-weight: 600;
+}
+/* + button in panel bar */
+#rewrite-add-sheet {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: #34d399;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: bold;
+  line-height: 1;
+  padding: 1px 7px 2px;
+  transition: border-color .15s, background .15s;
+}
+#rewrite-add-sheet:hover { border-color: #34d399; background: color-mix(in srgb, #34d399 10%, transparent); }
 #rewrite-panel-close {
   margin-left: auto;
   background: none;
@@ -609,7 +632,38 @@ body {
   flex: 1;
   overflow: hidden;
   display: flex;
+  flex-direction: column;
 }
+#rewrite-viewer-actions {
+  display: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--surface2);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#rewrite-active-label {
+  font-size: 11px;
+  color: var(--subtext);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#rewrite-apply-btn {
+  font-size: 11px;
+  padding: 4px 12px;
+  background: #34d399;
+  color: #052e16;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+#rewrite-apply-btn:hover { opacity: .85; }
 #rewrite-viewer {
   flex: 1;
   resize: none;
@@ -1327,12 +1381,18 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     <div id="rewrite-panel" style="display:none;">
       <div id="rewrite-drag-handle" title="Drag to resize"></div>
       <div id="rewrite-panel-bar">
-        <span id="rewrite-panel-label">📄 Rewrite Versions</span>
+        <span id="rewrite-panel-label">📄 Versions</span>
         <div id="rewrite-tabs-row"></div>
+        <button id="rewrite-add-sheet" title="New blank sheet">+</button>
         <button id="rewrite-panel-close" title="Close versions panel">✕</button>
       </div>
       <div id="rewrite-viewer-wrap">
-        <textarea id="rewrite-viewer" readonly placeholder="Select a version tab to read it…"></textarea>
+        <textarea id="rewrite-viewer" spellcheck="true"
+          placeholder="Select a version tab — or click + for a blank sheet you can type and generate into…"></textarea>
+        <div id="rewrite-viewer-actions">
+          <span id="rewrite-active-label"></span>
+          <button id="rewrite-apply-btn" title="Copy this sheet into the main editor and save">✓ Apply to Editor</button>
+        </div>
       </div>
     </div>
   </div>
@@ -3174,22 +3234,29 @@ el('generate-btn').addEventListener('click', async () => {
           }
         }
         if (ev.done) {
-          // Auto-save as a new chapter version
           if (state.draftOutput.trim()) {
-            try {
-              const htmlContent = escHtml(state.draftOutput).replace(/\n/g, '<br>');
-              await apiFetch('/api/chapters/' + state.currentChapterId + '/content', {
-                method: 'PUT',
-                body: { content: htmlContent, model_used: 'beats' },
-              });
-              // Update editor to show the new version
-              el('editor').innerHTML = htmlContent;
-              el('word-count').textContent = countWords(el('editor').innerText) + ' words';
-              state.isDirty = false;
-              setStatus('✓ New version saved', 4000);
-            } catch (saveErr) {
-              console.error('[Write from Beats] auto-save failed:', saveErr);
-              setStatus('Done — auto-save failed. Click "Insert into Editor" to save manually.', 5000);
+            const activeSheet = _rwGetActiveVersion(state.currentChapterId);
+            if (activeSheet) {
+              // Active sheet exists — write the result into it
+              _rwUpdateContent(state.currentChapterId, _rwActiveId, state.draftOutput);
+              _rwRender(state.currentChapterId);
+              setStatus(`✓ Written into "${activeSheet.label}" — click Apply to Editor when ready`, 5000);
+            } else {
+              // No active sheet — original behaviour: auto-save to main editor
+              try {
+                const htmlContent = escHtml(state.draftOutput).replace(/\n/g, '<br>');
+                await apiFetch('/api/chapters/' + state.currentChapterId + '/content', {
+                  method: 'PUT',
+                  body: { content: htmlContent, model_used: 'beats' },
+                });
+                el('editor').innerHTML = htmlContent;
+                el('word-count').textContent = countWords(el('editor').innerText) + ' words';
+                state.isDirty = false;
+                setStatus('✓ New version saved', 4000);
+              } catch (saveErr) {
+                console.error('[Write from Beats] auto-save failed:', saveErr);
+                setStatus('Done — auto-save failed. Click "Insert into Editor" to save manually.', 5000);
+              }
             }
           }
           break;
@@ -3221,8 +3288,9 @@ el('generate-btn').addEventListener('click', async () => {
     let endBefore  = el('continue-end-before').value.trim();
 
     if (!startFrom.trim()) {
-      // Auto-fill from the full editor content when left blank
-      startFrom = el('editor').innerText;
+      // Prefer active sheet content when one is selected; fall back to main editor
+      const _activeSheet = _rwGetActiveVersion(state.currentChapterId);
+      startFrom = _activeSheet ? _activeSheet.content : el('editor').innerText;
     }
 
     const wordNote  = _buildWordCountNote(el('continue-min-words'), el('continue-max-words'), startFrom);
@@ -3263,7 +3331,19 @@ el('generate-btn').addEventListener('click', async () => {
             break;
           }
         }
-        if (ev.done) break;
+        if (ev.done) {
+          // If an active sheet exists, append the generated text to it
+          if (state.draftOutput.trim()) {
+            const activeSheet = _rwGetActiveVersion(state.currentChapterId);
+            if (activeSheet) {
+              const newContent = (activeSheet.content ? activeSheet.content + '\n\n' : '') + state.draftOutput;
+              _rwUpdateContent(state.currentChapterId, _rwActiveId, newContent);
+              _rwRender(state.currentChapterId);
+              setStatus(`✓ Appended to "${activeSheet.label}"`, 3500);
+            }
+          }
+          break;
+        }
       }
     } catch (e) {
       if (e.name !== 'AbortError') {
@@ -3323,7 +3403,18 @@ el('generate-btn').addEventListener('click', async () => {
             break;
           }
         }
-        if (ev.done) break;
+        if (ev.done) {
+          // If an active sheet exists, replace its content with the rewrite
+          if (state.draftOutput.trim()) {
+            const activeSheet = _rwGetActiveVersion(state.currentChapterId);
+            if (activeSheet) {
+              _rwUpdateContent(state.currentChapterId, _rwActiveId, state.draftOutput);
+              _rwRender(state.currentChapterId);
+              setStatus(`✓ Rewrite saved to "${activeSheet.label}"`, 3500);
+            }
+          }
+          break;
+        }
       }
     } catch (e) {
       if (e.name !== 'AbortError') {
@@ -3997,30 +4088,73 @@ function _rwAddVersion(chapterId, chapterTitle, content) {
 
 function _rwDeleteVersion(chapterId, versionId) {
   let versions = _rwLoad(chapterId).filter(v => v.id !== versionId);
-  // Renumber labels
-  let n = 1;
-  const base = versions[0]?.label.replace(/\s*–\s*Rewrite v\d+$/, '') || 'Chapter';
-  versions = versions.map(v => ({
-    ...v,
-    label: `${base} – Rewrite v${n++}`,
-  }));
+  // Renumber AI-generated rewrite labels only (Sheet labels stay as-is)
+  let rwN = 1;
+  versions = versions.map(v =>
+    v.isSheet ? v : { ...v, label: v.label.replace(/Rewrite v\d+$/, `Rewrite v${rwN++}`) }
+  );
   _rwSave(chapterId, versions);
   return versions;
+}
+
+// Add a new blank editable sheet for the chapter
+function _rwAddBlankSheet(chapterId) {
+  const versions  = _rwLoad(chapterId);
+  const sheetN    = versions.filter(v => v.isSheet).length + 1;
+  const newSheet  = {
+    id:        Date.now().toString(36),
+    label:     `Sheet ${sheetN}`,
+    content:   '',
+    createdAt: new Date().toISOString(),
+    isSheet:   true,
+  };
+  versions.push(newSheet);
+  _rwSave(chapterId, versions);
+  _rwActiveId = newSheet.id;
+  return versions;
+}
+
+// Update the stored content of a specific version
+function _rwUpdateContent(chapterId, versionId, content) {
+  const versions = _rwLoad(chapterId).map(v =>
+    v.id === versionId ? { ...v, content } : v
+  );
+  _rwSave(chapterId, versions);
+}
+
+// Return the currently active version object, or null
+function _rwGetActiveVersion(chapterId) {
+  if (!_rwActiveId || !chapterId) return null;
+  return _rwLoad(chapterId).find(v => v.id === _rwActiveId) || null;
+}
+
+// Rename a version and persist
+function _rwRenameVersion(chapterId, versionId, newLabel) {
+  const label = newLabel.trim();
+  if (!label) return;
+  const versions = _rwLoad(chapterId).map(v =>
+    v.id === versionId ? { ...v, label } : v
+  );
+  _rwSave(chapterId, versions);
 }
 
 let _rwActiveId = null;  // currently selected version id
 
 function _rwRender(chapterId) {
-  const panel   = el('rewrite-panel');
-  const tabsRow = el('rewrite-tabs-row');
-  const viewer  = el('rewrite-viewer');
-  const versions = _rwLoad(chapterId);
+  const panel      = el('rewrite-panel');
+  const tabsRow    = el('rewrite-tabs-row');
+  const viewer     = el('rewrite-viewer');
+  const actionsBar = el('rewrite-viewer-actions');
+  const activeLabel= el('rewrite-active-label');
+  const versions   = _rwLoad(chapterId);
 
   tabsRow.innerHTML = '';
 
   if (!versions.length) {
     panel.style.display = 'none';
     _rwActiveId = null;
+    viewer.oninput = null;
+    actionsBar.style.display = 'none';
     return;
   }
 
@@ -4032,15 +4166,39 @@ function _rwRender(chapterId) {
   }
 
   versions.forEach(v => {
+    const isActive = v.id === _rwActiveId;
     const tab = document.createElement('div');
-    tab.className = 'rewrite-tab' + (v.id === _rwActiveId ? ' active' : '');
+    tab.className = 'rewrite-tab'
+      + (isActive ? ' active' : '')
+      + (v.isSheet ? ' sheet' : '');
     tab.title = v.label;
 
     const lbl = document.createElement('span');
     lbl.textContent = v.label;
-    lbl.style.maxWidth = '180px';
+    lbl.style.maxWidth = '160px';
     lbl.style.overflow = 'hidden';
     lbl.style.textOverflow = 'ellipsis';
+    lbl.title = 'Double-click to rename';
+    // Inline rename on double-click
+    lbl.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      const input = document.createElement('input');
+      input.value = v.label;
+      input.style.cssText = 'width:120px;font-size:11px;padding:0 2px;border:1px solid var(--accent);border-radius:3px;background:var(--bg);color:var(--text);outline:none;';
+      lbl.replaceWith(input);
+      input.focus();
+      input.select();
+      const commit = () => {
+        const newLabel = input.value.trim() || v.label;
+        _rwRenameVersion(chapterId, v.id, newLabel);
+        _rwRender(chapterId);
+      };
+      input.addEventListener('keydown', e2 => {
+        if (e2.key === 'Enter')  { e2.preventDefault(); commit(); }
+        if (e2.key === 'Escape') { _rwRender(chapterId); }
+      });
+      input.addEventListener('blur', commit);
+    });
     tab.appendChild(lbl);
 
     const del = document.createElement('span');
@@ -4064,6 +4222,21 @@ function _rwRender(chapterId) {
 
   const active = versions.find(v => v.id === _rwActiveId);
   viewer.value = active ? active.content : '';
+
+  // Editable for all versions — autosave changes to localStorage
+  viewer.oninput = active ? () => {
+    _rwUpdateContent(chapterId, _rwActiveId, viewer.value);
+  } : null;
+
+  // Actions bar — always visible when a version is selected
+  if (active) {
+    actionsBar.style.display = 'flex';
+    activeLabel.textContent  = active.isSheet
+      ? `✏ Editing: ${active.label}`
+      : `👁 Viewing: ${active.label}`;
+  } else {
+    actionsBar.style.display = 'none';
+  }
 }
 
 // Show panel when switching to a chapter that has versions
@@ -4074,6 +4247,39 @@ function _rwCheckForChapter(chapterId) {
 
 el('rewrite-panel-close').addEventListener('click', () => {
   el('rewrite-panel').style.display = 'none';
+});
+
+// + button — create a new blank sheet and open it
+el('rewrite-add-sheet').addEventListener('click', () => {
+  if (!state.currentChapterId) { setStatus('Select a chapter first', 2500); return; }
+  _rwAddBlankSheet(state.currentChapterId);
+  _rwRender(state.currentChapterId);
+  el('rewrite-panel').style.display = 'flex';
+  el('rewrite-viewer').focus();
+  setStatus('Blank sheet created — type freely or use Draft AI to generate into it', 3500);
+});
+
+// Apply to Editor — copy active sheet into the main editor and save as accepted draft
+el('rewrite-apply-btn').addEventListener('click', async () => {
+  if (!state.currentChapterId || !_rwActiveId) return;
+  const active = _rwGetActiveVersion(state.currentChapterId);
+  if (!active) return;
+  const content = active.content.trim();
+  if (!content) { setStatus('Sheet is empty — write something first', 2500); return; }
+  const htmlContent = escHtml(content).replace(/\n/g, '<br>');
+  try {
+    await apiFetch('/api/chapters/' + state.currentChapterId + '/content', {
+      method: 'PUT',
+      body: { content: htmlContent, model_used: 'sheet' },
+    });
+    el('editor').innerHTML = htmlContent;
+    el('word-count').textContent = countWords(el('editor').innerText) + ' words';
+    state.isDirty = false;
+    setStatus(`✓ "${active.label}" applied to editor`, 4000);
+  } catch (e) {
+    console.error('[Apply to Editor]', e);
+    setStatus('Failed to apply: ' + e.message, 4000);
+  }
 });
 
 // ── Drag-to-resize: Rewrite Versions panel ──────────────────────────────────
