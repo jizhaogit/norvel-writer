@@ -2949,7 +2949,8 @@ async function selectChapter(cid) {
   }
 
   await loadBeats(cid);
-  _rwCheckForChapter(cid);
+  await _rwCheckForChapter(cid);
+  await _notesFetch(cid);
   _enRender(cid);
   _qnRender(cid);
   // If image viewer is open, close it and go back to editor
@@ -3574,6 +3575,12 @@ async function sendChat() {
   el('chat-send-btn').disabled = true;
 
   try {
+    // Flush any unsaved editor edits before sending — the 2-second autosave
+    // debounce means the DB could be stale if the user just typed something.
+    // This guarantees the chat always operates on exactly what is visible in
+    // the main panel, not a slightly older version.
+    if (state.isDirty) await saveChapterContent();
+
     const historyToSend = state.chatHistory.slice(0, -1); // exclude current question (already in body)
     const res = await fetch('/api/projects/' + state.currentProjectId + '/chat', {
       method: 'POST',
@@ -3628,7 +3635,7 @@ async function sendChat() {
       if (role === 'writer') {
         // Writer: auto-save result directly to the versions panel (same as
         // Write from Beats / Continue Write / Rewrite Selection in Draft AI).
-        _rwAddVersion(state.currentChapterId, state.currentChapterTitle, fullText);
+        await _rwAddVersion(state.currentChapterId, state.currentChapterTitle, fullText);
         _rwRender(state.currentChapterId);
         const savedNote = document.createElement('div');
         savedNote.style.cssText = 'margin-top:5px;font-size:11px;color:var(--subtext);align-self:flex-end;';
@@ -3642,8 +3649,8 @@ async function sendChat() {
         pinBtn.className = 'btn btn-sm';
         pinBtn.style.cssText = 'margin-top:6px;font-size:11px;align-self:flex-start;background:color-mix(in srgb,var(--yellow) 12%,var(--surface2));color:var(--yellow);border-color:color-mix(in srgb,var(--yellow) 30%,var(--border));';
         pinBtn.textContent = existingNote ? '📌 Update Editor Note' : '📌 Pin as Editor Note';
-        pinBtn.addEventListener('click', () => {
-          _enSave(state.currentChapterId, fullText);
+        pinBtn.addEventListener('click', async () => {
+          await _enSave(state.currentChapterId, fullText);
           _enRender(state.currentChapterId);
           pinBtn.textContent = '✔ Pinned';
           pinBtn.disabled = true;
@@ -3657,8 +3664,8 @@ async function sendChat() {
         qaPinBtn.className = 'btn btn-sm';
         qaPinBtn.style.cssText = 'margin-top:6px;font-size:11px;align-self:flex-start;background:color-mix(in srgb,var(--accent) 12%,var(--surface2));color:var(--accent);border-color:color-mix(in srgb,var(--accent) 30%,var(--border));';
         qaPinBtn.textContent = existingQaNote ? '📌 Update QA Note' : '📌 Pin as QA Note';
-        qaPinBtn.addEventListener('click', () => {
-          _qnSave(state.currentChapterId, fullText);
+        qaPinBtn.addEventListener('click', async () => {
+          await _qnSave(state.currentChapterId, fullText);
           _qnRender(state.currentChapterId);
           qaPinBtn.textContent = '✔ Pinned';
           qaPinBtn.disabled = true;
@@ -4084,119 +4091,198 @@ function escHtml(str) {
 }
 
 // ── Rewrite Versions ────────────────────────────────────────────────────────
-const _RW_STORE = 'norvel_rewrite_versions';
+// Versions are persisted in SQLite via the API so they survive restarts.
+// An in-memory cache (_rwVersionsCache) keeps synchronous read paths fast;
+// all writes update the cache immediately (optimistic) then persist via API.
+// A one-time migration uploads any existing localStorage versions to the DB.
 
-function _rwLoad(chapterId) {
-  try {
-    const all = JSON.parse(localStorage.getItem(_RW_STORE) || '{}');
-    return all[chapterId] || [];
-  } catch (_) { return []; }
+const _RW_LS_LEGACY = 'norvel_rewrite_versions'; // legacy localStorage key
+
+let _rwVersionsCache = {};  // { [chapterId]: version[] }
+let _rwActiveId      = null;
+let _rwSaveTimer     = null; // debounce handle for viewer-input autosave
+
+// ── Cache helpers ────────────────────────────────────────────────────────────
+
+function _rwGetVersions(chapterId) {
+  return _rwVersionsCache[chapterId] || [];
 }
 
-function _rwSave(chapterId, versions) {
+async function _rwFetchVersions(chapterId) {
   try {
-    const all = JSON.parse(localStorage.getItem(_RW_STORE) || '{}');
-    all[chapterId] = versions;
-    localStorage.setItem(_RW_STORE, JSON.stringify(all));
-  } catch (_) {}
+    const versions = await apiFetch('/api/chapters/' + chapterId + '/versions');
+    _rwVersionsCache[chapterId] = versions;
+    return versions;
+  } catch (_) {
+    _rwVersionsCache[chapterId] = [];
+    return [];
+  }
 }
 
-function _rwAddVersion(chapterId, chapterTitle, content) {
-  const versions = _rwLoad(chapterId);
-  const n = versions.length + 1;
-  versions.push({
-    id:    Date.now().toString(36),
-    label: `${chapterTitle || 'Chapter'} – Rewrite v${n}`,
+// ── One-time localStorage → DB migration ─────────────────────────────────────
+
+async function _rwMigrateChapter(chapterId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_RW_LS_LEGACY) || '{}');
+    const lsVersions = all[chapterId];
+    if (!lsVersions || !lsVersions.length) return;
+    // If DB already has versions, just clear the legacy entry
+    const existing = await apiFetch('/api/chapters/' + chapterId + '/versions');
+    if (existing.length > 0) {
+      delete all[chapterId];
+      localStorage.setItem(_RW_LS_LEGACY, JSON.stringify(all));
+      return;
+    }
+    // Upload each legacy version to the DB
+    for (let i = 0; i < lsVersions.length; i++) {
+      const v = lsVersions[i];
+      await apiFetch('/api/chapters/' + chapterId + '/versions', {
+        method: 'POST',
+        body: {
+          id:         v.id || (Date.now().toString(36) + i),
+          label:      v.label   || `Version ${i + 1}`,
+          content:    v.content || '',
+          is_sheet:   !!(v.isSheet || v.is_sheet),
+          sort_order: i,
+          created_at: v.createdAt || v.created_at || new Date().toISOString(),
+        },
+      });
+    }
+    delete all[chapterId];
+    localStorage.setItem(_RW_LS_LEGACY, JSON.stringify(all));
+    console.log('[versions] migrated', lsVersions.length, 'versions from localStorage for', chapterId);
+  } catch (e) {
+    console.warn('[versions] localStorage migration failed:', e);
+  }
+}
+
+// ── Version operations ───────────────────────────────────────────────────────
+
+async function _rwAddVersion(chapterId, chapterTitle, content) {
+  const versions = _rwGetVersions(chapterId);
+  const n = versions.filter(v => !v.is_sheet).length + 1;
+  const v = {
+    id:         Date.now().toString(36),
+    label:      `${chapterTitle || 'Chapter'} \u2013 Rewrite v${n}`,
     content,
-    createdAt: new Date().toISOString(),
-  });
-  _rwSave(chapterId, versions);
-  return versions;
-}
-
-function _rwDeleteVersion(chapterId, versionId) {
-  let versions = _rwLoad(chapterId).filter(v => v.id !== versionId);
-  // Renumber AI-generated rewrite labels only (Sheet labels stay as-is)
-  let rwN = 1;
-  versions = versions.map(v =>
-    v.isSheet ? v : { ...v, label: v.label.replace(/Rewrite v\d+$/, `Rewrite v${rwN++}`) }
-  );
-  _rwSave(chapterId, versions);
-  return versions;
-}
-
-// Add a new blank editable sheet for the chapter
-function _rwAddBlankSheet(chapterId) {
-  const versions  = _rwLoad(chapterId);
-  const sheetN    = versions.filter(v => v.isSheet).length + 1;
-  const newSheet  = {
-    id:        Date.now().toString(36),
-    label:     `Sheet ${sheetN}`,
-    content:   '',
-    createdAt: new Date().toISOString(),
-    isSheet:   true,
+    is_sheet:   false,
+    sort_order: versions.length,
+    created_at: new Date().toISOString(),
   };
-  versions.push(newSheet);
-  _rwSave(chapterId, versions);
-  _rwActiveId = newSheet.id;
-  return versions;
+  _rwVersionsCache[chapterId] = [...versions, v];
+  try {
+    await apiFetch('/api/chapters/' + chapterId + '/versions', { method: 'POST', body: v });
+  } catch (e) { console.error('[_rwAddVersion]', e); }
+  return v;
 }
 
-// Update the stored content of a specific version
+async function _rwDeleteVersion(chapterId, versionId) {
+  let versions = _rwGetVersions(chapterId).filter(v => v.id !== versionId);
+  // Renumber non-sheet rewrite labels sequentially
+  let rwN = 1;
+  const labelMap = {};
+  versions = versions.map(v => {
+    if (!v.is_sheet) {
+      const updated = v.label.replace(/Rewrite v\d+$/, `Rewrite v${rwN++}`);
+      if (updated !== v.label) { labelMap[v.id] = updated; return { ...v, label: updated }; }
+    }
+    return v;
+  });
+  _rwVersionsCache[chapterId] = versions;
+  try {
+    await apiFetch('/api/chapters/' + chapterId + '/versions/' + versionId, { method: 'DELETE' });
+    if (Object.keys(labelMap).length) {
+      await apiFetch('/api/chapters/' + chapterId + '/versions/relabel', {
+        method: 'POST', body: { label_map: labelMap },
+      });
+    }
+  } catch (e) { console.error('[_rwDeleteVersion]', e); }
+}
+
+async function _rwAddBlankSheet(chapterId) {
+  const versions = _rwGetVersions(chapterId);
+  const sheetN = versions.filter(v => v.is_sheet).length + 1;
+  const v = {
+    id:         Date.now().toString(36),
+    label:      `Sheet ${sheetN}`,
+    content:    '',
+    is_sheet:   true,
+    sort_order: versions.length,
+    created_at: new Date().toISOString(),
+  };
+  _rwVersionsCache[chapterId] = [...versions, v];
+  _rwActiveId = v.id;
+  try {
+    await apiFetch('/api/chapters/' + chapterId + '/versions', { method: 'POST', body: v });
+  } catch (e) { console.error('[_rwAddBlankSheet]', e); }
+  return v;
+}
+
+// Synchronous — updates cache immediately; debounces the API call by 800 ms
 function _rwUpdateContent(chapterId, versionId, content) {
-  const versions = _rwLoad(chapterId).map(v =>
+  _rwVersionsCache[chapterId] = (_rwVersionsCache[chapterId] || []).map(v =>
     v.id === versionId ? { ...v, content } : v
   );
-  _rwSave(chapterId, versions);
+  clearTimeout(_rwSaveTimer);
+  _rwSaveTimer = setTimeout(async () => {
+    try {
+      await apiFetch('/api/chapters/' + chapterId + '/versions/' + versionId, {
+        method: 'PUT', body: { content },
+      });
+    } catch (e) { console.error('[_rwUpdateContent]', e); }
+  }, 800);
 }
 
-// Return the currently active version object, or null
+// Synchronous — reads from cache (populated by _rwRender / _rwFetchVersions)
 function _rwGetActiveVersion(chapterId) {
   if (!_rwActiveId || !chapterId) return null;
-  return _rwLoad(chapterId).find(v => v.id === _rwActiveId) || null;
+  return _rwGetVersions(chapterId).find(v => v.id === _rwActiveId) || null;
 }
 
-// Rename a version and persist
-function _rwRenameVersion(chapterId, versionId, newLabel) {
+async function _rwRenameVersion(chapterId, versionId, newLabel) {
   const label = newLabel.trim();
   if (!label) return;
-  const versions = _rwLoad(chapterId).map(v =>
+  _rwVersionsCache[chapterId] = (_rwVersionsCache[chapterId] || []).map(v =>
     v.id === versionId ? { ...v, label } : v
   );
-  _rwSave(chapterId, versions);
+  try {
+    await apiFetch('/api/chapters/' + chapterId + '/versions/' + versionId, {
+      method: 'PUT', body: { label },
+    });
+  } catch (e) { console.error('[_rwRenameVersion]', e); }
 }
 
-let _rwActiveId = null;  // currently selected version id
+// ── Render ───────────────────────────────────────────────────────────────────
 
-function _rwRender(chapterId) {
-  const panel      = el('rewrite-panel');
-  const tabsRow    = el('rewrite-tabs-row');
-  const viewer     = el('rewrite-viewer');
-  const actionsBar = el('rewrite-viewer-actions');
-  const activeLabel= el('rewrite-active-label');
-  const versions   = _rwLoad(chapterId);
+async function _rwRender(chapterId) {
+  const panel       = el('rewrite-panel');
+  const tabsRow     = el('rewrite-tabs-row');
+  const viewer      = el('rewrite-viewer');
+  const actionsBar  = el('rewrite-viewer-actions');
+  const activeLabel = el('rewrite-active-label');
+
+  // Fetch from API if the cache has no entry yet for this chapter
+  if (!_rwVersionsCache[chapterId]) await _rwFetchVersions(chapterId);
+  const versions = _rwGetVersions(chapterId);
 
   tabsRow.innerHTML = '';
 
   if (!versions.length) {
-    // Always keep the panel visible so the user can hit + to create a blank
-    // sheet even before any content has been generated.
     panel.style.display = 'flex';
     _rwActiveId = null;
     viewer.value = '';
     viewer.placeholder = 'No versions yet.\nClick  +  to create a blank sheet, or generate content with Draft AI / Chat Writer.';
     viewer.disabled = true;
-    viewer.oninput = null;
+    viewer.oninput  = null;
     actionsBar.style.display = 'none';
-    activeLabel.textContent = '';
+    activeLabel.textContent  = '';
     return;
   }
 
-  viewer.disabled = false;
-  viewer.placeholder = '';
+  viewer.disabled     = false;
+  viewer.placeholder  = '';
   panel.style.display = 'flex';
 
-  // If active version was deleted, pick the last one
   if (!versions.find(v => v.id === _rwActiveId)) {
     _rwActiveId = versions[versions.length - 1].id;
   }
@@ -4205,35 +4291,31 @@ function _rwRender(chapterId) {
     const isActive = v.id === _rwActiveId;
     const tab = document.createElement('div');
     tab.className = 'rewrite-tab'
-      + (isActive ? ' active' : '')
-      + (v.isSheet ? ' sheet' : '');
+      + (isActive   ? ' active' : '')
+      + (v.is_sheet ? ' sheet'  : '');
     tab.title = v.label;
 
     const lbl = document.createElement('span');
     lbl.textContent = v.label;
-    lbl.style.maxWidth = '160px';
-    lbl.style.overflow = 'hidden';
-    lbl.style.textOverflow = 'ellipsis';
+    lbl.style.cssText = 'max-width:160px;overflow:hidden;text-overflow:ellipsis;';
     lbl.title = 'Double-click to rename';
-    // Inline rename on double-click
-    lbl.addEventListener('dblclick', e => {
+    lbl.addEventListener('dblclick', async e => {
       e.stopPropagation();
-      const input = document.createElement('input');
-      input.value = v.label;
-      input.style.cssText = 'width:120px;font-size:11px;padding:0 2px;border:1px solid var(--accent);border-radius:3px;background:var(--bg);color:var(--text);outline:none;';
-      lbl.replaceWith(input);
-      input.focus();
-      input.select();
-      const commit = () => {
-        const newLabel = input.value.trim() || v.label;
-        _rwRenameVersion(chapterId, v.id, newLabel);
+      const inp = document.createElement('input');
+      inp.value = v.label;
+      inp.style.cssText = 'width:120px;font-size:11px;padding:0 2px;border:1px solid var(--accent);border-radius:3px;background:var(--bg);color:var(--text);outline:none;';
+      lbl.replaceWith(inp);
+      inp.focus(); inp.select();
+      const commit = async () => {
+        const newLabel = inp.value.trim() || v.label;
+        await _rwRenameVersion(chapterId, v.id, newLabel);
         _rwRender(chapterId);
       };
-      input.addEventListener('keydown', e2 => {
+      inp.addEventListener('keydown', e2 => {
         if (e2.key === 'Enter')  { e2.preventDefault(); commit(); }
         if (e2.key === 'Escape') { _rwRender(chapterId); }
       });
-      input.addEventListener('blur', commit);
+      inp.addEventListener('blur', commit);
     });
     tab.appendChild(lbl);
 
@@ -4241,10 +4323,10 @@ function _rwRender(chapterId) {
     del.className = 'rewrite-tab-del';
     del.textContent = '✕';
     del.title = 'Delete this version';
-    del.addEventListener('click', e => {
+    del.addEventListener('click', async e => {
       e.stopPropagation();
       if (!confirm(`Delete "${v.label}"?`)) return;
-      _rwDeleteVersion(chapterId, v.id);
+      await _rwDeleteVersion(chapterId, v.id);
       _rwRender(chapterId);
     });
     tab.appendChild(del);
@@ -4259,28 +4341,28 @@ function _rwRender(chapterId) {
   const active = versions.find(v => v.id === _rwActiveId);
   viewer.value = active ? active.content : '';
 
-  // Editable for all versions — autosave changes to localStorage
+  // Autosave viewer edits — debounced to avoid flooding the API
   viewer.oninput = active ? () => {
     _rwUpdateContent(chapterId, _rwActiveId, viewer.value);
   } : null;
 
-  // Actions bar — always visible when a version is selected
   if (active) {
     actionsBar.style.display = 'flex';
-    activeLabel.textContent  = active.isSheet
-      ? `✏ Editing: ${active.label}`
-      : `👁 Viewing: ${active.label}`;
+    activeLabel.textContent  = active.is_sheet
+      ? `\u270F Editing: ${active.label}`
+      : `\uD83D\uDC41 Viewing: ${active.label}`;
   } else {
     actionsBar.style.display = 'none';
   }
 }
 
-// Show the versions panel whenever a chapter is selected — even if it has no
-// versions yet — so the user can always hit + to create a blank sheet.
-function _rwCheckForChapter(chapterId) {
+// Show the versions panel when a chapter is selected; run localStorage migration first.
+async function _rwCheckForChapter(chapterId) {
   if (!chapterId) { el('rewrite-panel').style.display = 'none'; return; }
+  await _rwMigrateChapter(chapterId);           // one-time, no-op if already done
+  delete _rwVersionsCache[chapterId];            // force fresh fetch from DB
   el('rewrite-panel').style.display = 'flex';
-  _rwRender(chapterId);
+  await _rwRender(chapterId);
 }
 
 el('rewrite-panel-close').addEventListener('click', () => {
@@ -4288,16 +4370,16 @@ el('rewrite-panel-close').addEventListener('click', () => {
 });
 
 // + button — create a new blank sheet and open it
-el('rewrite-add-sheet').addEventListener('click', () => {
+el('rewrite-add-sheet').addEventListener('click', async () => {
   if (!state.currentChapterId) { setStatus('Select a chapter first', 2500); return; }
-  _rwAddBlankSheet(state.currentChapterId);
+  await _rwAddBlankSheet(state.currentChapterId);
   _rwRender(state.currentChapterId);
   el('rewrite-panel').style.display = 'flex';
   el('rewrite-viewer').focus();
   setStatus('Blank sheet created — type freely or use Draft AI to generate into it', 3500);
 });
 
-// Apply to Editor — copy active sheet into the main editor and save as accepted draft
+// Apply to Editor — copy active version into the main editor and save as accepted draft
 el('rewrite-apply-btn').addEventListener('click', async () => {
   if (!state.currentChapterId || !_rwActiveId) return;
   const active = _rwGetActiveVersion(state.currentChapterId);
@@ -4313,7 +4395,7 @@ el('rewrite-apply-btn').addEventListener('click', async () => {
     el('editor').innerHTML = htmlContent;
     el('word-count').textContent = countWords(el('editor').innerText) + ' words';
     state.isDirty = false;
-    setStatus(`✓ "${active.label}" applied to editor`, 4000);
+    setStatus(`\u2713 "${active.label}" applied to editor`, 4000);
   } catch (e) {
     console.error('[Apply to Editor]', e);
     setStatus('Failed to apply: ' + e.message, 4000);
@@ -4408,29 +4490,79 @@ el('rewrite-apply-btn').addEventListener('click', async () => {
   makeColResizer('right-panel-resize-handle',  el('right-panel'),  -1, 220, 600, 'right-panel');
 }());
 
-// ── Editor Notes (per-chapter, persisted) ───────────────────────────────────
-const _EN_STORE = 'norvel_editor_notes';
+// ── Editor & QA Notes (per-chapter, persisted to DB) ────────────────────────
+// Legacy localStorage keys kept only for one-time migration
+const _NOTES_LS_EN = 'norvel_editor_notes';
+const _NOTES_LS_QN = 'norvel_qa_notes';
+let _notesCache = {};  // { [chapterId]: { editor_note: string|null, qa_note: string|null } }
 
-function _enLoad(chapterId) {
+async function _notesFetch(chapterId) {
+  if (!chapterId) return;
+  // One-time localStorage → DB migration
   try {
-    const all = JSON.parse(localStorage.getItem(_EN_STORE) || '{}');
-    return all[chapterId] || null;
-  } catch (_) { return null; }
+    const lsEn = JSON.parse(localStorage.getItem(_NOTES_LS_EN) || '{}');
+    const lsQn = JSON.parse(localStorage.getItem(_NOTES_LS_QN) || '{}');
+    const migrateEn = lsEn[chapterId] || null;
+    const migrateQn = lsQn[chapterId] || null;
+    if (migrateEn || migrateQn) {
+      const ch = await apiFetch('/api/chapters/' + chapterId);
+      const dbEn = ch.editor_note || null;
+      const dbQn = ch.qa_note || null;
+      const payload = {};
+      if (!dbEn && migrateEn) payload.editor_note = migrateEn;
+      if (!dbQn && migrateQn) payload.qa_note = migrateQn;
+      if (Object.keys(payload).length) {
+        await apiFetch('/api/chapters/' + chapterId, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+      }
+      delete lsEn[chapterId];
+      delete lsQn[chapterId];
+      localStorage.setItem(_NOTES_LS_EN, JSON.stringify(lsEn));
+      localStorage.setItem(_NOTES_LS_QN, JSON.stringify(lsQn));
+      _notesCache[chapterId] = {
+        editor_note: payload.editor_note || dbEn || null,
+        qa_note:     payload.qa_note     || dbQn || null,
+      };
+      return;
+    }
+  } catch (_) {}
+  // Normal DB fetch
+  try {
+    const ch = await apiFetch('/api/chapters/' + chapterId);
+    _notesCache[chapterId] = {
+      editor_note: ch.editor_note || null,
+      qa_note:     ch.qa_note     || null,
+    };
+  } catch (_) {
+    _notesCache[chapterId] = { editor_note: null, qa_note: null };
+  }
 }
 
-function _enSave(chapterId, text) {
+function _enLoad(chapterId) {
+  return (_notesCache[chapterId] || {}).editor_note || null;
+}
+
+async function _enSave(chapterId, text) {
+  if (!_notesCache[chapterId]) _notesCache[chapterId] = { editor_note: null, qa_note: null };
+  _notesCache[chapterId].editor_note = text;
   try {
-    const all = JSON.parse(localStorage.getItem(_EN_STORE) || '{}');
-    all[chapterId] = text;
-    localStorage.setItem(_EN_STORE, JSON.stringify(all));
+    await apiFetch('/api/chapters/' + chapterId, {
+      method: 'PUT',
+      body: JSON.stringify({ editor_note: text }),
+    });
   } catch (_) {}
 }
 
-function _enClear(chapterId) {
+async function _enClear(chapterId) {
+  if (!_notesCache[chapterId]) _notesCache[chapterId] = { editor_note: null, qa_note: null };
+  _notesCache[chapterId].editor_note = null;
   try {
-    const all = JSON.parse(localStorage.getItem(_EN_STORE) || '{}');
-    delete all[chapterId];
-    localStorage.setItem(_EN_STORE, JSON.stringify(all));
+    await apiFetch('/api/chapters/' + chapterId, {
+      method: 'PUT',
+      body: JSON.stringify({ editor_note: '' }),
+    });
   } catch (_) {}
 }
 
@@ -4457,36 +4589,38 @@ el('editor-notes-expand-btn').addEventListener('click', () => {
   btn.textContent = expanded ? '⤢ Expand' : '⤡ Collapse';
 });
 
-el('editor-notes-clear-btn').addEventListener('click', () => {
+el('editor-notes-clear-btn').addEventListener('click', async () => {
   if (!state.currentChapterId) return;
   if (!confirm('Clear the pinned editor note for this chapter?')) return;
-  _enClear(state.currentChapterId);
+  await _enClear(state.currentChapterId);
   _enRender(state.currentChapterId);
 });
 
-// ── QA Notes (per-chapter, persisted) ──────────────────────────────────────
-const _QN_STORE = 'norvel_qa_notes';
+// ── QA Notes ────────────────────────────────────────────────────────────────
 
 function _qnLoad(chapterId) {
-  try {
-    const all = JSON.parse(localStorage.getItem(_QN_STORE) || '{}');
-    return all[chapterId] || null;
-  } catch (_) { return null; }
+  return (_notesCache[chapterId] || {}).qa_note || null;
 }
 
-function _qnSave(chapterId, text) {
+async function _qnSave(chapterId, text) {
+  if (!_notesCache[chapterId]) _notesCache[chapterId] = { editor_note: null, qa_note: null };
+  _notesCache[chapterId].qa_note = text;
   try {
-    const all = JSON.parse(localStorage.getItem(_QN_STORE) || '{}');
-    all[chapterId] = text;
-    localStorage.setItem(_QN_STORE, JSON.stringify(all));
+    await apiFetch('/api/chapters/' + chapterId, {
+      method: 'PUT',
+      body: JSON.stringify({ qa_note: text }),
+    });
   } catch (_) {}
 }
 
-function _qnClear(chapterId) {
+async function _qnClear(chapterId) {
+  if (!_notesCache[chapterId]) _notesCache[chapterId] = { editor_note: null, qa_note: null };
+  _notesCache[chapterId].qa_note = null;
   try {
-    const all = JSON.parse(localStorage.getItem(_QN_STORE) || '{}');
-    delete all[chapterId];
-    localStorage.setItem(_QN_STORE, JSON.stringify(all));
+    await apiFetch('/api/chapters/' + chapterId, {
+      method: 'PUT',
+      body: JSON.stringify({ qa_note: '' }),
+    });
   } catch (_) {}
 }
 
@@ -4513,10 +4647,10 @@ el('qa-notes-expand-btn').addEventListener('click', () => {
   btn.textContent = expanded ? '⤢ Expand' : '⤡ Collapse';
 });
 
-el('qa-notes-clear-btn').addEventListener('click', () => {
+el('qa-notes-clear-btn').addEventListener('click', async () => {
   if (!state.currentChapterId) return;
   if (!confirm('Clear the pinned QA note for this chapter?')) return;
-  _qnClear(state.currentChapterId);
+  await _qnClear(state.currentChapterId);
   _qnRender(state.currentChapterId);
 });
 

@@ -451,6 +451,87 @@ async def update_chapter_content(chapter_id: str, body: ContentUpdate):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ── Chapter Versions ───────────────────────────────────────────────────────
+
+@app.get("/api/chapters/{chapter_id}/versions")
+async def list_versions(chapter_id: str):
+    try:
+        from norvel_writer.storage.repositories.version_repo import VersionRepo
+        return VersionRepo(get_db()).list_versions(chapter_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class VersionCreate(BaseModel):
+    id: str
+    label: str
+    content: str = ""
+    is_sheet: bool = False
+    sort_order: int = 0
+    created_at: str
+
+
+@app.post("/api/chapters/{chapter_id}/versions")
+async def create_version(chapter_id: str, body: VersionCreate):
+    try:
+        from norvel_writer.storage.repositories.version_repo import VersionRepo
+        return VersionRepo(get_db()).create_version(
+            chapter_id=chapter_id,
+            id=body.id,
+            label=body.label,
+            content=body.content,
+            is_sheet=body.is_sheet,
+            sort_order=body.sort_order,
+            created_at=body.created_at,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class VersionRelabel(BaseModel):
+    label_map: Dict[str, str]   # {version_id: new_label}
+
+
+# NOTE: /relabel must be registered BEFORE /{version_id} so FastAPI doesn't
+# treat the literal string "relabel" as a version_id path parameter.
+@app.post("/api/chapters/{chapter_id}/versions/relabel")
+async def relabel_versions(chapter_id: str, body: VersionRelabel):
+    try:
+        from norvel_writer.storage.repositories.version_repo import VersionRepo
+        VersionRepo(get_db()).update_labels(body.label_map)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class VersionUpdate(BaseModel):
+    label: Optional[str] = None
+    content: Optional[str] = None
+    is_sheet: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+@app.put("/api/chapters/{chapter_id}/versions/{version_id}")
+async def update_version(chapter_id: str, version_id: str, body: VersionUpdate):
+    try:
+        from norvel_writer.storage.repositories.version_repo import VersionRepo
+        kwargs = {k: v for k, v in body.dict().items() if v is not None}
+        VersionRepo(get_db()).update_version(version_id, **kwargs)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/chapters/{chapter_id}/versions/{version_id}")
+async def delete_version(chapter_id: str, version_id: str):
+    try:
+        from norvel_writer.storage.repositories.version_repo import VersionRepo
+        VersionRepo(get_db()).delete_version(version_id)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ── Documents ──────────────────────────────────────────────────────────────
 
 @app.get("/api/projects/{project_id}/documents")
