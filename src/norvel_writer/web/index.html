@@ -4452,8 +4452,8 @@ function _enRender(chapterId) {
 el('editor-notes-expand-btn').addEventListener('click', () => {
   const content = el('editor-notes-content');
   const btn     = el('editor-notes-expand-btn');
-  const expanded = content.style.maxHeight === 'none';
-  content.style.maxHeight = expanded ? '180px' : 'none';
+  const expanded = content.style.maxHeight !== '180px';
+  content.style.maxHeight = expanded ? '180px' : '60vh';
   btn.textContent = expanded ? '⤢ Expand' : '⤡ Collapse';
 });
 
@@ -4508,8 +4508,8 @@ function _qnRender(chapterId) {
 el('qa-notes-expand-btn').addEventListener('click', () => {
   const content = el('qa-notes-content');
   const btn     = el('qa-notes-expand-btn');
-  const expanded = content.style.maxHeight === 'none';
-  content.style.maxHeight = expanded ? '180px' : 'none';
+  const expanded = content.style.maxHeight !== '180px';
+  content.style.maxHeight = expanded ? '180px' : '60vh';
   btn.textContent = expanded ? '⤢ Expand' : '⤡ Collapse';
 });
 

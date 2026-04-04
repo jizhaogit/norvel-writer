@@ -482,15 +482,117 @@ class DraftEngine:
         if topic_wants_beats and "beats" not in rag_doc_types:
             rag_doc_types.append("beats")
 
-        rag_query = f"{chapter_title}: {question}" if chapter_title else question
-        rag_results = await self._pm.retrieve_context(
-            project_id=project_id,
-            query=rag_query,
-            n_results=14,
-            doc_types=rag_doc_types,
+        # ── Pre-load chapter beats (writer role only) ──────────────────────
+        # Must happen BEFORE the RAG query so we can use the beats text as the
+        # semantic query when write-from-beats intent is detected — identical to
+        # the strategy used in continue_draft's beats mode.
+        ch_beats = ""
+        if role == "writer" and resolved_chapter_id:
+            try:
+                _ch_row_pre = self._pm.get_chapter(resolved_chapter_id)
+                ch_beats = (_ch_row_pre.get("beats") or "").strip() if _ch_row_pre else ""
+            except Exception:
+                pass
+
+        # ── Intent detection (writer role) ────────────────────────────────
+        # Detect two distinct write intents so the correct prompt mode is used:
+        #   • rewrite  → chapter text is the target (rewrite the existing draft)
+        #   • write    → beats are the target (generate fresh prose from beats)
+        # Both are detected here so the RAG query can be adjusted before retrieval.
+        _rewrite_kws = [
+            "rewrite", "re-write", "re write", "rewrite the chapter",
+            "重写", "改写", "重新写", "重新改写",
+            "réécrire", "umschreiben", "riscrivere", "reescribir",
+        ]
+        _write_kws = [
+            # English
+            "write the chapter", "write this chapter", "write chapter",
+            "write from beats", "write from my beats", "write from the beats",
+            "write based on beats", "generate the chapter", "generate chapter",
+            "draft the chapter", "draft from beats",
+            # Chinese (Simplified + Traditional)
+            "写这章", "写章节", "写这个章节", "按节拍写", "根据节拍写", "写第",
+            "寫這章", "寫章節", "按節拍寫", "根據節拍寫",
+            # Japanese
+            "章を書いて", "チャプターを書いて",
+            # Korean
+            "챕터를 써줘", "장을 써줘", "챕터 작성",
+            # French
+            "écrire le chapitre", "écris le chapitre", "rédige le chapitre",
+            # German
+            "schreibe das kapitel", "schreib das kapitel",
+            # Spanish
+            "escribe el capítulo", "redacta el capítulo",
+            # Italian
+            "scrivi il capitolo",
+            # Portuguese
+            "escreve o capítulo", "escreva o capítulo",
+        ]
+        _is_chapter_rewrite = bool(
+            role == "writer" and chapter_text
+            and any(kw in q_lower for kw in _rewrite_kws)
         )
+        _is_write_from_beats = bool(
+            role == "writer" and ch_beats
+            and not _is_chapter_rewrite
+            and any(kw in q_lower for kw in _write_kws)
+        )
+
+        # ── RAG query & retrieval ──────────────────────────────────────────
+        # write-from-beats: use beats text as query (same as continue_draft)
+        # otherwise:        chapter-title-prefixed question
+        if _is_write_from_beats:
+            rag_query = ch_beats
+        else:
+            rag_query = f"{chapter_title}: {question}" if chapter_title else question
+
+        # write-from-beats: split codex / non-codex retrieval with distance
+        # filtering — identical to continue_draft's beats-mode strategy.
+        if _is_write_from_beats:
+            _cx_threshold = limits["codex_distance_threshold"]
+            _non_codex    = [t for t in rag_doc_types if t != "codex"]
+            _wants_codex  = "codex" in rag_doc_types
+            _bn_results: list = []
+            if _non_codex:
+                _bn_results = await self._pm.retrieve_context(
+                    project_id=project_id,
+                    query=rag_query,
+                    n_results=8,
+                    doc_types=_non_codex,
+                )
+            _cx_results: list = []
+            if _wants_codex:
+                _cx_raw = await self._pm.retrieve_context(
+                    project_id=project_id,
+                    query=rag_query,
+                    n_results=10,
+                    doc_types=["codex"],
+                )
+                _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
+                log.debug(
+                    "chat-beats RAG: %d/%d codex chunks passed distance %.2f",
+                    len(_cx_results), len(_cx_raw), _cx_threshold,
+                )
+            rag_results = sorted(
+                _bn_results + _cx_results,
+                key=lambda r: r.get("distance", 0.0),
+            )
+            _rag_max_dist = _cx_threshold
+        else:
+            rag_results = await self._pm.retrieve_context(
+                project_id=project_id,
+                query=rag_query,
+                n_results=14,
+                doc_types=rag_doc_types,
+            )
+            _rag_max_dist = 1.0
+
         rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
+            r["text"] for r in _cap_rag(
+                rag_results,
+                budget_tokens=limits["rag_budget"],
+                max_distance=_rag_max_dist,
+            )
         )
 
         # ── Image description context (project-level + chapter-level) ─────────
@@ -505,9 +607,9 @@ class DraftEngine:
             persona = (proj.get("persona") or "").strip() if proj else ""
             style_results = await self._pm.retrieve_style_examples(
                 project_id=project_id,
-                # Use rag_query (chapter-title prefixed) so the style embedding
-                # is anchored to the actual writing context, not just the raw
-                # user question — consistent with continue_draft behaviour.
+                # Use rag_query (beats text or chapter-title-prefixed question) so
+                # the style embedding is anchored to the actual writing context —
+                # consistent with continue_draft behaviour.
                 query=rag_query,
                 n_results=8,
             )
@@ -597,35 +699,17 @@ class DraftEngine:
                 system_prompt += f"\n\n## Visual Reference Descriptions (for context only)\n{image_context}"
 
         elif role == "writer":
-            # Use the shared writer prompt builder — identical to Draft AI
-            # Beats for the resolved chapter are fetched from the DB
-            ch_beats = ""
-            if resolved_chapter_id:
-                try:
-                    ch_row = self._pm.get_chapter(resolved_chapter_id)
-                    ch_beats = (ch_row.get("beats") or "").strip() if ch_row else ""
-                except Exception:
-                    pass
-
-            # ── Detect chapter-rewrite intent ─────────────────────────────
-            # When the user asks to rewrite the whole chapter, we switch to
-            # rewrite mode so the chapter text lands in the USER message
-            # (where small models give it the most attention) rather than
-            # being buried in the system prompt behind the rewrite warning.
-            # This also ensures editor notes are explicitly applied.
-            _rewrite_kws = [
-                "rewrite", "re-write", "re write", "rewrite the chapter",
-                "重写", "改写", "重新写", "重新改写",
-                "réécrire", "umschreiben", "riscrivere", "reescribir",
-            ]
-            _is_chapter_rewrite = (
-                chapter_text
-                and any(kw in question.lower() for kw in _rewrite_kws)
-            )
+            # ch_beats already loaded above (before RAG query).
+            # Intent flags (_is_chapter_rewrite, _is_write_from_beats) also
+            # computed above.  Three mutually exclusive paths:
+            #   1. rewrite       — user wants to rewrite the existing draft
+            #   2. write-beats   — user wants fresh prose written from beats
+            #   3. chat          — general collaborative writing / discussion
 
             if _is_chapter_rewrite:
-                # Rewrite mode: chapter goes into the USER message as the
-                # explicit target; system prompt carries context only.
+                # ── Path 1: Rewrite ───────────────────────────────────────
+                # Chapter text goes into the USER message (most prominent
+                # position for small models) rather than buried in system prompt.
                 system_prompt = _build_writer_system_prompt(
                     lang_display=lang_display,
                     persona=persona,
@@ -639,8 +723,6 @@ class DraftEngine:
                     mode="rewrite",
                     style_mode="preserve_tone_rhythm",
                 )
-                # Put chapter text in user message — this is the most
-                # prominent position for small models.
                 _en_block = (
                     f"\n\nApply ALL editor suggestions above to the rewritten text."
                     if editor_note else ""
@@ -656,8 +738,57 @@ class DraftEngine:
                     f"covering the same events and scenes. Do NOT summarise — "
                     f"write full, publication-quality prose from start to finish."
                 )
+
+            elif _is_write_from_beats:
+                # ── Path 2: Write from Beats ──────────────────────────────
+                # Identical to Draft AI's "Write from Beats" button:
+                #   • mode="beats"  → beats FIRST in prompt + FINAL INSTRUCTION at end
+                #   • No existing_text (writing fresh, not continuing)
+                #   • Previous chapter tail injected as continuity anchor
+                #   • Beats fence repeated in user message (recency bias fix)
+                prev_chapter_tail = ""
+                try:
+                    from norvel_writer.utils.text_utils import strip_html as _strip_html
+                    _all_ch = self._pm.list_chapters(project_id)
+                    _ch_ids = [c["id"] for c in _all_ch]
+                    if resolved_chapter_id in _ch_ids:
+                        _idx = _ch_ids.index(resolved_chapter_id)
+                        if _idx > 0:
+                            _prev_id = _ch_ids[_idx - 1]
+                            _prev_draft = self._pm.get_accepted_draft(_prev_id)
+                            if _prev_draft:
+                                _prev_raw = _strip_html(_prev_draft.get("content") or "")
+                                prev_chapter_tail = _prev_raw[-2400:].strip()
+                                log.debug(
+                                    "chat-beats: injecting %d chars from prev chapter %r",
+                                    len(prev_chapter_tail), _prev_id,
+                                )
+                except Exception as exc:
+                    log.warning("chat-beats: could not fetch previous chapter: %s", exc)
+
+                system_prompt = _build_writer_system_prompt(
+                    lang_display=lang_display,
+                    persona=persona,
+                    editor_note=editor_note,
+                    rag_context=rag_context,
+                    image_context=image_context,
+                    qa_note=qa_note,
+                    style_chunks=style_chunks,
+                    beats=ch_beats,
+                    existing_text="",          # writing fresh from beats
+                    mode="beats",
+                    style_mode="inspired_by",
+                    prev_chapter_tail=prev_chapter_tail,
+                )
+                beat_fence = (
+                    "⚠ BEATS CONSTRAINT: Write ONLY the scenes and events described in the "
+                    "Chapter Blueprint above. Do NOT invent new scenes, characters, or plot "
+                    "points that are not in the beats. Start at Beat 1. Stop after the final beat."
+                )
+                user_message = f"{question}\n\n{beat_fence}"
+
             else:
-                # Normal collaborative chat mode
+                # ── Path 3: General collaborative chat ────────────────────
                 system_prompt = _build_writer_system_prompt(
                     lang_display=lang_display,
                     persona=persona,
