@@ -53,6 +53,35 @@ class DraftEngine:
         # Detect write-from-beats mode: no existing text but beats are present.
         is_beats_mode = bool(beats.strip()) and not current_text.strip()
 
+        # ── Previous-chapter tail (beats mode only) ────────────────────────
+        # If this is not the first chapter of the project, we fetch the last
+        # ~600 tokens of the previous chapter's accepted draft and inject it
+        # as a "where the story left off" anchor.  This prevents the model from
+        # inventing a fresh opening instead of continuing naturally, while still
+        # letting the beats define what actually happens next.
+        prev_chapter_tail = ""
+        if is_beats_mode:
+            try:
+                from norvel_writer.utils.text_utils import strip_html
+                all_chapters = self._pm.list_chapters(project_id)
+                ch_ids = [c["id"] for c in all_chapters]
+                if chapter_id in ch_ids:
+                    idx = ch_ids.index(chapter_id)
+                    if idx > 0:
+                        prev_ch_id = ch_ids[idx - 1]
+                        prev_draft = self._pm.get_accepted_draft(prev_ch_id)
+                        if prev_draft:
+                            prev_raw = strip_html(prev_draft.get("content") or "")
+                            # Take only the tail — the transition / ending paragraphs
+                            tail_chars = 2400  # ≈ 600 tokens
+                            prev_chapter_tail = prev_raw[-tail_chars:].strip()
+                            log.debug(
+                                "beats: injecting %d chars from previous chapter %r",
+                                len(prev_chapter_tail), prev_ch_id,
+                            )
+            except Exception as exc:
+                log.warning("beats: could not fetch previous chapter: %s", exc)
+
         # RAG query strategy — mirrors chat_with_context which uses the user's
         # actual words as the semantic query, not just the last paragraph.
         # • beats mode  → beats text (what's about to be written)
@@ -150,6 +179,7 @@ class DraftEngine:
             text_after_cursor=text_after_cursor.strip(),
             style_mode=style_mode,
             constraints=constraints,
+            prev_chapter_tail=prev_chapter_tail,
         )
 
         # Construct user message with cursor marker when inserting mid-text
@@ -161,9 +191,25 @@ class DraftEngine:
         else:
             draft_block = context_text
 
+        # In beats mode the user message doubles as a final beats reminder.
+        # Because small models weight the most recently seen tokens highly,
+        # repeating the constraint here (after all the system-prompt context)
+        # significantly reduces the chance of the model going off-script.
+        if is_beats_mode:
+            beat_fence = (
+                "⚠ BEATS CONSTRAINT: Write ONLY the scenes and events described in the "
+                "Chapter Blueprint above. Do NOT invent new scenes, characters, or plot "
+                "points that are not in the beats. Start at Beat 1. Stop after the final beat."
+            )
+            user_content = f"{user_instruction}\n\n{beat_fence}"
+            if draft_block.strip():
+                user_content += f"\n\n---\n{draft_block}"
+        else:
+            user_content = f"{user_instruction}\n\n---\n{draft_block}"
+
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"{user_instruction}\n\n---\n{draft_block}"},
+            {"role": "user", "content": user_content},
         ]
         return await chat_stream(messages)
 
@@ -656,6 +702,7 @@ def _build_writer_system_prompt(
     text_after_cursor: str = "",
     style_mode: str = "",
     constraints: Optional[List[str]] = None,
+    prev_chapter_tail: str = "",
 ) -> str:
     """
     Build the Writer system prompt with the same priority ordering and TOML role
@@ -716,14 +763,25 @@ def _build_writer_system_prompt(
 
     # Mode-specific task description
     if mode == "beats":
-        task_line = (
-            "Write a complete, compelling chapter from scratch, using the Chapter Blueprint below as your structural backbone. "
-            "Each beat is a dramatic milestone — not a script to recite word-for-word. "
-            "Bring every beat fully to life as a scene: vivid setting, character interiority, "
-            "concrete sensory detail, rising tension, and dynamic prose. "
-            "Move through all beats in order, giving each one the space and depth it deserves. "
-            "Write like a skilled novelist, not like someone filling in a form."
-        )
+        if prev_chapter_tail:
+            task_line = (
+                "Write a complete chapter that continues naturally from the previous chapter. "
+                "Your Chapter Blueprint (beats) defines what happens — follow it exactly and completely. "
+                "Open your chapter by flowing smoothly from where the previous chapter ended. "
+                "Do NOT start a new scene, introduce a new location, or jump in time unless a beat explicitly requires it. "
+                "Each beat is a dramatic milestone — bring it fully to life as a scene: vivid setting, "
+                "character interiority, concrete sensory detail, rising tension, and dynamic prose. "
+                "Move through ALL beats in order. Write like a skilled novelist, not like someone filling in a form."
+            )
+        else:
+            task_line = (
+                "Write a complete, compelling chapter from scratch, using the Chapter Blueprint below as your structural backbone. "
+                "Each beat is a dramatic milestone — not a script to recite word-for-word. "
+                "Bring every beat fully to life as a scene: vivid setting, character interiority, "
+                "concrete sensory detail, rising tension, and dynamic prose. "
+                "Move through all beats in order, giving each one the space and depth it deserves. "
+                "Write like a skilled novelist, not like someone filling in a form."
+            )
     elif mode == "continue":
         if text_after_cursor:
             task_line = (
@@ -811,14 +869,30 @@ def _build_writer_system_prompt(
             f"\n\n╔══════════════════════════════════════════╗\n"
             f"║  YOUR WRITING DIRECTIVES — CHAPTER BEATS  ║\n"
             f"╚══════════════════════════════════════════╝\n"
-            f"The beats below define the COMPLETE structure of this chapter.\n"
+            f"The beats below define the COMPLETE and ONLY structure of this chapter.\n"
             f"► Start writing at Beat 1. Stop writing after the final beat.\n"
             f"► Do NOT write scenes, events, or plot points that are not listed here.\n"
             f"► Do NOT continue past the last beat.\n"
+            f"► Do NOT use codex/world-building content to invent new events — "
+            f"beats are your sole story guide.\n"
             f"Each beat is a dramatic moment to bring fully to life — "
             f"then move directly to the next beat.\n\n"
             f"{beats}"
         )
+
+        # If a previous chapter exists, anchor the opening here —
+        # immediately after the beats so the model sees them together.
+        if prev_chapter_tail:
+            prompt += (
+                f"\n\n╔══════════════════════════════════════════╗\n"
+                f"║  WHERE THE STORY LEFT OFF (prev. chapter)  ║\n"
+                f"╚══════════════════════════════════════════╝\n"
+                f"Your chapter must open by continuing naturally from this passage.\n"
+                f"Do NOT start a new scene, new location, or jump in time unless a beat explicitly says so.\n\n"
+                f"...\n"
+                f"{prev_chapter_tail}\n"
+                f"[End of previous chapter]"
+            )
 
     # Priority 2 — Persona
     if persona:
@@ -915,6 +989,25 @@ def _build_writer_system_prompt(
         prompt += f"\n\nStyle guidance: {style_mode.replace('_', ' ')}"
         if constraints:
             prompt += "\n\n## Additional Constraints\n" + _bullets(constraints)
+
+    # ── BEATS MODE: repeat the directive at the very end ──────────────────
+    # Small models have recency bias — the last few hundred tokens of the
+    # system prompt strongly influence generation.  By restating the beats
+    # constraint here (after all context blocks) we prevent the codex or
+    # style content from overwriting the model's working directive.
+    if mode == "beats" and beats:
+        prompt += (
+            f"\n\n╔══════════════════════════════════════════╗\n"
+            f"║  ⚠  FINAL INSTRUCTION — BEATS ARE YOUR LAW  ⚠  ║\n"
+            f"╚══════════════════════════════════════════╝\n"
+            f"You have read the Chapter Blueprint and all supporting context.\n"
+            f"Now write prose ONLY for what the beats describe — nothing more.\n"
+            f"► Beat 1 is your starting point.\n"
+            f"► The final beat is your stopping point.\n"
+            f"► Every scene, event, and revelation must come from the beats list.\n"
+            f"► Supporting context (codex, world details) informs HOW you write, not WHAT happens.\n"
+            f"► Output pure prose only — no beat labels, no numbers, no headings."
+        )
 
     return prompt
 
