@@ -92,6 +92,14 @@ class VectorStore:
         if not self.collection_exists(collection_name):
             return []
         col = self._collection(collection_name)
+        # Cap n_results to the actual number of items in the collection.
+        # ChromaDB raises a warning (and clamps internally) when n_results
+        # exceeds the collection size — e.g. right after a small upload.
+        # Doing it ourselves avoids the noisy log line.
+        actual_count = col.count()
+        if actual_count == 0:
+            return []
+        n_results = min(n_results, actual_count)
         kwargs: Dict[str, Any] = {
             "query_embeddings": [query_embedding],
             "n_results": n_results,
