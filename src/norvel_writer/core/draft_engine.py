@@ -1359,7 +1359,8 @@ def _detect_language_override(question: str) -> Optional[str]:
     OVERRIDE_PATTERNS: list = [
         # Japanese
         (r"(?:respond|reply|write|answer|output|日语|日文|japanese|japanisch|japonais|japonés)\s*(?:in\s+)?(?:japanese|日语|日文|日本語|にほんご)", "ja"),
-        (r"(?:用|以|用日语|用日文|日本語で|일본어로)", "ja"),
+        # NOTE: bare 用/以 removed — they are common Chinese characters and cause false positives
+        (r"(?:用日语|用日文|日本語で|일본어로)", "ja"),
         # Chinese Simplified
         (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:chinese simplified|simplified chinese|简体中文|简体)", "zh"),
         (r"(?:用|以)\s*(?:简体中文|中文简体|中文)", "zh"),
@@ -1368,7 +1369,8 @@ def _detect_language_override(question: str) -> Optional[str]:
         (r"(?:用|以)\s*(?:繁體中文|繁體|繁体)", "zh-tw"),
         # Korean
         (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:korean|한국어|한글|koreanisch|coréen|coreano)", "ko"),
-        (r"(?:用|以|한국어로|韓国語で)", "ko"),
+        # NOTE: bare 用/以 removed — they are common Chinese characters and cause false positives
+        (r"(?:用韩语|用韓語|한국어로|韓国語で)", "ko"),
         # French
         (r"(?:respond|reply|write|answer|output|répondez|réponds|écris)?\s*(?:in\s+|en\s+)?(?:french|français|franzöisch|francés|francese)", "fr"),
         # German
