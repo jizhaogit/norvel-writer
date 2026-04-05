@@ -1296,6 +1296,155 @@ async def generate_beats(chapter_id: str, body: BeatsGenRequest):
     return StreamingResponse(_gen(), media_type="text/event-stream")
 
 
+# ── Chapter Codex Generation ───────────────────────────────────────────────
+
+class ChapterCodexGenRequest(BaseModel):
+    beats: str = ""
+    language: str = "en"
+
+
+@app.post("/api/projects/{project_id}/chapters/{chapter_id}/generate-chapter-codex")
+async def generate_chapter_codex(
+    project_id: str, chapter_id: str, body: ChapterCodexGenRequest
+):
+    """
+    Stream a focused Chapter Codex synthesized from project-level memory.
+    Only includes codex/notes/research entries relevant to the chapter beats.
+    """
+    async def _gen():
+        try:
+            from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
+            from norvel_writer.llm.prompt_builder import _lang_display
+            from norvel_writer.core.draft_engine import _cap_rag
+
+            pm = get_pm()
+
+            # Use provided beats or load from DB
+            beats = body.beats.strip()
+            if not beats:
+                ch = pm.get_chapter(chapter_id)
+                beats = (ch.get("beats") or "").strip() if ch else ""
+
+            if not beats:
+                yield f"data: {json.dumps({'error': 'No beats found for this chapter. Add beats first.'})}\n\n"
+                return
+
+            lang = _lang_display(body.language)
+            limits = get_context_limits()
+
+            # Retrieve from project-level memory using beats as the query
+            rag_results = await pm.retrieve_context(
+                project_id=project_id,
+                query=beats,
+                n_results=24,
+                doc_types=["codex", "notes", "research"],
+                scope="project",
+            )
+
+            if not rag_results:
+                yield (
+                    f"data: {json.dumps({'error': 'No project memory documents found. '
+                    'Add codex, notes, or research to the project memory first.'})}\n\n"
+                )
+                return
+
+            capped = _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
+            context = "\n\n---\n\n".join(r["text"] for r in capped)
+
+            system_prompt = (
+                f"You are a novel writing assistant. "
+                f"Analyze the chapter beats and the project master memory to produce a focused "
+                f"'Chapter Codex' — a distilled reference document containing ONLY the information "
+                f"from the master memory that is directly needed to write this specific chapter.\n\n"
+                f"Output language: {lang}\n\n"
+                f"Structure your output with these sections (omit any section with no relevant content):\n\n"
+                f"## Characters\n"
+                f"Only characters who appear or are referenced in the beats. "
+                f"For each: name, relevant traits, motivations, and details that matter for this chapter.\n\n"
+                f"## Locations\n"
+                f"Only the settings where the beats take place. "
+                f"Key atmosphere, layout, or facts the writer needs.\n\n"
+                f"## Key Facts & World-Building\n"
+                f"Historical, cultural, or world rules directly referenced in the beats.\n\n"
+                f"## Relationships & Dynamics\n"
+                f"How the characters in these beats relate to each other — only what is relevant.\n\n"
+                f"## Objects & Artifacts\n"
+                f"Items, weapons, documents, or plot objects that appear in the beats.\n\n"
+                f"STRICT RULES:\n"
+                f"- INCLUDE only information directly relevant to the beats\n"
+                f"- EXCLUDE characters, places, or lore not referenced in the beats\n"
+                f"- Be concise and specific — this is a working reference, not an encyclopedia\n"
+                f"- Do NOT add preamble, commentary, or closing remarks\n"
+                f"- Output ONLY the codex document"
+            )
+
+            user_content = (
+                f"## Chapter Beats\n{beats}\n\n"
+                f"## Project Master Memory\n{context}"
+            )
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+
+            async for chunk in await chat_stream(messages):
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+
+        except Exception as exc:
+            log.error("generate_chapter_codex error: %s", exc)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+class SaveChapterCodexRequest(BaseModel):
+    content: str
+    title: str = ""
+
+
+@app.post("/api/projects/{project_id}/chapters/{chapter_id}/save-chapter-codex")
+async def save_chapter_codex(
+    project_id: str, chapter_id: str, body: SaveChapterCodexRequest
+):
+    """Save a generated chapter codex as a .txt file in chapter memory and ingest it."""
+    from norvel_writer.config.settings import get_config
+    cfg = get_config()
+
+    files_dir = cfg.projects_path / project_id / "chapters" / chapter_id / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_title = body.title.strip() or "chapter_codex"
+    safe_title = "".join(
+        c if c.isalnum() or c in (" ", "-", "_") else "_" for c in raw_title
+    ).strip().replace(" ", "_")[:60]
+    dest_path = files_dir / f"{safe_title}.txt"
+
+    if dest_path.exists():
+        stem = dest_path.stem
+        i = 1
+        while dest_path.exists():
+            dest_path = files_dir / f"{stem}_{i}.txt"
+            i += 1
+
+    try:
+        dest_path.write_text(body.content, encoding="utf-8")
+        from norvel_writer.ingestion.pipeline import IngestPipeline
+        pipeline = IngestPipeline()
+        doc_id = await pipeline.run(
+            file_path=dest_path,
+            project_id=project_id,
+            doc_type="codex",
+            chapter_id=chapter_id,
+        )
+        return {"id": doc_id, "ok": True, "stored_path": str(dest_path)}
+    except Exception as exc:
+        if dest_path.exists():
+            dest_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ── Style ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/projects/{project_id}/style")

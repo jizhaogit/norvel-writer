@@ -1499,6 +1499,27 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         </label>
         <textarea id="beats-editor" class="ctrl" placeholder="Enter chapter beats (e.g.)&#10;1. Hero discovers the letter&#10;2. Confronts the villain&#10;3. Escapes the castle" style="min-height:90px;resize:vertical;"></textarea>
       </div>
+
+      <!-- ── Generate Chapter Codex ── -->
+      <div class="form-group" id="codex-gen-section" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-size:12px;font-weight:600;color:var(--text);">🔮 Chapter Codex</span>
+          <button class="btn" id="gen-chapter-codex-btn" style="padding:3px 10px;font-size:11px;" title="Analyze center memory against your beats and generate a focused chapter codex">Generate from Beats</button>
+        </div>
+        <div style="font-size:11px;color:var(--subtext);margin-bottom:8px;">
+          Scans project memory (codex, notes, research) and extracts only what's relevant to your beats. Saves the result to chapter memory.
+        </div>
+        <div id="codex-gen-result" style="display:none;flex-direction:column;gap:8px;">
+          <textarea id="codex-gen-text" class="ctrl" readonly style="min-height:160px;resize:vertical;font-size:11px;line-height:1.5;font-family:inherit;"></textarea>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input id="codex-gen-title" class="ctrl" style="flex:1;font-size:12px;" placeholder="Codex filename (e.g. ch3_codex)">
+            <button class="btn primary" id="save-chapter-codex-btn" style="padding:4px 12px;font-size:12px;">Save to Chapter Memory</button>
+            <button class="btn" id="discard-chapter-codex-btn" style="padding:4px 10px;font-size:12px;">Discard</button>
+          </div>
+          <div id="codex-save-status" style="font-size:11px;color:var(--green);display:none;"></div>
+        </div>
+      </div>
+
       <!-- ── AI Mode selector ── -->
       <div class="form-group">
         <div class="ai-mode-selector">
@@ -4373,6 +4394,108 @@ el('beats-gen-accept').addEventListener('click', () => {
   apiFetch('/api/chapters/' + state.currentChapterId + '/beats', {
     method: 'PUT', body: { beats: el('beats-editor').value },
   }).catch(() => {});
+});
+
+// ── Generate Chapter Codex ────────────────────────────────────────────────
+let _codexGenText = '';
+
+el('gen-chapter-codex-btn').addEventListener('click', async () => {
+  const pid = state.currentProjectId;
+  const cid = state.currentChapterId;
+  if (!pid || !cid) { alert('Select a chapter first.'); return; }
+  const beats = (el('beats-editor').value || '').trim();
+  if (!beats) { alert('Add chapter beats first — the codex is generated from your beats.'); return; }
+
+  const btn = el('gen-chapter-codex-btn');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  el('codex-gen-result').style.display = 'flex';
+  el('codex-gen-text').value = '';
+  el('codex-save-status').style.display = 'none';
+  el('save-chapter-codex-btn').disabled = false;
+  _codexGenText = '';
+
+  // Default filename: ch<position>_codex
+  const ch = (state.projects.flatMap ? null : null); // placeholder
+  const chTitle = state.currentChapterTitle || 'chapter';
+  el('codex-gen-title').value = (chTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'chapter') + '_codex';
+
+  try {
+    const lang = el('ai-lang')?.value || state.projectLang || 'en';
+    const res = await fetch(
+      '/api/projects/' + pid + '/chapters/' + cid + '/generate-chapter-codex',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ beats, language: lang }),
+      }
+    );
+    if (!res.ok) { throw new Error(await res.text()); }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = JSON.parse(line.slice(6));
+        if (payload.error) { el('codex-gen-text').value = '⚠ ' + payload.error; break; }
+        if (payload.text) {
+          _codexGenText += payload.text;
+          el('codex-gen-text').value = _codexGenText;
+          el('codex-gen-text').scrollTop = el('codex-gen-text').scrollHeight;
+        }
+      }
+    }
+  } catch (e) {
+    el('codex-gen-text').value = '⚠ Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Regenerate';
+  }
+});
+
+el('save-chapter-codex-btn').addEventListener('click', async () => {
+  const pid = state.currentProjectId;
+  const cid = state.currentChapterId;
+  const content = el('codex-gen-text').value.trim();
+  if (!content || content.startsWith('⚠')) { alert('Nothing to save.'); return; }
+  if (!pid || !cid) { alert('Select a chapter first.'); return; }
+
+  const btn = el('save-chapter-codex-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  const title = el('codex-gen-title').value.trim() || 'chapter_codex';
+
+  try {
+    await apiFetch(
+      '/api/projects/' + pid + '/chapters/' + cid + '/save-chapter-codex',
+      { method: 'POST', body: JSON.stringify({ content, title }) }
+    );
+    el('codex-save-status').textContent = '✓ Saved to chapter memory';
+    el('codex-save-status').style.display = 'block';
+    // Refresh sidebar folder and memory panel if open
+    await _chMemFolderRefresh(cid);
+    if (el('chapter-memory-section').style.display !== 'none') await loadChapterDocuments();
+  } catch (e) {
+    el('codex-save-status').textContent = '⚠ Save failed: ' + e.message;
+    el('codex-save-status').style.display = 'block';
+    el('codex-save-status').style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save to Chapter Memory';
+  }
+});
+
+el('discard-chapter-codex-btn').addEventListener('click', () => {
+  el('codex-gen-result').style.display = 'none';
+  el('codex-gen-text').value = '';
+  _codexGenText = '';
+  el('gen-chapter-codex-btn').textContent = 'Generate from Beats';
 });
 
 // Beats required modal
