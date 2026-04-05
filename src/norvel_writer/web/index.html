@@ -356,8 +356,8 @@ body {
 }
 .ch-mem-doc-item:hover { background: var(--surface2); color: var(--text); }
 .ch-mem-doc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ch-mem-edit-btn { display:none; background:none; border:none; cursor:pointer; font-size:11px; padding:0 2px; line-height:1; color:var(--muted); }
-.ch-mem-doc-item:hover .ch-mem-edit-btn { display:inline; }
+.ch-mem-edit-btn, .ch-mem-delete-btn { display:none; background:none; border:none; cursor:pointer; font-size:11px; padding:0 2px; line-height:1; color:var(--muted); }
+.ch-mem-doc-item:hover .ch-mem-edit-btn, .ch-mem-doc-item:hover .ch-mem-delete-btn { display:inline; }
 .ch-mem-add-link {
   padding: 3px 10px 3px 50px;
   font-size: 10px;
@@ -1710,35 +1710,18 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         accept=".txt,.md,.docx,.odt,.pdf,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp">
       <div id="upload-progress">Uploading...</div>
 
-      <!-- Chapter Memory -->
-      <div id="chapter-memory-section" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:10px;">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-          <span style="font-size:12px;font-weight:600;color:var(--accent);">📂 Chapter Memory</span>
-          <span id="chapter-memory-label" style="font-size:11px;color:var(--subtext);"></span>
-        </div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">
-          Documents here are chapter-specific and take priority over project memory. Writer uses these by default.
-        </div>
-        <div id="chapter-doc-list" style="max-height:180px;overflow-y:auto;"></div>
-        <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
-          <div style="flex:1;">
-            <select id="chapter-import-doc-type">
-              <option value="codex">Codex</option>
-              <option value="beats">Beats</option>
-              <option value="research">Research</option>
-              <option value="notes" selected>Notes</option>
-              <option value="visual">Visual</option>
-            </select>
-          </div>
-        </div>
-        <div class="btn-row" style="margin-top:6px;">
-          <button class="btn primary" id="chapter-add-files-btn">+ Add to Chapter</button>
-          <button class="btn danger" id="chapter-remove-doc-btn">Remove</button>
-        </div>
-        <input type="file" id="chapter-file-input" style="display:none" multiple
-          accept=".txt,.md,.docx,.odt,.pdf,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp">
-        <div id="chapter-upload-progress" style="font-size:11px;color:var(--subtext);display:none;margin-top:4px;">Uploading...</div>
-      </div>
+      <!-- Chapter memory upload stubs (hidden, used by sidebar + Add file link) -->
+      <input type="file" id="chapter-file-input" style="display:none" multiple
+        accept=".txt,.md,.docx,.odt,.pdf,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp">
+      <select id="chapter-import-doc-type" style="display:none">
+        <option value="codex">Codex</option>
+        <option value="beats">Beats</option>
+        <option value="research">Research</option>
+        <option value="notes" selected>Notes</option>
+        <option value="visual">Visual</option>
+      </select>
+      <button id="chapter-add-files-btn" style="display:none"></button>
+      <div id="chapter-upload-progress" style="display:none;"></div>
 
       <!-- Project Image Memory -->
       <div id="proj-img-section">
@@ -3069,7 +3052,6 @@ async function deleteChapter(chapterId, chapterTitle) {
       el('editor').innerHTML = '';
       el('chapter-title').textContent = 'Select a chapter to edit';
       el('word-count').textContent = '0 words';
-      _showChapterMemory(false);
       el('rewrite-panel').style.display = 'none';
       el('editor-notes-box') && (el('editor-notes-box').style.display = 'none');
       el('qa-notes-box') && (el('qa-notes-box').style.display = 'none');
@@ -3099,7 +3081,6 @@ async function selectChapter(cid) {
   await _notesFetch(cid);
   _enRender(cid);
   _qnRender(cid);
-  _showChapterMemory(!!cid);
   // If image viewer is open, close it and go back to editor
   if (state.currentImageId) _closeImageViewer();
   // Load images for this chapter (updates badge counts + open list if already expanded)
@@ -3877,43 +3858,6 @@ function renderDocList(docs) {
 el('doc-filter').addEventListener('change', loadDocuments);
 
 // ── Chapter Memory ────────────────────────────────────────────────────────
-let _chapterDocSelectedId = null;
-
-async function loadChapterDocuments() {
-  const cid = state.currentChapterId;
-  const pid = state.currentProjectId;
-  if (!cid || !pid) return;
-  try {
-    const docs = await apiFetch(
-      '/api/projects/' + pid + '/chapters/' + cid + '/documents'
-    );
-    renderChapterDocList(docs);
-  } catch (e) {
-    console.error('[chapter-memory] load failed:', e);
-  }
-}
-
-function renderChapterDocList(docs) {
-  const list = el('chapter-doc-list');
-  list.innerHTML = '';
-  if (!docs.length) {
-    list.innerHTML = '<div style="padding:8px 0;font-size:11px;color:var(--muted);">No chapter documents yet.</div>';
-    return;
-  }
-  for (const doc of docs) {
-    const div = document.createElement('div');
-    div.className = 'doc-item' + (doc.id === _chapterDocSelectedId ? ' selected' : '');
-    div.dataset.id = doc.id;
-    const name = doc.title || doc.file_path?.split(/[\\/]/).pop() || doc.id;
-    div.innerHTML = `<span class="doc-name">${escHtml(name)}</span><span class="doc-badge">${escHtml(doc.doc_type || '')}</span>`;
-    div.addEventListener('click', () => {
-      _chapterDocSelectedId = doc.id;
-      list.querySelectorAll('.doc-item').forEach(d => d.classList.remove('selected'));
-      div.classList.add('selected');
-    });
-    list.appendChild(div);
-  }
-}
 
 function _switchToMemoryTab() {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -3960,7 +3904,8 @@ async function _chMemFolderLoad(chId, docsDiv) {
         item.innerHTML =
           '<span>📄</span>' +
           '<span class="ch-mem-doc-name">' + escHtml(name) + '</span>' +
-          '<button class="ch-mem-edit-btn" title="Edit">✏️</button>';
+          '<button class="ch-mem-edit-btn" title="Edit">✏️</button>' +
+          '<button class="ch-mem-delete-btn" title="Delete">🗑️</button>';
         item.querySelector('.ch-mem-edit-btn').addEventListener('click', async (e) => {
           e.stopPropagation();
           state.selectedDocId = doc.id;
@@ -3977,11 +3922,18 @@ async function _chMemFolderLoad(chId, docsDiv) {
             el('doc-editor-status').textContent = 'Failed to load: ' + err.message;
           }
         });
+        item.querySelector('.ch-mem-delete-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm('Delete "' + name + '" from chapter memory?')) return;
+          try {
+            await apiFetch('/api/documents/' + doc.id + '?project_id=' + pid, { method: 'DELETE' });
+            await _chMemFolderLoad(chId, docsDiv);
+          } catch (err) {
+            alert('Delete failed: ' + err.message);
+          }
+        });
         item.addEventListener('click', async (e) => {
           e.stopPropagation();
-          if (state.currentChapterId !== chId) await selectChapter(chId);
-          _switchToMemoryTab();
-          setTimeout(() => el('chapter-memory-section')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80);
         });
         docsDiv.appendChild(item);
       }
@@ -4009,14 +3961,6 @@ async function _chMemFolderRefresh(chId) {
   await _chMemFolderLoad(chId, docsDiv);
 }
 
-function _showChapterMemory(show) {
-  el('chapter-memory-section').style.display = show ? 'block' : 'none';
-  if (show) {
-    el('chapter-memory-label').textContent =
-      '— ' + (state.currentChapterTitle || '');
-    loadChapterDocuments();
-  }
-}
 
 el('chapter-add-files-btn').addEventListener('click', () =>
   el('chapter-file-input').click()
@@ -4057,25 +4001,6 @@ el('chapter-file-input').addEventListener('change', async (e) => {
   await _chMemFolderRefresh(cid);
 });
 
-el('chapter-remove-doc-btn').addEventListener('click', async () => {
-  if (!_chapterDocSelectedId || !state.currentProjectId) {
-    alert('Select a chapter document to remove.');
-    return;
-  }
-  if (!confirm('Remove this chapter document from its memory?')) return;
-  try {
-    await apiFetch(
-      '/api/documents/' + _chapterDocSelectedId +
-      '?project_id=' + state.currentProjectId,
-      { method: 'DELETE' }
-    );
-    _chapterDocSelectedId = null;
-    await loadChapterDocuments();
-    await _chMemFolderRefresh(state.currentChapterId);
-  } catch (e) {
-    alert('Remove failed: ' + e.message);
-  }
-});
 
 el('add-files-btn').addEventListener('click', () => el('file-input').click());
 
