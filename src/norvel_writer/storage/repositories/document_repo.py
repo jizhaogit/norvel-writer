@@ -49,14 +49,21 @@ class DocumentRepo:
         project_id: str,
         doc_type: Optional[str] = None,
     ) -> List[dict]:
+        """List project-level documents (chapter_id IS NULL or empty).
+
+        Chapter-scoped documents are excluded — use list_chapter_documents()
+        to retrieve those.
+        """
         if doc_type:
             rows = self._db.execute(
-                "SELECT * FROM documents WHERE project_id=? AND doc_type=? ORDER BY ingested_at",
+                "SELECT * FROM documents WHERE project_id=? AND doc_type=? "
+                "AND (chapter_id IS NULL OR chapter_id='') ORDER BY ingested_at",
                 (project_id, doc_type),
             )
         else:
             rows = self._db.execute(
-                "SELECT * FROM documents WHERE project_id=? ORDER BY ingested_at",
+                "SELECT * FROM documents WHERE project_id=? "
+                "AND (chapter_id IS NULL OR chapter_id='') ORDER BY ingested_at",
                 (project_id,),
             )
         return [dict(r) for r in rows]
@@ -102,11 +109,29 @@ class DocumentRepo:
         with self._db.connect() as conn:
             conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
 
-    def find_by_hash(self, project_id: str, file_hash: str) -> Optional[dict]:
-        row = self._db.execute_one(
-            "SELECT * FROM documents WHERE project_id=? AND file_hash=?",
-            (project_id, file_hash),
-        )
+    def find_by_hash(
+        self,
+        project_id: str,
+        file_hash: str,
+        chapter_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Find an existing document by hash, scoped to the same chapter_id.
+
+        A project-level doc (chapter_id=None/'') and a chapter-level doc
+        (chapter_id=uuid) with the same file content are stored separately,
+        so deduplication must match on chapter_id as well.
+        """
+        if chapter_id:
+            row = self._db.execute_one(
+                "SELECT * FROM documents WHERE project_id=? AND file_hash=? AND chapter_id=?",
+                (project_id, file_hash, chapter_id),
+            )
+        else:
+            row = self._db.execute_one(
+                "SELECT * FROM documents WHERE project_id=? AND file_hash=? "
+                "AND (chapter_id IS NULL OR chapter_id='')",
+                (project_id, file_hash),
+            )
         return dict(row) if row else None
 
     # ── Chunks ────────────────────────────────────────────────────────────

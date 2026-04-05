@@ -35,37 +35,61 @@ class DraftEngine:
         doc_types: Optional[List[str]] = None,
         include_project: bool = False,
     ) -> List[Dict]:
-        """Retrieve RAG chunks with chapter-first priority.
+        """Retrieve RAG chunks with chapter-first priority and independent
+        per-category project fallback.
 
-        Default: chapter-scoped only.  Falls back to project-level when the
-        chapter has no matching documents.  If include_project=True, merges
-        both (chapter results first = higher priority in _cap_rag).
+        Codex and non-codex (notes / beats / research) are handled separately:
+        - If the chapter has a codex → use it; otherwise fall back to project codex.
+        - If the chapter has non-codex docs → use them; otherwise fall back to
+          project non-codex docs.
+        This ensures a missing chapter codex always pulls in the project codex
+        even when the chapter has other document types (e.g. notes).
+
+        If include_project=True both chapter and project results are merged,
+        with chapter results first so they win the _cap_rag budget competition.
         """
-        ch_results: List[Dict] = []
-        if chapter_id:
-            ch_results = await self._pm.retrieve_context(
+        effective_types = list(doc_types) if doc_types else ["codex", "beats", "notes", "research"]
+        wants_codex = "codex" in effective_types
+        non_codex_types = [t for t in effective_types if t != "codex"]
+
+        async def _fetch(scope: str, types: List[str], cid: Optional[str] = None) -> List[Dict]:
+            return await self._pm.retrieve_context(
                 project_id=project_id,
                 query=query,
                 n_results=n_results,
-                doc_types=doc_types,
-                chapter_id=chapter_id,
-                scope="chapter",
+                doc_types=types or None,
+                chapter_id=cid,
+                scope=scope,
             )
 
-        proj_results: List[Dict] = []
-        if include_project or not ch_results:
-            proj_results = await self._pm.retrieve_context(
-                project_id=project_id,
-                query=query,
-                n_results=n_results,
-                doc_types=doc_types,
-                scope="project",
-            )
+        results: List[Dict] = []
 
-        if include_project:
-            # Chapter docs first → they win the _cap_rag budget competition
-            return ch_results + proj_results
-        return ch_results if ch_results else proj_results
+        # ── Codex: chapter codex first, project codex fallback ─────────────
+        if wants_codex:
+            ch_codex = await _fetch("chapter", ["codex"], chapter_id) if chapter_id else []
+            if include_project:
+                proj_codex = await _fetch("project", ["codex"])
+                results.extend(ch_codex + proj_codex)       # chapter first
+            elif ch_codex:
+                results.extend(ch_codex)
+            else:
+                # No chapter codex → fall back to project codex
+                log.debug("_rag_retrieve: no chapter codex, falling back to project codex")
+                results.extend(await _fetch("project", ["codex"]))
+
+        # ── Non-codex: chapter first, project fallback ─────────────────────
+        if non_codex_types:
+            ch_other = await _fetch("chapter", non_codex_types, chapter_id) if chapter_id else []
+            if include_project:
+                proj_other = await _fetch("project", non_codex_types)
+                results.extend(ch_other + proj_other)       # chapter first
+            elif ch_other:
+                results.extend(ch_other)
+            else:
+                log.debug("_rag_retrieve: no chapter non-codex docs, falling back to project")
+                results.extend(await _fetch("project", non_codex_types))
+
+        return results
 
     async def continue_draft(
         self,
@@ -277,11 +301,9 @@ class DraftEngine:
         limits = get_context_limits()
         lang_display = _lang_display(language)
 
-        rag_results = await self._pm.retrieve_context(
-            project_id=project_id,
-            query=passage,
-            n_results=14,
-            doc_types=["codex", "beats", "research", "notes"],
+        rag_results = await self._rag_retrieve(
+            project_id, chapter_id or None, passage, 14,
+            ["codex", "beats", "research", "notes"],
         )
         style_results = await self._pm.retrieve_style_examples(
             project_id=project_id,
