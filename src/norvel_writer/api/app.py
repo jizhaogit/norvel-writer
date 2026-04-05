@@ -1342,10 +1342,8 @@ async def generate_chapter_codex(
             )
 
             if not rag_results:
-                yield (
-                    f"data: {json.dumps({'error': 'No project memory documents found. '
-                    'Add codex, notes, or research to the project memory first.'})}\n\n"
-                )
+                _err_msg = "No project memory documents found. Add codex, notes, or research to the project memory first."
+                yield f"data: {json.dumps({'error': _err_msg})}\n\n"
                 return
 
             capped = _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
