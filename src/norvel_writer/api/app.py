@@ -1436,6 +1436,9 @@ async def save_chapter_codex(
             doc_type="codex",
             chapter_id=chapter_id,
         )
+        from norvel_writer.storage.repositories.document_repo import DocumentRepo
+        from norvel_writer.storage.db import get_db
+        DocumentRepo(get_db()).update_document_title(doc_id, safe_title)
         return {"id": doc_id, "ok": True, "stored_path": str(dest_path)}
     except Exception as exc:
         if dest_path.exists():

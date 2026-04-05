@@ -105,6 +105,10 @@ class DocumentRepo:
                     "UPDATE documents SET status=? WHERE id=?", (status, doc_id)
                 )
 
+    def update_document_title(self, doc_id: str, title: str) -> None:
+        with self._db.connect() as conn:
+            conn.execute("UPDATE documents SET title=? WHERE id=?", (title, doc_id))
+
     def delete_document(self, doc_id: str) -> None:
         with self._db.connect() as conn:
             conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))

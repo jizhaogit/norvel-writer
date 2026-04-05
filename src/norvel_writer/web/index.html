@@ -356,6 +356,8 @@ body {
 }
 .ch-mem-doc-item:hover { background: var(--surface2); color: var(--text); }
 .ch-mem-doc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem-edit-btn { display:none; background:none; border:none; cursor:pointer; font-size:11px; padding:0 2px; line-height:1; color:var(--muted); }
+.ch-mem-doc-item:hover .ch-mem-edit-btn { display:inline; }
 .ch-mem-add-link {
   padding: 3px 10px 3px 50px;
   font-size: 10px;
@@ -3955,7 +3957,26 @@ async function _chMemFolderLoad(chId, docsDiv) {
         const item = document.createElement('div');
         item.className = 'ch-mem-doc-item';
         const name = doc.title || (doc.file_path || '').split(/[\\/]/).pop() || doc.id;
-        item.innerHTML = '<span>📄</span><span class="ch-mem-doc-name">' + escHtml(name) + '</span>';
+        item.innerHTML =
+          '<span>📄</span>' +
+          '<span class="ch-mem-doc-name">' + escHtml(name) + '</span>' +
+          '<button class="ch-mem-edit-btn" title="Edit">✏️</button>';
+        item.querySelector('.ch-mem-edit-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          state.selectedDocId = doc.id;
+          el('doc-editor-title').textContent = name;
+          el('doc-editor-badge').textContent = doc.doc_type || '';
+          el('doc-editor-area').value = '';
+          el('doc-editor-status').textContent = 'Loading…';
+          el('doc-editor-modal').style.display = 'flex';
+          try {
+            const res = await apiFetch('/api/documents/' + doc.id + '/content');
+            el('doc-editor-area').value = res.text || '';
+            el('doc-editor-status').textContent = '';
+          } catch (err) {
+            el('doc-editor-status').textContent = 'Failed to load: ' + err.message;
+          }
+        });
         item.addEventListener('click', async (e) => {
           e.stopPropagation();
           if (state.currentChapterId !== chId) await selectChapter(chId);
