@@ -1441,12 +1441,12 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     <!-- Draft AI tab -->
     <div class="tab-pane active" id="tab-draft">
       <div class="form-group">
-        <label>Style Mode</label>
+        <label data-i18n="draft.style_mode_label">Style Mode</label>
         <select id="draft-style-mode">
-          <option value="inspired_by">Inspired By</option>
-          <option value="imitate_closely">Imitate Closely</option>
-          <option value="preserve_tone_rhythm">Preserve Tone &amp; Rhythm</option>
-          <option value="avoid_exact_phrasing">Avoid Exact Phrasing</option>
+          <option value="inspired_by" data-i18n="draft.style_mode.inspired_by">Inspired By</option>
+          <option value="imitate_closely" data-i18n="draft.style_mode.imitate_closely">Imitate Closely</option>
+          <option value="preserve_tone_rhythm" data-i18n="draft.style_mode.preserve_tone">Preserve Tone &amp; Rhythm</option>
+          <option value="avoid_exact_phrasing" data-i18n="draft.style_mode.avoid_phrasing">Avoid Exact Phrasing</option>
         </select>
       </div>
       <div class="form-group">
@@ -1647,6 +1647,36 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <input type="file" id="file-input" style="display:none" multiple
         accept=".txt,.md,.docx,.odt,.pdf,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp">
       <div id="upload-progress">Uploading...</div>
+
+      <!-- Chapter Memory -->
+      <div id="chapter-memory-section" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:10px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+          <span style="font-size:12px;font-weight:600;color:var(--accent);">📂 Chapter Memory</span>
+          <span id="chapter-memory-label" style="font-size:11px;color:var(--subtext);"></span>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">
+          Documents here are chapter-specific and take priority over project memory. Writer uses these by default.
+        </div>
+        <div id="chapter-doc-list" style="max-height:180px;overflow-y:auto;"></div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+          <div style="flex:1;">
+            <select id="chapter-import-doc-type">
+              <option value="codex">Codex</option>
+              <option value="beats">Beats</option>
+              <option value="research">Research</option>
+              <option value="notes" selected>Notes</option>
+              <option value="visual">Visual</option>
+            </select>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:6px;">
+          <button class="btn primary" id="chapter-add-files-btn">+ Add to Chapter</button>
+          <button class="btn danger" id="chapter-remove-doc-btn">Remove</button>
+        </div>
+        <input type="file" id="chapter-file-input" style="display:none" multiple
+          accept=".txt,.md,.docx,.odt,.pdf,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp">
+        <div id="chapter-upload-progress" style="font-size:11px;color:var(--subtext);display:none;margin-top:4px;">Uploading...</div>
+      </div>
 
       <!-- Project Image Memory -->
       <div id="proj-img-section">
@@ -2054,6 +2084,11 @@ const TRANSLATIONS = {
     'beats.req_title':'Chapter Beats Required',
     'beats.req_hint':'This chapter has no beats yet. The AI writes based on beats to stay on track.',
     'beats.req_write':'Write Beats Now','beats.req_skip':'Continue Anyway',
+    'draft.style_mode_label':'Style Mode',
+    'draft.style_mode.inspired_by':'Inspired By',
+    'draft.style_mode.imitate_closely':'Imitate Closely',
+    'draft.style_mode.preserve_tone':'Preserve Tone & Rhythm',
+    'draft.style_mode.avoid_phrasing':'Avoid Exact Phrasing',
     'chat.send':'Send','chat.clear':'Clear Chat',
     'chat.ph':'Ask about your project... (Enter to send, Shift+Enter for newline)',
   },
@@ -2081,6 +2116,11 @@ const TRANSLATIONS = {
     'beats.req_title':'需要章节节拍',
     'beats.req_hint':'此章节尚无节拍。AI 根据节拍写作以保持故事方向。',
     'beats.req_write':'现在写节拍','beats.req_skip':'仍然继续',
+    'draft.style_mode_label':'风格模式',
+    'draft.style_mode.inspired_by':'风格启发',
+    'draft.style_mode.imitate_closely':'紧密模仿',
+    'draft.style_mode.preserve_tone':'保持语调节奏',
+    'draft.style_mode.avoid_phrasing':'避免原文措辞',
     'chat.send':'发送','chat.clear':'清除对话',
     'chat.ph':'询问关于你的项目... (Enter 发送, Shift+Enter 换行)',
   },
@@ -2101,6 +2141,11 @@ const TRANSLATIONS = {
     'beats.req_title':'チャプタービートが必要です',
     'beats.req_hint':'このチャプターにはまだビートがありません。',
     'beats.req_write':'今すぐビートを書く','beats.req_skip':'続けて',
+    'draft.style_mode_label':'スタイルモード',
+    'draft.style_mode.inspired_by':'インスパイア',
+    'draft.style_mode.imitate_closely':'忠実に模倣',
+    'draft.style_mode.preserve_tone':'トーン＆リズムを維持',
+    'draft.style_mode.avoid_phrasing':'表現の繰り返しを避ける',
     'chat.send':'送信','chat.clear':'チャットをクリア',
   },
   ko: {
@@ -2120,6 +2165,11 @@ const TRANSLATIONS = {
     'beats.req_title':'챕터 비트 필요',
     'beats.req_hint':'이 챕터에는 아직 비트가 없습니다.',
     'beats.req_write':'지금 비트 작성','beats.req_skip':'계속 진행',
+    'draft.style_mode_label':'스타일 모드',
+    'draft.style_mode.inspired_by':'영감 받기',
+    'draft.style_mode.imitate_closely':'밀접하게 모방',
+    'draft.style_mode.preserve_tone':'어조 및 리듬 유지',
+    'draft.style_mode.avoid_phrasing':'원문 표현 회피',
     'chat.send':'보내기','chat.clear':'채팅 지우기',
   },
   fr: {
@@ -2138,6 +2188,11 @@ const TRANSLATIONS = {
     'beats.gen_cancel':'Annuler','beats.gen_run':'Générer depuis le chapitre','beats.gen_accept':'Utiliser ces beats',
     'beats.req_title':'Beats requis','beats.req_hint':'Ce chapitre n\'a pas encore de beats.',
     'beats.req_write':'Écrire les beats','beats.req_skip':'Continuer quand même',
+    'draft.style_mode_label':'Mode de style',
+    'draft.style_mode.inspired_by':'Inspiré par',
+    'draft.style_mode.imitate_closely':'Imiter fidèlement',
+    'draft.style_mode.preserve_tone':'Préserver ton & rythme',
+    'draft.style_mode.avoid_phrasing':'Éviter les formulations exactes',
     'chat.send':'Envoyer','chat.clear':'Effacer le chat',
   },
   de: {
@@ -2156,6 +2211,11 @@ const TRANSLATIONS = {
     'beats.gen_cancel':'Abbrechen','beats.gen_run':'Aus Kapitel generieren','beats.gen_accept':'Diese Beats verwenden',
     'beats.req_title':'Kapitel-Beats erforderlich','beats.req_hint':'Dieses Kapitel hat noch keine Beats.',
     'beats.req_write':'Beats jetzt schreiben','beats.req_skip':'Trotzdem fortfahren',
+    'draft.style_mode_label':'Stilmodus',
+    'draft.style_mode.inspired_by':'Inspiriert von',
+    'draft.style_mode.imitate_closely':'Eng imitieren',
+    'draft.style_mode.preserve_tone':'Ton & Rhythmus beibehalten',
+    'draft.style_mode.avoid_phrasing':'Genaue Formulierungen vermeiden',
     'chat.send':'Senden','chat.clear':'Chat löschen',
   },
   es: {
@@ -2174,6 +2234,11 @@ const TRANSLATIONS = {
     'beats.gen_cancel':'Cancelar','beats.gen_run':'Generar desde capítulo','beats.gen_accept':'Usar estos beats',
     'beats.req_title':'Se requieren beats','beats.req_hint':'Este capítulo aún no tiene beats.',
     'beats.req_write':'Escribir beats ahora','beats.req_skip':'Continuar de todos modos',
+    'draft.style_mode_label':'Modo de estilo',
+    'draft.style_mode.inspired_by':'Inspirado en',
+    'draft.style_mode.imitate_closely':'Imitar de cerca',
+    'draft.style_mode.preserve_tone':'Preservar tono y ritmo',
+    'draft.style_mode.avoid_phrasing':'Evitar frases exactas',
     'chat.send':'Enviar','chat.clear':'Limpiar chat',
   },
 };
@@ -2329,6 +2394,8 @@ async function init() {
   await loadSettings();
   applyI18n(_currentLang);
   await loadProjects();
+  // One-time: ensure chapter memory folders exist for all chapters
+  apiFetch('/api/ensure-chapter-folders', { method: 'POST' }).catch(() => {});
 
   const lastPid = localStorage.getItem('lastProjectId');
   if (lastPid && state.projects.find(p => p.id === lastPid)) {
@@ -2925,6 +2992,7 @@ async function deleteChapter(chapterId, chapterTitle) {
       el('editor').innerHTML = '';
       el('chapter-title').textContent = 'Select a chapter to edit';
       el('word-count').textContent = '0 words';
+      _showChapterMemory(false);
       el('rewrite-panel').style.display = 'none';
       el('editor-notes-box') && (el('editor-notes-box').style.display = 'none');
       el('qa-notes-box') && (el('qa-notes-box').style.display = 'none');
@@ -2954,6 +3022,7 @@ async function selectChapter(cid) {
   await _notesFetch(cid);
   _enRender(cid);
   _qnRender(cid);
+  _showChapterMemory(!!cid);
   // If image viewer is open, close it and go back to editor
   if (state.currentImageId) _closeImageViewer();
   // Load images for this chapter (updates badge counts + open list if already expanded)
@@ -3729,6 +3798,111 @@ function renderDocList(docs) {
 }
 
 el('doc-filter').addEventListener('change', loadDocuments);
+
+// ── Chapter Memory ────────────────────────────────────────────────────────
+let _chapterDocSelectedId = null;
+
+async function loadChapterDocuments() {
+  const cid = state.currentChapterId;
+  const pid = state.currentProjectId;
+  if (!cid || !pid) return;
+  try {
+    const docs = await apiFetch(
+      '/api/projects/' + pid + '/chapters/' + cid + '/documents'
+    );
+    renderChapterDocList(docs);
+  } catch (e) {
+    console.error('[chapter-memory] load failed:', e);
+  }
+}
+
+function renderChapterDocList(docs) {
+  const list = el('chapter-doc-list');
+  list.innerHTML = '';
+  if (!docs.length) {
+    list.innerHTML = '<div style="padding:8px 0;font-size:11px;color:var(--muted);">No chapter documents yet.</div>';
+    return;
+  }
+  for (const doc of docs) {
+    const div = document.createElement('div');
+    div.className = 'doc-item' + (doc.id === _chapterDocSelectedId ? ' selected' : '');
+    div.dataset.id = doc.id;
+    const name = doc.title || doc.file_path?.split(/[\\/]/).pop() || doc.id;
+    div.innerHTML = `<span class="doc-name">${escHtml(name)}</span><span class="doc-badge">${escHtml(doc.doc_type || '')}</span>`;
+    div.addEventListener('click', () => {
+      _chapterDocSelectedId = doc.id;
+      list.querySelectorAll('.doc-item').forEach(d => d.classList.remove('selected'));
+      div.classList.add('selected');
+    });
+    list.appendChild(div);
+  }
+}
+
+function _showChapterMemory(show) {
+  el('chapter-memory-section').style.display = show ? 'block' : 'none';
+  if (show) {
+    el('chapter-memory-label').textContent =
+      '— ' + (state.currentChapterTitle || '');
+    loadChapterDocuments();
+  }
+}
+
+el('chapter-add-files-btn').addEventListener('click', () =>
+  el('chapter-file-input').click()
+);
+
+el('chapter-file-input').addEventListener('change', async (e) => {
+  const cid = state.currentChapterId;
+  const pid = state.currentProjectId;
+  if (!cid || !pid) { alert('Select a chapter first.'); return; }
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  const prog = el('chapter-upload-progress');
+  prog.style.display = 'block';
+  const docType = el('chapter-import-doc-type').value;
+  let done = 0;
+  for (const file of files) {
+    prog.textContent = 'Uploading ' + (done + 1) + '/' + files.length + '…';
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('doc_type', docType);
+      const res = await fetch(
+        '/api/projects/' + pid + '/chapters/' + cid + '/ingest',
+        { method: 'POST', body: fd }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        console.error('[chapter-memory] upload failed:', err.detail);
+      }
+    } catch (err) {
+      console.error('[chapter-memory] upload error:', err);
+    }
+    done++;
+  }
+  prog.style.display = 'none';
+  e.target.value = '';
+  await loadChapterDocuments();
+});
+
+el('chapter-remove-doc-btn').addEventListener('click', async () => {
+  if (!_chapterDocSelectedId || !state.currentProjectId) {
+    alert('Select a chapter document to remove.');
+    return;
+  }
+  if (!confirm('Remove this chapter document from its memory?')) return;
+  try {
+    await apiFetch(
+      '/api/documents/' + _chapterDocSelectedId +
+      '?project_id=' + state.currentProjectId,
+      { method: 'DELETE' }
+    );
+    _chapterDocSelectedId = null;
+    await loadChapterDocuments();
+  } catch (e) {
+    alert('Remove failed: ' + e.message);
+  }
+});
 
 el('add-files-btn').addEventListener('click', () => el('file-input').click());
 

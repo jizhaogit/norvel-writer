@@ -61,6 +61,25 @@ class DocumentRepo:
             )
         return [dict(r) for r in rows]
 
+    def list_chapter_documents(
+        self,
+        project_id: str,
+        chapter_id: str,
+        doc_type: Optional[str] = None,
+    ) -> List[dict]:
+        """List documents scoped to a specific chapter."""
+        if doc_type:
+            rows = self._db.execute(
+                "SELECT * FROM documents WHERE project_id=? AND chapter_id=? AND doc_type=? ORDER BY ingested_at",
+                (project_id, chapter_id, doc_type),
+            )
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM documents WHERE project_id=? AND chapter_id=? ORDER BY ingested_at",
+                (project_id, chapter_id),
+            )
+        return [dict(r) for r in rows]
+
     def update_document_status(
         self,
         doc_id: str,

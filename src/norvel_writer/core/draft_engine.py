@@ -26,6 +26,47 @@ class DraftEngine:
         from norvel_writer.core.project import ProjectManager
         self._pm = project_manager or ProjectManager()
 
+    async def _rag_retrieve(
+        self,
+        project_id: str,
+        chapter_id: Optional[str],
+        query: str,
+        n_results: int,
+        doc_types: Optional[List[str]] = None,
+        include_project: bool = False,
+    ) -> List[Dict]:
+        """Retrieve RAG chunks with chapter-first priority.
+
+        Default: chapter-scoped only.  Falls back to project-level when the
+        chapter has no matching documents.  If include_project=True, merges
+        both (chapter results first = higher priority in _cap_rag).
+        """
+        ch_results: List[Dict] = []
+        if chapter_id:
+            ch_results = await self._pm.retrieve_context(
+                project_id=project_id,
+                query=query,
+                n_results=n_results,
+                doc_types=doc_types,
+                chapter_id=chapter_id,
+                scope="chapter",
+            )
+
+        proj_results: List[Dict] = []
+        if include_project or not ch_results:
+            proj_results = await self._pm.retrieve_context(
+                project_id=project_id,
+                query=query,
+                n_results=n_results,
+                doc_types=doc_types,
+                scope="project",
+            )
+
+        if include_project:
+            # Chapter docs first → they win the _cap_rag budget competition
+            return ch_results + proj_results
+        return ch_results if ch_results else proj_results
+
     async def continue_draft(
         self,
         project_id: str,
@@ -111,24 +152,16 @@ class DraftEngine:
             _wants_codex  = "codex" in _all_types
 
             if _non_codex:
-                _bn_results = await self._pm.retrieve_context(
-                    project_id=project_id,
-                    query=rag_query,
-                    n_results=8,
-                    doc_types=_non_codex,
-                    chapter_id=chapter_id,
+                _bn_results = await self._rag_retrieve(
+                    project_id, chapter_id, rag_query, 8, _non_codex,
                 )
             else:
                 _bn_results = []
 
             _cx_results = []
             if _wants_codex:
-                _cx_raw = await self._pm.retrieve_context(
-                    project_id=project_id,
-                    query=rag_query,
-                    n_results=10,
-                    doc_types=["codex"],
-                    chapter_id=chapter_id,
+                _cx_raw = await self._rag_retrieve(
+                    project_id, chapter_id, rag_query, 10, ["codex"],
                 )
                 # Only keep codex chunks close enough to the beats query
                 _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
@@ -146,12 +179,8 @@ class DraftEngine:
                 key=lambda r: r.get("distance", 0.0),
             )
         else:
-            rag_results = await self._pm.retrieve_context(
-                project_id=project_id,
-                query=rag_query,
-                n_results=14,
-                doc_types=_all_types,
-                chapter_id=chapter_id,
+            rag_results = await self._rag_retrieve(
+                project_id, chapter_id, rag_query, 14, _all_types,
             )
 
         style_results = await self._pm.retrieve_style_examples(
@@ -538,6 +567,29 @@ class DraftEngine:
             and any(kw in q_lower for kw in _write_kws)
         )
 
+        # Detect explicit request for project-level (centre) memory.
+        # By default the writer uses chapter memory only; project docs are included
+        # only when the user explicitly asks for them.
+        _project_memory_kws = [
+            # English
+            "project document", "project memory", "center memory", "centre memory",
+            "global memory", "all documents", "all my documents",
+            "include project", "use project", "project codex", "project notes",
+            "project knowledge", "project files",
+            # Chinese Simplified
+            "项目文档", "项目记忆", "中央记忆", "全局记忆", "项目资料",
+            "项目笔记", "项目设定", "包含项目", "使用项目",
+            # Chinese Traditional
+            "項目文檔", "項目記憶", "中央記憶", "全局記憶", "項目資料",
+            # Japanese
+            "プロジェクト文書", "プロジェクトメモリ",
+            # Korean
+            "프로젝트 문서", "전체 문서",
+        ]
+        _wants_project_memory = role == "writer" and any(
+            kw in q_lower for kw in _project_memory_kws
+        )
+
         # ── RAG query & retrieval ──────────────────────────────────────────
         # write-from-beats: use beats text as query (same as continue_draft)
         # otherwise:        chapter-title-prefixed question
@@ -554,19 +606,15 @@ class DraftEngine:
             _wants_codex  = "codex" in rag_doc_types
             _bn_results: list = []
             if _non_codex:
-                _bn_results = await self._pm.retrieve_context(
-                    project_id=project_id,
-                    query=rag_query,
-                    n_results=8,
-                    doc_types=_non_codex,
+                _bn_results = await self._rag_retrieve(
+                    project_id, resolved_chapter_id, rag_query, 8, _non_codex,
+                    include_project=_wants_project_memory,
                 )
             _cx_results: list = []
             if _wants_codex:
-                _cx_raw = await self._pm.retrieve_context(
-                    project_id=project_id,
-                    query=rag_query,
-                    n_results=10,
-                    doc_types=["codex"],
+                _cx_raw = await self._rag_retrieve(
+                    project_id, resolved_chapter_id, rag_query, 10, ["codex"],
+                    include_project=_wants_project_memory,
                 )
                 _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
                 log.debug(
@@ -579,11 +627,9 @@ class DraftEngine:
             )
             _rag_max_dist = _cx_threshold
         else:
-            rag_results = await self._pm.retrieve_context(
-                project_id=project_id,
-                query=rag_query,
-                n_results=14,
-                doc_types=rag_doc_types,
+            rag_results = await self._rag_retrieve(
+                project_id, resolved_chapter_id, rag_query, 14, rag_doc_types,
+                include_project=_wants_project_memory,
             )
             _rag_max_dist = 1.0
 
@@ -906,6 +952,73 @@ def _fetch_image_context(db: Any, project_id: str, chapter_id: str = "") -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def _style_mode_directive(style_mode: str, style_chunks: List[str], operation_mode: str) -> str:
+    """Return a clear, behaviorally-specific directive for the given style_mode.
+
+    style_mode      : one of inspired_by | imitate_closely | preserve_tone_rhythm | avoid_exact_phrasing
+    style_chunks    : uploaded style-sample chunks (may be empty)
+    operation_mode  : "continue" | "beats" | "rewrite" | "chat"
+    """
+    has_samples = bool(style_chunks)
+    is_rewrite = operation_mode == "rewrite"
+
+    if style_mode == "imitate_closely":
+        if has_samples:
+            return (
+                "Closely imitate the voice in the Style Reference Samples (Priority 6). "
+                "Replicate their sentence length variation, paragraph rhythm, dialogue formatting, "
+                "punctuation density, and characteristic vocabulary precisely. "
+                "The prose should sound as if it were written by the sample author."
+            )
+        else:
+            return (
+                "Closely imitate the author's established voice as already present in this chapter. "
+                "Replicate the existing sentence length variation, paragraph rhythm, and characteristic "
+                "vocabulary — keep the style distinctively consistent with what came before."
+            )
+
+    elif style_mode == "preserve_tone_rhythm":
+        return (
+            "Preserve the established tone, rhythm, and voice of the existing prose exactly. "
+            "Keep the same narrative distance, sentence-length patterns, and vocabulary register. "
+            "Refine word choice and structure where needed — but do not shift toward any external style, "
+            "even if Style Reference Samples are provided."
+        )
+
+    elif style_mode == "avoid_exact_phrasing":
+        if is_rewrite:
+            suffix = (
+                "Draw loosely on the Style Reference Samples (Priority 6) for vocabulary and imagery."
+                if has_samples else
+                "Preserve the narrative content and emotional beats while refreshing the language entirely."
+            )
+            return (
+                "Produce substantially different prose — restructure sentences, vary word choices, and "
+                "refresh phrasing throughout. Do not reuse any exact phrases or sentence patterns from "
+                f"the original text. {suffix}"
+            )
+        else:
+            return (
+                "Vary sentence structures and word choices throughout — avoid predictable patterns and "
+                "flat phrasing. Every sentence should feel fresh and precisely chosen, with no repeated "
+                "constructions or filler language."
+            )
+
+    else:  # inspired_by (default)
+        if has_samples:
+            return (
+                "Draw inspiration from the Style Reference Samples (Priority 6) — let their sentence "
+                "rhythms, vocabulary, and prose characteristics inform your writing, while adapting "
+                "naturally to fit this story's existing voice and context."
+            )
+        else:
+            return (
+                "Write in a style inspired by the author's established voice. "
+                "Maintain the narrative tone, prose rhythm, and sentence structure that fits naturally "
+                "within the project."
+            )
+
+
 def _build_writer_system_prompt(
     lang_display: str,
     persona: str,
@@ -1009,16 +1122,7 @@ def _build_writer_system_prompt(
         else:
             task_line = "Continue the story directly from where the current draft ends."
     elif mode == "rewrite":
-        if style_chunks:
-            _style_directive = (
-                "Write this rewrite in the voice and style of the Style Reference Samples "
-                "provided in Priority 6 — match their sentence structure, rhythm, vocabulary, "
-                "narrative tone, and prose characteristics. "
-                "The samples define the TARGET style; treat the original passage as a plot "
-                "summary only and write entirely fresh prose in that target style."
-            )
-        else:
-            _style_directive = f"Style guidance: {style_mode.replace('_', ' ')}."
+        _style_directive = _style_mode_directive(style_mode, style_chunks, "rewrite")
         task_line = (
             f"Rewrite the passage provided by the author. "
             f"{_style_directive} "
@@ -1209,7 +1313,7 @@ def _build_writer_system_prompt(
 
     # Style guidance + constraints (shared by continue and beats modes)
     if mode in ("continue", "beats"):
-        prompt += f"\n\nStyle guidance: {style_mode.replace('_', ' ')}"
+        prompt += f"\n\nStyle guidance: {_style_mode_directive(style_mode, style_chunks, mode)}"
         if constraints:
             prompt += "\n\n## Additional Constraints\n" + _bullets(constraints)
 

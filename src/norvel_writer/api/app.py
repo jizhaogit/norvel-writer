@@ -394,6 +394,16 @@ async def create_chapter(project_id: str, body: ChapterCreate):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.post("/api/ensure-chapter-folders")
+async def ensure_chapter_folders():
+    """Create chapter files directories for all existing chapters (idempotent)."""
+    try:
+        count = get_pm().ensure_all_chapter_folders()
+        return {"ok": True, "count": count}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.get("/api/chapters/{chapter_id}")
 async def get_chapter(chapter_id: str):
     try:
@@ -591,6 +601,68 @@ async def ingest_document(
         # Clean up the saved file if ingestion failed
         if dest_path.exists():
             dest_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/projects/{project_id}/chapters/{chapter_id}/ingest")
+async def ingest_chapter_document(
+    project_id: str,
+    chapter_id: str,
+    file: UploadFile,
+    doc_type: str = Form("notes"),
+):
+    """Upload a document into a specific chapter's memory."""
+    from norvel_writer.config.defaults import DOC_TYPES
+    from norvel_writer.config.settings import get_config
+    if doc_type not in DOC_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid doc_type '{doc_type}'. Must be one of: {', '.join(DOC_TYPES)}",
+        )
+    cfg = get_config()
+
+    files_dir = cfg.projects_path / project_id / "chapters" / chapter_id / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = Path(file.filename or "upload").name
+    dest_path = files_dir / safe_name
+    if dest_path.exists():
+        stem = dest_path.stem
+        suffix = dest_path.suffix
+        i = 1
+        while dest_path.exists():
+            dest_path = files_dir / f"{stem}_{i}{suffix}"
+            i += 1
+
+    try:
+        content = await file.read()
+        dest_path.write_bytes(content)
+
+        from norvel_writer.ingestion.pipeline import IngestPipeline
+        pipeline = IngestPipeline()
+        doc_id = await pipeline.run(
+            file_path=dest_path,
+            project_id=project_id,
+            doc_type=doc_type,
+            chapter_id=chapter_id,
+        )
+        return {"id": doc_id, "ok": True, "stored_path": str(dest_path)}
+    except Exception as exc:
+        if dest_path.exists():
+            dest_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/projects/{project_id}/chapters/{chapter_id}/documents")
+async def list_chapter_documents(
+    project_id: str,
+    chapter_id: str,
+    doc_type: Optional[str] = Query(default=None),
+):
+    """List documents scoped to a specific chapter."""
+    try:
+        return get_pm().list_chapter_documents(project_id, chapter_id, doc_type)
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 

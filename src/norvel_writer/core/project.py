@@ -8,6 +8,35 @@ from typing import Callable, Dict, List, Optional
 log = logging.getLogger(__name__)
 
 
+def _build_where(
+    doc_types: Optional[List[str]] = None,
+    chapter_id: Optional[str] = None,
+    scope: str = "all",
+) -> Optional[Dict]:
+    """Build a ChromaDB where filter combining doc_type and chapter scope.
+
+    scope="chapter" → only chunks whose chapter_id matches the given chapter_id
+    scope="project" → only chunks with no chapter_id (project-level docs, stored as "")
+    scope="all"     → no chapter_id constraint (existing behaviour)
+    """
+    conditions: list = []
+    if doc_types:
+        conditions.append(
+            {"doc_type": doc_types[0]} if len(doc_types) == 1
+            else {"doc_type": {"$in": doc_types}}
+        )
+    if scope == "chapter" and chapter_id:
+        conditions.append({"chapter_id": chapter_id})
+    elif scope == "project":
+        conditions.append({"chapter_id": ""})
+
+    if not conditions:
+        return None
+    if len(conditions) == 1:
+        return conditions[0]
+    return {"$and": conditions}
+
+
 class ProjectManager:
     """
     Central facade. The UI should talk exclusively through this class
@@ -64,7 +93,16 @@ class ProjectManager:
     # ── Chapters ──────────────────────────────────────────────────────────
 
     def create_chapter(self, project_id: str, title: str) -> str:
-        return self._projects.create_chapter(project_id, title)
+        cid = self._projects.create_chapter(project_id, title)
+        # Create a per-chapter files directory so chapter-specific documents
+        # can be stored separately from project-level documents.
+        from norvel_writer.config.settings import get_config
+        cfg = get_config()
+        (cfg.projects_path / project_id / "chapters" / cid / "files").mkdir(
+            parents=True, exist_ok=True
+        )
+        log.info("Created chapter %r (%s) with chapter files dir", title, cid)
+        return cid
 
     def get_chapter(self, chapter_id: str) -> Optional[Dict]:
         return self._projects.get_chapter(chapter_id)
@@ -77,6 +115,29 @@ class ProjectManager:
 
     def delete_chapter(self, chapter_id: str) -> None:
         self._projects.delete_chapter(chapter_id)
+
+    def list_chapter_documents(
+        self, project_id: str, chapter_id: str, doc_type: Optional[str] = None
+    ) -> List[Dict]:
+        """List documents that belong to a specific chapter."""
+        return self._documents.list_chapter_documents(project_id, chapter_id, doc_type)
+
+    def ensure_all_chapter_folders(self) -> int:
+        """Create chapter files directories for all existing chapters (idempotent).
+
+        Returns the number of directories created/verified.
+        """
+        from norvel_writer.config.settings import get_config
+        cfg = get_config()
+        count = 0
+        for proj in self._projects.list_projects():
+            pid = proj["id"]
+            for ch in self._projects.list_chapters(pid):
+                folder = cfg.projects_path / pid / "chapters" / ch["id"] / "files"
+                folder.mkdir(parents=True, exist_ok=True)
+                count += 1
+        log.info("ensure_all_chapter_folders: verified %d chapter folder(s)", count)
+        return count
 
     # ── Documents ─────────────────────────────────────────────────────────
 
@@ -132,22 +193,22 @@ class ProjectManager:
         n_results: int = 8,
         doc_types: Optional[List[str]] = None,
         chapter_id: Optional[str] = None,
+        scope: str = "all",
     ) -> List[Dict]:
-        """Retrieve relevant chunks for drafting context."""
+        """Retrieve relevant chunks for drafting context.
+
+        scope="chapter" — only chunks belonging to chapter_id (chapter memory).
+        scope="project" — only project-level chunks (no chapter_id).
+        scope="all"     — all chunks regardless of chapter (legacy behaviour).
+        """
         from norvel_writer.llm.embedder import EmbeddingService
-        from norvel_writer.storage.vector_store import QueryResult
 
         embedder = EmbeddingService()
         query_emb = await embedder.embed_single(query)
         if not query_emb:
             return []
 
-        where: Optional[Dict] = None
-        if doc_types:
-            if len(doc_types) == 1:
-                where = {"doc_type": doc_types[0]}
-            else:
-                where = {"doc_type": {"$in": doc_types}}
+        where = _build_where(doc_types, chapter_id, scope)
 
         results = self._vs.query(
             collection_name=f"project_{project_id}",
