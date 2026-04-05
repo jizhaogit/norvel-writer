@@ -331,6 +331,46 @@ body {
 }
 .ch-images-add:hover { color: var(--accent); }
 
+/* ── Chapter memory folder (sidebar) ── */
+.ch-mem-folder-row {
+  padding: 3px 10px 3px 36px;
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.ch-mem-folder-row:hover { background: var(--surface2); color: var(--text); }
+.ch-mem-expand-icon { font-size: 9px; transition: none; }
+.ch-mem-doc-item {
+  padding: 3px 10px 3px 50px;
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+.ch-mem-doc-item:hover { background: var(--surface2); color: var(--text); }
+.ch-mem-doc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem-add-link {
+  padding: 3px 10px 3px 50px;
+  font-size: 10px;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0.7;
+}
+.ch-mem-add-link:hover { opacity: 1; }
+.ch-mem-loading, .ch-mem-empty {
+  padding: 3px 10px 3px 50px;
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+
 /* ── Image viewer (main area overlay) ── */
 #image-viewer {
   display: none;
@@ -2256,7 +2296,10 @@ function applyI18n(lang) {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.dataset.i18n;
     const val = t(key);
-    if (val) el.textContent = val;
+    if (!val) return;
+    // HTMLOptionElement.text triggers select re-render; textContent alone may not
+    if (el.tagName === 'OPTION') el.text = val;
+    else el.textContent = val;
   });
   // Apply placeholder translations
   const ph = {
@@ -2552,9 +2595,9 @@ async function loadSettings() {
     // ai-lang bar default — will be overridden when a project is selected
     populateLangSelect(el('ai-lang'), state.settings.default_content_language || 'en');
     state.projectLang = state.settings.default_content_language || 'en';
-    if (s.ui_language) {
-      el('cfg-ui-lang').value = s.ui_language;
-      applyI18n(s.ui_language);
+    if (state.settings.ui_language) {
+      el('cfg-ui-lang').value = state.settings.ui_language;
+      applyI18n(state.settings.ui_language);
     }
   } catch (e) {
     console.error('Failed to load settings:', e);
@@ -2925,6 +2968,18 @@ async function loadChapters(pid) {
       imgList.className = 'ch-images-list';
       imgList.id = 'ch-images-' + ch.id;
       cl.appendChild(imgList);
+
+      // Chapter memory folder row
+      const memFolder = document.createElement('div');
+      memFolder.className = 'ch-mem-folder-row';
+      memFolder.id = 'ch-mem-folder-' + ch.id;
+      memFolder.innerHTML = '<span class="ch-mem-expand-icon">▶</span>📁 <span>Chapter Memory</span>';
+      memFolder.addEventListener('click', (e) => { e.stopPropagation(); _chMemFolderToggle(ch.id); });
+      cl.appendChild(memFolder);
+
+      const memDocs = document.createElement('div');
+      memDocs.id = 'ch-mem-docs-' + ch.id;
+      cl.appendChild(memDocs);
     }
   } catch (e) {
     console.error('Failed to load chapters:', e);
@@ -3838,6 +3893,81 @@ function renderChapterDocList(docs) {
   }
 }
 
+function _switchToMemoryTab() {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  const btn = document.querySelector('.tab-btn[data-tab="memory"]');
+  if (btn) btn.classList.add('active');
+  const pane = el('tab-memory');
+  if (pane) pane.classList.add('active');
+}
+
+async function _chMemFolderToggle(chId) {
+  const folderRow = el('ch-mem-folder-' + chId);
+  const docsDiv = el('ch-mem-docs-' + chId);
+  if (!folderRow || !docsDiv) return;
+  const isOpen = folderRow.dataset.open === '1';
+  if (isOpen) {
+    folderRow.dataset.open = '0';
+    folderRow.querySelector('.ch-mem-expand-icon').textContent = '▶';
+    docsDiv.innerHTML = '';
+  } else {
+    folderRow.dataset.open = '1';
+    folderRow.querySelector('.ch-mem-expand-icon').textContent = '▼';
+    await _chMemFolderLoad(chId, docsDiv);
+  }
+}
+
+async function _chMemFolderLoad(chId, docsDiv) {
+  const pid = state.currentProjectId;
+  if (!pid) return;
+  docsDiv.innerHTML = '<div class="ch-mem-loading">Loading…</div>';
+  try {
+    const docs = await apiFetch('/api/projects/' + pid + '/chapters/' + chId + '/documents');
+    docsDiv.innerHTML = '';
+    if (!docs || !docs.length) {
+      const empty = document.createElement('div');
+      empty.className = 'ch-mem-empty';
+      empty.textContent = 'No files yet';
+      docsDiv.appendChild(empty);
+    } else {
+      for (const doc of docs) {
+        const item = document.createElement('div');
+        item.className = 'ch-mem-doc-item';
+        const name = doc.title || (doc.file_path || '').split(/[\\/]/).pop() || doc.id;
+        item.innerHTML = '<span>📄</span><span class="ch-mem-doc-name">' + escHtml(name) + '</span>';
+        item.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (state.currentChapterId !== chId) await selectChapter(chId);
+          _switchToMemoryTab();
+          setTimeout(() => el('chapter-memory-section')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80);
+        });
+        docsDiv.appendChild(item);
+      }
+    }
+    const addLink = document.createElement('div');
+    addLink.className = 'ch-mem-add-link';
+    addLink.textContent = '+ Add file';
+    addLink.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (state.currentChapterId !== chId) await selectChapter(chId);
+      _switchToMemoryTab();
+      setTimeout(() => el('chapter-add-files-btn')?.click(), 150);
+    });
+    docsDiv.appendChild(addLink);
+  } catch (e) {
+    docsDiv.innerHTML = '<div class="ch-mem-loading" style="color:var(--red);">Error loading</div>';
+  }
+}
+
+async function _chMemFolderRefresh(chId) {
+  if (!chId) return;
+  const folderRow = el('ch-mem-folder-' + chId);
+  const docsDiv = el('ch-mem-docs-' + chId);
+  if (!folderRow || !docsDiv || folderRow.dataset.open !== '1') return;
+  await _chMemFolderLoad(chId, docsDiv);
+}
+
 function _showChapterMemory(show) {
   el('chapter-memory-section').style.display = show ? 'block' : 'none';
   if (show) {
@@ -3883,6 +4013,7 @@ el('chapter-file-input').addEventListener('change', async (e) => {
   prog.style.display = 'none';
   e.target.value = '';
   await loadChapterDocuments();
+  await _chMemFolderRefresh(cid);
 });
 
 el('chapter-remove-doc-btn').addEventListener('click', async () => {
@@ -3899,6 +4030,7 @@ el('chapter-remove-doc-btn').addEventListener('click', async () => {
     );
     _chapterDocSelectedId = null;
     await loadChapterDocuments();
+    await _chMemFolderRefresh(state.currentChapterId);
   } catch (e) {
     alert('Remove failed: ' + e.message);
   }
