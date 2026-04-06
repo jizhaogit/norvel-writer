@@ -3365,6 +3365,8 @@ el('generate-btn').addEventListener('click', async () => {
           editor_note:       _enLoad(state.currentChapterId) || '',
           qa_note:           _qnLoad(state.currentChapterId) || '',
           beats:             beats,  // always send current textarea value (even if unsaved)
+          min_words:         parseInt(el('beats-min-words').value) || 0,
+          max_words:         parseInt(el('beats-max-words').value) || 0,
         }),
       });
       for await (const ev of readSSE(res)) {
@@ -3463,6 +3465,8 @@ el('generate-btn').addEventListener('click', async () => {
           language:          state.projectLang,
           editor_note:       _enLoad(state.currentChapterId) || '',
           qa_note:           _qnLoad(state.currentChapterId) || '',
+          min_words:         parseInt(el('continue-min-words').value) || 0,
+          max_words:         parseInt(el('continue-max-words').value) || 0,
         }),
       });
       for await (const ev of readSSE(res)) {
@@ -3535,6 +3539,8 @@ el('generate-btn').addEventListener('click', async () => {
           language:         state.projectLang,
           editor_note:      _enLoad(state.currentChapterId) || '',
           qa_note:          _qnLoad(state.currentChapterId) || '',
+          min_words:        parseInt(el('rewrite-min-words').value) || 0,
+          max_words:        parseInt(el('rewrite-max-words').value) || 0,
         }),
       });
       for await (const ev of readSSE(res)) {

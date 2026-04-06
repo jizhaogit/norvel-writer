@@ -790,6 +790,8 @@ class ContinueRequest(BaseModel):
     editor_note: str = ""           # pinned editor suggestion from the browser
     qa_note: str = ""               # pinned QA report from the browser
     beats: str = ""                 # beats from the UI textarea (may be unsaved)
+    min_words: int = 0              # target length lower bound (0 = not set)
+    max_words: int = 0              # target length upper bound (0 = not set)
 
 
 @app.post("/api/projects/{project_id}/continue")
@@ -818,6 +820,8 @@ async def continue_draft(project_id: str, body: ContinueRequest):
                 beats=chapter_beats,
                 editor_note=body.editor_note,
                 qa_note=body.qa_note,
+                min_words=body.min_words,
+                max_words=body.max_words,
             )
             async for chunk in stream:
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
@@ -840,6 +844,8 @@ class RewriteRequest(BaseModel):
     language: str = "en"
     editor_note: str = ""           # pinned editor suggestion from the browser
     qa_note: str = ""               # pinned QA report from the browser
+    min_words: int = 0
+    max_words: int = 0
 
 
 @app.post("/api/projects/{project_id}/rewrite")
@@ -865,6 +871,8 @@ async def rewrite_passage(project_id: str, body: RewriteRequest):
                 language=body.language,
                 editor_note=body.editor_note,
                 qa_note=body.qa_note,
+                min_words=body.min_words,
+                max_words=body.max_words,
             )
             async for chunk in stream:
                 yield f"data: {json.dumps({'text': chunk})}\n\n"

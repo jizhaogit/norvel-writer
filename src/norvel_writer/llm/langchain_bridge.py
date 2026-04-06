@@ -242,9 +242,16 @@ def _extract_content(chunk) -> str:
 
 # ── Public LLM API ─────────────────────────────────────────────────────────
 
-async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
+async def chat_stream(
+    messages: list[dict],
+    output_max_tokens: int | None = None,
+) -> AsyncIterator[str]:
     """
     Coroutine that returns an async generator of text tokens.
+
+    ``output_max_tokens`` overrides the global num_predict / max_tokens for
+    this call only — use it when the user requests a long output (e.g. 5000
+    words) that exceeds the default generation cap in .env.
 
     Usage::
         stream = await chat_stream(messages)
@@ -258,6 +265,16 @@ async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
             f"LLM provider {provider!r} failed to initialize. "
             "Check your .env configuration."
         )
+
+    # Apply per-call output length override when the user requests more words
+    # than the global default cap allows.
+    if output_max_tokens:
+        provider = _env("LLM_PROVIDER", "ollama").lower()
+        if provider == "ollama":
+            llm = llm.bind(num_predict=output_max_tokens)
+        else:
+            llm = llm.bind(max_tokens=output_max_tokens)
+
     lc_messages = _to_lc_messages(messages)
 
     async def _gen():

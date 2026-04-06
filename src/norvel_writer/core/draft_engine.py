@@ -105,6 +105,8 @@ class DraftEngine:
         text_after_cursor: str = "",
         editor_note: str = "",
         qa_note: str = "",
+        min_words: int = 0,
+        max_words: int = 0,
     ) -> AsyncIterator[str]:
         """Stream continuation tokens — uses the Writer role skill, same priority as chat Writer."""
         from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
@@ -276,11 +278,25 @@ class DraftEngine:
         else:
             user_content = f"{user_instruction}\n\n---\n{draft_block}"
 
+        # ── Dynamic output token cap ─────────────────────────────────────────
+        # Convert the user's requested word count to a token budget and override
+        # the global num_predict so the LLM is physically able to produce that
+        # many words (default 4096 tokens ≈ ~3000 words which silently caps output).
+        # Rule of thumb: 1 token ≈ 0.75 words  →  words × 1.35 gives a safe margin.
+        import math
+        _default_predict = int(__import__('os').environ.get("OLLAMA_NUM_PREDICT", "4096"))
+        if max_words > 0:
+            output_max_tokens = max(_default_predict, math.ceil(max_words * 1.35))
+        elif min_words > 0:
+            output_max_tokens = max(_default_predict, math.ceil(min_words * 1.35))
+        else:
+            output_max_tokens = None  # use global default
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ]
-        return await chat_stream(messages)
+        return await chat_stream(messages, output_max_tokens=output_max_tokens)
 
     async def rewrite_passage(
         self,
@@ -293,6 +309,8 @@ class DraftEngine:
         beats: str = "",
         editor_note: str = "",
         qa_note: str = "",
+        min_words: int = 0,
+        max_words: int = 0,
     ) -> AsyncIterator[str]:
         """Stream rewritten passage tokens — uses the Writer role skill, same priority as chat Writer."""
         from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
@@ -334,11 +352,20 @@ class DraftEngine:
             style_mode=style_mode,
         )
 
+        import math
+        _default_predict = int(__import__('os').environ.get("OLLAMA_NUM_PREDICT", "4096"))
+        if max_words > 0:
+            output_max_tokens = max(_default_predict, math.ceil(max_words * 1.35))
+        elif min_words > 0:
+            output_max_tokens = max(_default_predict, math.ceil(min_words * 1.35))
+        else:
+            output_max_tokens = None
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"{user_instruction}\n\n---\n{passage}"},
         ]
-        return await chat_stream(messages)
+        return await chat_stream(messages, output_max_tokens=output_max_tokens)
 
     async def summarise_chapter(
         self,
