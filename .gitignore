@@ -4,3 +4,13 @@
 .env
 .env.*
 !.env.example
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+config/__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# C extensions
+*.so
