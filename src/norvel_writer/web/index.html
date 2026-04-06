@@ -2401,13 +2401,17 @@ function setStatus(msg, timeout = 0) {
   if (timeout) setTimeout(() => { el('save-status').textContent = ''; }, timeout);
 }
 
+// CJK character range: Unified Ideographs, Radicals, CJK Symbols & Punctuation
+// (。，！？""……), Hiragana, Katakana, Hangul, Fullwidth Forms.
+// Each CJK character counts as one word/字 — matching how Chinese/Japanese/Korean
+// authors and AI models count 字数.  Punctuation is included so the count matches
+// what the AI reports when it says "I wrote X 字".
+const _CJK_RE = /[\u2E80-\u2FFF\u3000-\u9FFF\uF900-\uFAFF\uAC00-\uD7AF\uFF00-\uFFEF]/g;
+
 function countWords(text) {
   if (!text || !text.trim()) return 0;
-  // Count CJK characters individually (each is one word in Chinese/Japanese/Korean)
-  const cjk = (text.match(/[\u3400-\u9FFF\uF900-\uFAFF\uAC00-\uD7AF\u3040-\u309F\u30A0-\u30FF]/g) || []).length;
-  // Count non-CJK words by splitting on whitespace (after removing CJK chars)
-  const nonCjk = text.replace(/[\u3400-\u9FFF\uF900-\uFAFF\uAC00-\uD7AF\u3040-\u309F\u30A0-\u30FF]/g, ' ')
-                     .trim().split(/\s+/).filter(w => w.length > 0).length;
+  const cjk = (text.match(_CJK_RE) || []).length;
+  const nonCjk = text.replace(_CJK_RE, ' ').trim().split(/\s+/).filter(w => w.length > 0).length;
   return cjk + nonCjk;
 }
 
@@ -3305,15 +3309,18 @@ document.querySelectorAll('input[name="ai-mode"]').forEach(radio => {
 
 // ── Word-count helper ────────────────────────────────────────────────────────
 // fallbackText: the source content whose word count is used when min/max are blank.
+// Uses language-aware unit: "字 (characters)" for CJK languages, "words" for others.
 function _buildWordCountNote(minEl, maxEl, fallbackText = '') {
   const mn = parseInt(minEl.value) || 0;
   const mx = parseInt(maxEl.value) || 0;
-  if (mn > 0 && mx >= mn) return ` Write between ${mn} and ${mx} words.`;
-  if (mn > 0) return ` Write at least ${mn} words.`;
-  if (mx > 0) return ` Write at most ${mx} words.`;
+  const CJK_LANGS = ['zh', 'zh-tw', 'ja', 'ko'];
+  const unit = CJK_LANGS.includes(state.projectLang) ? '字 (characters)' : 'words';
+  if (mn > 0 && mx >= mn) return ` Write between ${mn} and ${mx} ${unit}.`;
+  if (mn > 0) return ` Write at least ${mn} ${unit}.`;
+  if (mx > 0) return ` Write at most ${mx} ${unit}.`;
   // Neither field filled — default to the word count of the source content
-  const wc = fallbackText.trim().split(/\s+/).filter(Boolean).length;
-  if (wc > 0) return ` Write approximately ${wc} words.`;
+  const wc = countWords(fallbackText.trim());
+  if (wc > 0) return ` Write approximately ${wc} ${unit}.`;
   return '';
 }
 

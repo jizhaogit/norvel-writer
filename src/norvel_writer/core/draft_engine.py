@@ -1288,22 +1288,27 @@ def _build_writer_system_prompt(
         ]
 
     # Mode-specific task description
+    # Language-appropriate unit: 字 (characters) for CJK, "words" for others.
+    # This removes ambiguity — the AI knows exactly what unit to count in.
+    _cjk_langs = ("chinese", "japanese", "korean", "mandarin", "cantonese")
+    _unit = "字 (characters)" if any(l in lang_display.lower() for l in _cjk_langs) else "words"
+
     if mode == "beats":
         # Build word count directive — injected into both task_line and the beats box
         if max_words > 0 and min_words > 0:
             _wc_task = (
-                f" The completed chapter MUST be between {min_words} and {max_words} words. "
+                f" The completed chapter MUST be between {min_words} and {max_words} {_unit}. "
                 f"Expand each beat with rich, detailed prose — dialogue, interiority, sensory detail, "
                 f"pacing — until the full target is reached. Do NOT wrap up early."
             )
         elif max_words > 0:
             _wc_task = (
-                f" The completed chapter MUST be approximately {max_words} words. "
+                f" The completed chapter MUST be approximately {max_words} {_unit}. "
                 f"Expand each beat with rich, detailed prose to reach this target. Do NOT wrap up early."
             )
         elif min_words > 0:
             _wc_task = (
-                f" The completed chapter MUST be at least {min_words} words. "
+                f" The completed chapter MUST be at least {min_words} {_unit}. "
                 f"Expand each beat with rich, detailed prose — dialogue, interiority, sensory detail — "
                 f"until the minimum is exceeded. Do NOT stop until this target is met."
             )
@@ -1419,23 +1424,23 @@ def _build_writer_system_prompt(
         # sees it alongside the beats themselves, not buried in the user message.
         if max_words > 0 and min_words > 0:
             _wc_box = (
-                f"► WORD COUNT TARGET: {min_words}–{max_words} words.\n"
+                f"► LENGTH TARGET: {min_words}–{max_words} {_unit}.\n"
                 f"   Expand each beat into detailed scenes with dialogue, interiority, and sensory\n"
-                f"   richness. Do NOT end the chapter until the word count target is met.\n"
+                f"   richness. Do NOT end the chapter until the length target is met.\n"
             )
-            _stop_line = f"► Cover all beats in order. Do NOT stop until the word count target is reached.\n"
+            _stop_line = f"► Cover all beats in order. Do NOT stop until the length target is reached.\n"
         elif max_words > 0:
             _wc_box = (
-                f"► WORD COUNT TARGET: approximately {max_words} words.\n"
+                f"► LENGTH TARGET: approximately {max_words} {_unit}.\n"
                 f"   Expand each beat into detailed scenes. Do NOT end early.\n"
             )
-            _stop_line = f"► Cover all beats in order. Do NOT stop until the word count target is reached.\n"
+            _stop_line = f"► Cover all beats in order. Do NOT stop until the length target is reached.\n"
         elif min_words > 0:
             _wc_box = (
-                f"► MINIMUM WORD COUNT: {min_words} words.\n"
+                f"► MINIMUM LENGTH: {min_words} {_unit}.\n"
                 f"   Expand each beat with rich prose. Do NOT end the chapter before reaching this minimum.\n"
             )
-            _stop_line = f"► Cover all beats in order. Do NOT stop until the minimum word count is exceeded.\n"
+            _stop_line = f"► Cover all beats in order. Do NOT stop until the minimum length is exceeded.\n"
         else:
             _wc_box = ""
             _stop_line = f"► Start writing at Beat 1. Stop writing after the final beat.\n"

@@ -124,8 +124,9 @@ class EditorPanel(QWidget):
         self.content_changed.emit(self._editor.toPlainText())
 
     def _update_word_count(self) -> None:
+        from norvel_writer.utils.text_utils import count_words
         text = self._editor.toPlainText()
-        count = len(text.split()) if text.strip() else 0
+        count = count_words(text)
         self._word_count_label.setText(f"{count:,} words")
 
     def _save_now(self) -> None:
@@ -144,7 +145,8 @@ class EditorPanel(QWidget):
         )
         self._pm.accept_draft(draft_id)
         self._dirty = False
-        wc = len(content.split()) if content.strip() else 0
+        from norvel_writer.utils.text_utils import count_words
+        wc = count_words(content)
         self._pm.update_chapter(
             self._current_chapter_id, word_count=wc
         )

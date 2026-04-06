@@ -108,7 +108,29 @@ def normalize_whitespace(text: str) -> str:
 
 
 def count_words(text: str) -> int:
-    return len(text.split())
+    """Count words in a language-aware way.
+
+    For CJK text (Chinese, Japanese, Korean) each character counts as one word,
+    matching how authors and AI models count 字数.  Non-CJK text is counted by
+    splitting on whitespace.  Mixed text counts both correctly.
+
+    CJK range covers: CJK Unified Ideographs, Radicals, CJK Symbols &
+    Punctuation (。，！？""……), Hangul, Hiragana, Katakana, Fullwidth forms.
+    """
+    import re
+    if not text or not text.strip():
+        return 0
+    _cjk = re.compile(
+        r"[\u2E80-\u2FFF"   # CJK Radicals Supplement + Kangxi Radicals
+        r"\u3000-\u9FFF"    # CJK Symbols/Punctuation, Hiragana, Katakana,
+                            # CJK Unified Ideographs (4E00-9FFF)
+        r"\uF900-\uFAFF"    # CJK Compatibility Ideographs
+        r"\uAC00-\uD7AF"    # Hangul Syllables
+        r"\uFF00-\uFFEF]"   # Halfwidth & Fullwidth Forms (fullwidth punctuation)
+    )
+    cjk_count = len(_cjk.findall(text))
+    non_cjk_count = len(_cjk.sub(" ", text).split())
+    return cjk_count + non_cjk_count
 
 
 def estimate_tokens(text: str) -> int:
