@@ -2876,6 +2876,7 @@ function renderProjectTree() {
 
 async function selectProject(pid) {
   state.currentProjectId = pid;
+  state.selectedDocId = null;
   localStorage.setItem('lastProjectId', pid);
   const proj = state.projects.find(p => p.id === pid);
   el('current-project-name').textContent = proj ? proj.name : '';
