@@ -150,6 +150,54 @@ class DocumentRepo:
             )
         return dict(row) if row else None
 
+    def get_all_document_chunks(
+        self,
+        project_id: str,
+        chapter_id: Optional[str] = None,
+        doc_types: Optional[List[str]] = None,
+    ) -> List[dict]:
+        """Return ALL chunks for a project in document/position order.
+
+        Used by full-document context mode (CONTEXT_MODE=full) to bypass
+        ChromaDB and send the complete text of every document to the LLM.
+
+        Scope:
+          - Always includes project-level docs (chapter_id IS NULL or '').
+          - If chapter_id is given, also includes that chapter's docs so the
+            writer sees both the shared world-bible and chapter-specific notes.
+
+        Chunks come back as rows with keys:
+          doc_id, title, doc_type, text, position
+        ordered by ingestion time then chunk position so the reconstructed
+        text reads in the same order as the original document.
+        """
+        params: list = [project_id]
+
+        type_clause = ""
+        if doc_types:
+            placeholders = ",".join("?" * len(doc_types))
+            type_clause = f" AND d.doc_type IN ({placeholders})"
+            params.extend(doc_types)
+
+        if chapter_id:
+            scope_clause = (
+                "AND (d.chapter_id IS NULL OR d.chapter_id='' OR d.chapter_id=?)"
+            )
+            params.append(chapter_id)
+        else:
+            scope_clause = "AND (d.chapter_id IS NULL OR d.chapter_id='')"
+
+        rows = self._db.execute(
+            f"""SELECT d.id AS doc_id, d.title, d.doc_type, c.text, c.position
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE d.project_id=?{type_clause}
+                {scope_clause}
+                ORDER BY d.ingested_at, d.id, c.position""",
+            tuple(params),
+        )
+        return [dict(r) for r in rows]
+
     # ── Chunks ────────────────────────────────────────────────────────────
 
     def insert_chunks(

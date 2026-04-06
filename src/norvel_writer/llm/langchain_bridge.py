@@ -342,6 +342,31 @@ def get_context_limits() -> dict:
     }
 
 
+def get_context_mode() -> str:
+    """Return 'full' or 'rag'.
+
+    'full' — skip ChromaDB/embeddings entirely; all document text is loaded
+             directly from SQLite and sent wholesale to the LLM.  Best for
+             large-context cloud models (128 K+) where every codex/note can
+             fit in a single call without lossy chunk selection.
+
+    'rag'  — standard vector-retrieval pipeline (default for local models).
+
+    Resolution order:
+      1. CONTEXT_MODE env var ('full' or 'rag') — explicit always wins.
+      2. Auto-detect: Ollama model names ending in '-cloud' → 'full'.
+      3. Default: 'rag'.
+    """
+    explicit = _env("CONTEXT_MODE", "").lower()
+    if explicit in ("full", "rag"):
+        return explicit
+    # Auto-detect cloud model by naming convention
+    if _env("LLM_PROVIDER", "ollama").lower() == "ollama":
+        if _env("OLLAMA_CHAT_MODEL", "").lower().endswith("-cloud"):
+            return "full"
+    return "rag"
+
+
 def reset_singletons() -> None:
     """
     Clear cached LLM and embeddings instances.

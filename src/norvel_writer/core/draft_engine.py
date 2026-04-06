@@ -26,6 +26,41 @@ class DraftEngine:
         from norvel_writer.core.project import ProjectManager
         self._pm = project_manager or ProjectManager()
 
+    def _full_doc_context(
+        self,
+        project_id: str,
+        chapter_id: Optional[str],
+        rag_budget: int,
+        style_budget: int,
+        doc_types: Optional[List[str]] = None,
+    ) -> tuple:
+        """Full-document context mode helper.
+
+        Loads ALL stored document text directly from SQLite — no embedding
+        lookup, no ChromaDB.  Returns (rag_context_str, style_chunks_list)
+        in the same shapes that the RAG path produces so callers are
+        drop-in compatible.
+
+        doc_types controls which document categories go into rag_context.
+        Style documents (doc_type='style') are always loaded separately and
+        returned as style_chunks.
+        """
+        _types = doc_types or ["codex", "notes", "beats", "research"]
+        rag_context = self._pm.get_full_context_text(
+            project_id, chapter_id, _types, budget_tokens=rag_budget
+        )
+        style_text = self._pm.get_full_context_text(
+            project_id, chapter_id, ["style"], budget_tokens=style_budget
+        )
+        # Split back into per-document strings so _build_writer_system_prompt
+        # receives the same list-of-strings shape as the RAG path.
+        style_chunks = [s.strip() for s in style_text.split("\n\n---\n\n") if s.strip()]
+        log.debug(
+            "full-doc mode: rag_context=%d chars, style_chunks=%d doc(s)",
+            len(rag_context), len(style_chunks),
+        )
+        return rag_context, style_chunks
+
     async def _rag_retrieve(
         self,
         project_id: str,
@@ -163,84 +198,78 @@ class DraftEngine:
         else:
             rag_query = last_para
 
-        # RAG — derive n_results dynamically from the configured budget so that
-        # large-budget cloud setups (e.g. 48K tokens) actually retrieve enough
-        # chunks to fill the window.  _cap_rag hard-caps the token total, so
-        # over-requesting is always safe — extra chunks are simply discarded.
-        # Avg chunk ≈ 250 tokens → budget // 250 gives a safe upper bound.
-        # Floor of 20 preserves reasonable coverage on tiny local-model budgets.
-        _AVG_CHUNK_TOKENS = 250
-        _n_rag   = max(20, min(500, limits["rag_budget"]   // _AVG_CHUNK_TOKENS))
-        _n_style = max(8,  min(200, limits["style_budget"] // _AVG_CHUNK_TOKENS))
-        log.debug("RAG n_results: rag=%d style=%d (budgets: %d / %d tokens)",
-                  _n_rag, _n_style, limits["rag_budget"], limits["style_budget"])
-
         _all_types = active_doc_types or ["codex", "beats", "research", "notes"]
 
-        if is_beats_mode:
-            # In beats mode, codex documents can be very large and are only
-            # useful when they directly relate to the beats being written.
-            # Strategy: retrieve beats/notes/research unconditionally (they are
-            # always structurally relevant), then retrieve codex separately and
-            # filter out chunks that are semantically distant from the beats query.
-            _cx_threshold = limits["codex_distance_threshold"]
-            _non_codex    = [t for t in _all_types if t != "codex"]
-            _wants_codex  = "codex" in _all_types
-
-            # Split budget: 40 % non-codex, 60 % codex (codex is typically larger)
-            _n_non_codex = max(10, _n_rag * 4 // 10)
-            _n_codex     = max(10, _n_rag * 6 // 10)
-
-            if _non_codex:
-                _bn_results = await self._rag_retrieve(
-                    project_id, chapter_id, rag_query, _n_non_codex, _non_codex,
-                )
-            else:
-                _bn_results = []
-
-            _cx_results = []
-            if _wants_codex:
-                _cx_raw = await self._rag_retrieve(
-                    project_id, chapter_id, rag_query, _n_codex, ["codex"],
-                )
-                # Only keep codex chunks close enough to the beats query
-                _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
-                log.debug(
-                    "beats RAG: %d/%d codex chunks passed distance threshold %.2f",
-                    len(_cx_results), len(_cx_raw), _cx_threshold,
-                )
-
-            # Merge and re-sort by distance so _cap_rag's relevance ordering is
-            # correct across both sub-lists.  Without this, non-codex chunks
-            # (appended first) would consume the entire budget and all codex
-            # chunks would be silently abandoned.
-            rag_results = sorted(
-                _bn_results + _cx_results,
-                key=lambda r: r.get("distance", 0.0),
+        from norvel_writer.llm.langchain_bridge import get_context_mode
+        if get_context_mode() == "full":
+            # ── Full-document mode (cloud / large-context models) ──────────
+            # Skip ChromaDB entirely — send all stored text straight to the LLM.
+            # No embeddings needed, no relevance filtering, no chunk distance
+            # thresholds.  The model sees everything and picks what matters.
+            log.debug("continue_draft: using full-document context mode")
+            rag_context, style_chunks = self._full_doc_context(
+                project_id, chapter_id,
+                rag_budget=limits["rag_budget"],
+                style_budget=limits["style_budget"],
+                doc_types=_all_types,
             )
         else:
-            rag_results = await self._rag_retrieve(
-                project_id, chapter_id, rag_query, _n_rag, _all_types,
-            )
+            # ── RAG mode (local / small-context models) ────────────────────
+            # Derive n_results dynamically from the configured budget so that
+            # large-budget setups actually retrieve enough chunks to fill the
+            # window.  _cap_rag hard-caps the token total, so over-requesting
+            # is always safe — extra chunks are simply discarded.
+            _AVG_CHUNK_TOKENS = 250
+            _n_rag   = max(20, min(500, limits["rag_budget"]   // _AVG_CHUNK_TOKENS))
+            _n_style = max(8,  min(200, limits["style_budget"] // _AVG_CHUNK_TOKENS))
+            log.debug("RAG n_results: rag=%d style=%d (budgets: %d / %d tokens)",
+                      _n_rag, _n_style, limits["rag_budget"], limits["style_budget"])
 
-        style_results = await self._pm.retrieve_style_examples(
-            project_id=project_id,
-            query=rag_query,
-            n_results=_n_style,
-        )
-        # In beats mode, apply the codex distance threshold across the entire
-        # merged list so that irrelevant non-codex chunks (research / notes with
-        # high distance) don't crowd out relevant codex entries.
-        # In normal mode no distance filter is applied (max_distance default=1.0).
-        _rag_max_dist = limits["codex_distance_threshold"] if is_beats_mode else 1.0
-        rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(
-                rag_results,
-                budget_tokens=limits["rag_budget"],
-                max_distance=_rag_max_dist,
+            if is_beats_mode:
+                _cx_threshold = limits["codex_distance_threshold"]
+                _non_codex    = [t for t in _all_types if t != "codex"]
+                _wants_codex  = "codex" in _all_types
+                _n_non_codex  = max(10, _n_rag * 4 // 10)
+                _n_codex      = max(10, _n_rag * 6 // 10)
+
+                _bn_results = []
+                if _non_codex:
+                    _bn_results = await self._rag_retrieve(
+                        project_id, chapter_id, rag_query, _n_non_codex, _non_codex,
+                    )
+                _cx_results = []
+                if _wants_codex:
+                    _cx_raw = await self._rag_retrieve(
+                        project_id, chapter_id, rag_query, _n_codex, ["codex"],
+                    )
+                    _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
+                    log.debug(
+                        "beats RAG: %d/%d codex chunks passed distance threshold %.2f",
+                        len(_cx_results), len(_cx_raw), _cx_threshold,
+                    )
+                rag_results = sorted(
+                    _bn_results + _cx_results,
+                    key=lambda r: r.get("distance", 0.0),
+                )
+            else:
+                rag_results = await self._rag_retrieve(
+                    project_id, chapter_id, rag_query, _n_rag, _all_types,
+                )
+
+            style_results = await self._pm.retrieve_style_examples(
+                project_id=project_id,
+                query=rag_query,
+                n_results=_n_style,
             )
-        )
-        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
+            _rag_max_dist = limits["codex_distance_threshold"] if is_beats_mode else 1.0
+            rag_context = "\n\n---\n\n".join(
+                r["text"] for r in _cap_rag(
+                    rag_results,
+                    budget_tokens=limits["rag_budget"],
+                    max_distance=_rag_max_dist,
+                )
+            )
+            style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
 
         proj = self._pm.get_project(project_id)
         persona = (proj.get("persona") or "").strip() if proj else ""
@@ -333,23 +362,32 @@ class DraftEngine:
         limits = get_context_limits()
         lang_display = _lang_display(language)
 
-        _AVG_CHUNK_TOKENS = 250
-        _n_rag   = max(20, min(500, limits["rag_budget"]   // _AVG_CHUNK_TOKENS))
-        _n_style = max(8,  min(200, limits["style_budget"] // _AVG_CHUNK_TOKENS))
-
-        rag_results = await self._rag_retrieve(
-            project_id, chapter_id or None, passage, _n_rag,
-            ["codex", "beats", "research", "notes"],
-        )
-        style_results = await self._pm.retrieve_style_examples(
-            project_id=project_id,
-            query=passage,
-            n_results=_n_style,
-        )
-        rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
-        )
-        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
+        from norvel_writer.llm.langchain_bridge import get_context_mode
+        if get_context_mode() == "full":
+            log.debug("rewrite_passage: using full-document context mode")
+            rag_context, style_chunks = self._full_doc_context(
+                project_id, chapter_id or None,
+                rag_budget=limits["rag_budget"],
+                style_budget=limits["style_budget"],
+                doc_types=["codex", "beats", "research", "notes"],
+            )
+        else:
+            _AVG_CHUNK_TOKENS = 250
+            _n_rag   = max(20, min(500, limits["rag_budget"]   // _AVG_CHUNK_TOKENS))
+            _n_style = max(8,  min(200, limits["style_budget"] // _AVG_CHUNK_TOKENS))
+            rag_results = await self._rag_retrieve(
+                project_id, chapter_id or None, passage, _n_rag,
+                ["codex", "beats", "research", "notes"],
+            )
+            style_results = await self._pm.retrieve_style_examples(
+                project_id=project_id,
+                query=passage,
+                n_results=_n_style,
+            )
+            rag_context = "\n\n---\n\n".join(
+                r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
+            )
+            style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
 
         proj = self._pm.get_project(project_id)
         persona = (proj.get("persona") or "").strip() if proj else ""
@@ -665,74 +703,87 @@ class DraftEngine:
         else:
             rag_query = f"{chapter_title}: {question}" if chapter_title else question
 
-        # write-from-beats: split codex / non-codex retrieval with distance
-        # filtering — identical to continue_draft's beats-mode strategy.
-        if _is_write_from_beats:
-            _cx_threshold = limits["codex_distance_threshold"]
-            _non_codex    = [t for t in rag_doc_types if t != "codex"]
-            _wants_codex  = "codex" in rag_doc_types
-            _bn_results: list = []
-            if _non_codex:
-                _bn_results = await self._rag_retrieve(
-                    project_id, resolved_chapter_id, rag_query, 8, _non_codex,
-                    include_project=_wants_project_memory,
-                )
-            _cx_results: list = []
-            if _wants_codex:
-                _cx_raw = await self._rag_retrieve(
-                    project_id, resolved_chapter_id, rag_query, 10, ["codex"],
-                    include_project=_wants_project_memory,
-                )
-                _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
-                log.debug(
-                    "chat-beats RAG: %d/%d codex chunks passed distance %.2f",
-                    len(_cx_results), len(_cx_raw), _cx_threshold,
-                )
-            rag_results = sorted(
-                _bn_results + _cx_results,
-                key=lambda r: r.get("distance", 0.0),
-            )
-            _rag_max_dist = _cx_threshold
-        else:
-            rag_results = await self._rag_retrieve(
-                project_id, resolved_chapter_id, rag_query, 14, rag_doc_types,
-                include_project=_wants_project_memory,
-            )
-            _rag_max_dist = 1.0
+        from norvel_writer.llm.langchain_bridge import get_context_mode
+        _use_full_doc = get_context_mode() == "full" and role == "writer"
 
-        rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(
-                rag_results,
-                budget_tokens=limits["rag_budget"],
-                max_distance=_rag_max_dist,
+        if _use_full_doc:
+            # ── Full-document mode (writer role only, cloud / large-context) ──
+            # Load ALL document text directly from SQLite — no embedding lookup.
+            # Editor and QA roles still use RAG because their targeted questions
+            # benefit from relevance-ranked chunks rather than the full corpus.
+            log.debug("chat_with_context: using full-document context mode (writer)")
+            _ch_id_for_full = resolved_chapter_id or None
+            rag_context, style_chunks = self._full_doc_context(
+                project_id, _ch_id_for_full,
+                rag_budget=limits["rag_budget"],
+                style_budget=limits["style_budget"],
+                doc_types=rag_doc_types,
             )
-        )
+        else:
+            # ── RAG mode ──────────────────────────────────────────────────────
+            if _is_write_from_beats:
+                _cx_threshold = limits["codex_distance_threshold"]
+                _non_codex    = [t for t in rag_doc_types if t != "codex"]
+                _wants_codex  = "codex" in rag_doc_types
+                _bn_results: list = []
+                if _non_codex:
+                    _bn_results = await self._rag_retrieve(
+                        project_id, resolved_chapter_id, rag_query, 8, _non_codex,
+                        include_project=_wants_project_memory,
+                    )
+                _cx_results: list = []
+                if _wants_codex:
+                    _cx_raw = await self._rag_retrieve(
+                        project_id, resolved_chapter_id, rag_query, 10, ["codex"],
+                        include_project=_wants_project_memory,
+                    )
+                    _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
+                    log.debug(
+                        "chat-beats RAG: %d/%d codex chunks passed distance %.2f",
+                        len(_cx_results), len(_cx_raw), _cx_threshold,
+                    )
+                rag_results = sorted(
+                    _bn_results + _cx_results,
+                    key=lambda r: r.get("distance", 0.0),
+                )
+                _rag_max_dist = _cx_threshold
+            else:
+                rag_results = await self._rag_retrieve(
+                    project_id, resolved_chapter_id, rag_query, 14, rag_doc_types,
+                    include_project=_wants_project_memory,
+                )
+                _rag_max_dist = 1.0
+
+            rag_context = "\n\n---\n\n".join(
+                r["text"] for r in _cap_rag(
+                    rag_results,
+                    budget_tokens=limits["rag_budget"],
+                    max_distance=_rag_max_dist,
+                )
+            )
+            style_chunks = []
 
         # ── Image description context (project-level + chapter-level) ─────────
-        # Priority: same as codex — injected alongside rag_context
         image_context = _fetch_image_context(self._pm._db, project_id, resolved_chapter_id)
 
         # ── Extra context for Writer role ──────────────────────────────────
         persona = ""
-        style_chunks: List[str] = []
         if role == "writer":
             proj = self._pm.get_project(project_id)
             persona = (proj.get("persona") or "").strip() if proj else ""
-            # Style query: for chapter rewrites the user's instruction text
-            # ("rewrite this chapter…") has zero semantic similarity to uploaded
-            # prose samples.  Use the chapter text itself as the retrieval anchor
-            # so uploaded style references (e.g. a Dumas novel) are found by
-            # content similarity.  For all other paths keep rag_query.
-            _style_query = (
-                (chapter_text or "")[:2000] if (_is_chapter_rewrite and chapter_text)
-                else rag_query
-            )
-            style_results = await self._pm.retrieve_style_examples(
-                project_id=project_id,
-                query=_style_query,
-                n_results=8,
-            )
-            style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
+            if not _use_full_doc:
+                # Style retrieval via RAG (skipped in full-doc mode — style docs
+                # were already loaded wholesale by _full_doc_context above).
+                _style_query = (
+                    (chapter_text or "")[:2000] if (_is_chapter_rewrite and chapter_text)
+                    else rag_query
+                )
+                style_results = await self._pm.retrieve_style_examples(
+                    project_id=project_id,
+                    query=_style_query,
+                    n_results=8,
+                )
+                style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
 
         # ── Language instruction ───────────────────────────────────────────
         lang_line = (

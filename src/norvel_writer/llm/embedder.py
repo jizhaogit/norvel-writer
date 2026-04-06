@@ -15,12 +15,20 @@ RETRY_DELAY = 2.0
 # nomic-embed-text = 768; text-embedding-3-small = 1536
 _ZERO_DIM = 768
 
-# nomic-embed-text has an 8 192-token context limit.
-# As a RAG *query*, anything beyond ~500 tokens gives no additional retrieval
-# benefit — semantic meaning is captured in the first few sentences.
-# Capping here prevents HTTP 400 errors when the caller passes a long passage
-# (e.g. a full chapter section selected for rewrite) as the query string.
-_EMBED_QUERY_MAX_CHARS = 2000  # ≈ 500 tokens at ~4 chars/token
+# nomic-embed-text context limits:
+#   v1   → 2 048 tokens ≈  8 192 chars
+#   v1.5 → 8 192 tokens ≈ 32 768 chars
+#
+# _EMBED_DOC_MAX_CHARS — hard ceiling applied to every chunk before it is sent
+#   to the embedding API.  The chunker targets 512 tokens ≈ 2 048 chars, but
+#   LangChain's MarkdownTextSplitter treats chunk_size as a *soft* limit and
+#   will emit oversized blocks when no internal split point exists (common with
+#   dense CJK prose or codex entries with no blank lines).  Truncating here
+#   prevents HTTP 400 "input length exceeds context length" errors.
+#   8 000 chars ≈ 2 000 tokens — safely under both v1 and v1.5 hard limits.
+#   Normal 512-token chunks are ≈ 2 048 chars, well below this ceiling.
+_EMBED_DOC_MAX_CHARS   = 8000   # ≈ 2 000 tokens — document chunks
+_EMBED_QUERY_MAX_CHARS = 2000   # ≈   500 tokens — RAG queries (less = fine)
 
 
 class EmbeddingService:
@@ -49,7 +57,10 @@ class EmbeddingService:
         total = len(texts)
 
         for batch_start in range(0, total, BATCH_SIZE):
-            batch = texts[batch_start : batch_start + BATCH_SIZE]
+            batch = [
+                t[:_EMBED_DOC_MAX_CHARS] if len(t) > _EMBED_DOC_MAX_CHARS else t
+                for t in texts[batch_start : batch_start + BATCH_SIZE]
+            ]
             for attempt in range(MAX_RETRIES):
                 try:
                     embeddings = await embeddings_fn.aembed_documents(batch)

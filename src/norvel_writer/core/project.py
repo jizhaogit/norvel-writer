@@ -213,6 +213,65 @@ class ProjectManager:
 
     # ── RAG Retrieval ─────────────────────────────────────────────────────
 
+    def get_full_context_text(
+        self,
+        project_id: str,
+        chapter_id: Optional[str] = None,
+        doc_types: Optional[List[str]] = None,
+        budget_tokens: Optional[int] = None,
+    ) -> str:
+        """Reconstruct full document text from SQLite chunks for full-doc context mode.
+
+        Chunks are reassembled in ingestion / position order.  Each document is
+        labelled with a header so the LLM understands the source type and title.
+        The combined text is hard-truncated to *budget_tokens* (1 token ≈ 4 chars)
+        when a budget is supplied — this is a safety net for smaller context
+        windows; with a 128 K model the budget will rarely be hit.
+
+        Returns an empty string when no chunks exist (e.g. first run, no uploads).
+        """
+        from collections import OrderedDict as _OD
+
+        chunk_rows = self._documents.get_all_document_chunks(
+            project_id, chapter_id, doc_types
+        )
+        if not chunk_rows:
+            return ""
+
+        # Reassemble chunks per document, preserving ingestion order
+        docs: Dict[str, dict] = _OD()
+        for row in chunk_rows:
+            did = row["doc_id"]
+            if did not in docs:
+                docs[did] = {
+                    "title": row["title"] or "Untitled",
+                    "doc_type": row["doc_type"],
+                    "texts": [],
+                }
+            docs[did]["texts"].append(row["text"])
+
+        sections: List[str] = []
+        used_chars = 0
+        budget_chars = budget_tokens * 4 if budget_tokens else None
+
+        for doc in docs.values():
+            header = f"=== [{doc['doc_type']}] {doc['title']} ==="
+            body = "\n".join(doc["texts"])
+            section = f"{header}\n{body}"
+
+            if budget_chars is not None:
+                section_chars = len(section)
+                if used_chars + section_chars > budget_chars:
+                    remaining = budget_chars - used_chars
+                    if remaining > 400:          # include truncated tail only if meaningful
+                        sections.append(section[:remaining])
+                    break
+                used_chars += section_chars
+
+            sections.append(section)
+
+        return "\n\n---\n\n".join(sections)
+
     async def retrieve_context(
         self,
         project_id: str,
