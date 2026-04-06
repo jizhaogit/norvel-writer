@@ -1415,6 +1415,35 @@ def _build_writer_system_prompt(
         f"When writing:\n{_bullets(all_rules)}"
     )
 
+    # ── Length directive (all modes except beats, which gets its own box) ────
+    # Injected as a standalone system-level block so the model treats it as an
+    # authoritative requirement, not a casual user suggestion.  Models reliably
+    # follow system-prompt directives; they routinely ignore identical text in
+    # the user message.
+    if mode != "beats" and (min_words > 0 or max_words > 0):
+        if min_words > 0 and max_words > 0:
+            _len_req = f"between {min_words} and {max_words} {_unit}"
+            _len_instr = f"Do NOT stop writing until you have produced at least {min_words} {_unit}."
+        elif max_words > 0:
+            _len_req = f"approximately {max_words} {_unit}"
+            _len_instr = f"Aim for {max_words} {_unit}. Do not pad, but do not stop short either."
+        else:
+            _len_req = f"at least {min_words} {_unit}"
+            _len_instr = (
+                f"Do NOT stop writing until you have produced at least {min_words} {_unit}. "
+                f"Keep writing — expand scenes, add interiority, develop dialogue — "
+                f"until this minimum is met."
+            )
+        prompt += (
+            f"\n\n╔══════════════════════════════════════════╗\n"
+            f"║  ⚠  MANDATORY LENGTH REQUIREMENT           ║\n"
+            f"╚══════════════════════════════════════════╝\n"
+            f"Your output MUST be {_len_req}.\n"
+            f"{_len_instr}\n"
+            f"Stopping early — even if the content feels complete — is NOT acceptable.\n"
+            f"Count carefully. If you are below the target, continue writing more prose."
+        )
+
     # ── BEATS MODE: beats appear FIRST — they are the structural directive. ──
     # Memory/codex is demoted to "supporting detail" and must not introduce
     # new events.  Small models follow the most prominent recent block, so
@@ -1582,6 +1611,22 @@ def _build_writer_system_prompt(
             f"► Every scene, event, and revelation must come from the beats list.\n"
             f"► Supporting context (codex, world details) informs HOW you write, not WHAT happens.\n"
             f"► Output pure prose only — no beat labels, no numbers, no headings."
+        )
+
+    # ── NON-BEATS: repeat length requirement at the very end ──────────────
+    # Same recency-bias trick — restating the target after all context blocks
+    # prevents it from being "buried" by long codex/style sections.
+    if mode != "beats" and (min_words > 0 or max_words > 0):
+        if min_words > 0 and max_words > 0:
+            _len_final = f"between {min_words} and {max_words} {_unit}"
+        elif max_words > 0:
+            _len_final = f"approximately {max_words} {_unit}"
+        else:
+            _len_final = f"at least {min_words} {_unit}"
+        prompt += (
+            f"\n\n⚠ FINAL REMINDER — LENGTH REQUIREMENT: {_len_final}.\n"
+            f"You have just read all context. Now begin writing and do NOT stop until "
+            f"your output reaches {_len_final}."
         )
 
     return prompt
