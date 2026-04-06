@@ -139,8 +139,12 @@ def get_llm():
                 # Large context window so system-prompt + chapter + beats all
                 # fit in a single pass without truncation (truncation causes loops).
                 "num_ctx":       int(_env("OLLAMA_NUM_CTX",          "8192")),
-                # Hard cap on generated tokens.
-                "num_predict":   int(_env("OLLAMA_NUM_PREDICT",      "4096")),
+                # Output token cap.
+                # Full-doc / cloud mode: -1 = unlimited (model stops at its own EOS).
+                # Local / RAG mode: use OLLAMA_NUM_PREDICT (default 4096) as a ceiling
+                # to prevent runaway generation on small-context local models.
+                "num_predict":   -1 if get_context_mode() == "full"
+                                 else int(_env("OLLAMA_NUM_PREDICT", "4096")),
                 # Repetition suppression: penalty applied to recent tokens.
                 # repeat_last_n — how many tokens back to scan (default 64 is too short
                 #   for long chapter rewrites; 512 catches multi-paragraph loops).

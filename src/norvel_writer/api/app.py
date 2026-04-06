@@ -894,6 +894,8 @@ class ChatRequest(BaseModel):
     language: str = "en"
     editor_note: str = ""   # pinned editor suggestion forwarded from the browser
     qa_note: str = ""       # pinned QA report forwarded from the browser
+    min_words: int = 0      # explicit lower bound (0 = auto-detect from question)
+    max_words: int = 0      # explicit upper bound (0 = auto-detect from question)
 
 
 @app.post("/api/projects/{project_id}/chat")
@@ -911,6 +913,8 @@ async def chat_with_context(project_id: str, body: ChatRequest):
                 language=body.language,
                 editor_note=body.editor_note,
                 qa_note=body.qa_note,
+                min_words=body.min_words,
+                max_words=body.max_words,
             )
             async for chunk in stream:
                 yield f"data: {json.dumps({'text': chunk})}\n\n"

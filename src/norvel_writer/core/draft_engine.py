@@ -294,6 +294,8 @@ class DraftEngine:
             style_mode=style_mode,
             constraints=constraints,
             prev_chapter_tail=prev_chapter_tail,
+            min_words=min_words,
+            max_words=max_words,
         )
 
         # Construct user message with cursor marker when inserting mid-text
@@ -305,16 +307,27 @@ class DraftEngine:
         else:
             draft_block = context_text
 
-        # In beats mode the user message doubles as a final beats reminder.
-        # Because small models weight the most recently seen tokens highly,
-        # repeating the constraint here (after all the system-prompt context)
-        # significantly reduces the chance of the model going off-script.
+        # In beats mode the user message doubles as a final reminder.
+        # When a word count target is set, the stop signal is softened so it
+        # doesn't override the length requirement.
         if is_beats_mode:
-            beat_fence = (
-                "⚠ BEATS CONSTRAINT: Write ONLY the scenes and events described in the "
-                "Chapter Blueprint above. Do NOT invent new scenes, characters, or plot "
-                "points that are not in the beats. Start at Beat 1. Stop after the final beat."
-            )
+            if min_words > 0 or max_words > 0:
+                _wc_reminder = (
+                    f" Expand each beat with rich prose to meet the word count target "
+                    f"set in the directives above."
+                )
+                beat_fence = (
+                    "⚠ BEATS CONSTRAINT: Write ONLY the scenes and events described in the "
+                    "Chapter Blueprint above. Do NOT invent new scenes, characters, or plot "
+                    "points that are not in the beats. Start at Beat 1."
+                    + _wc_reminder
+                )
+            else:
+                beat_fence = (
+                    "⚠ BEATS CONSTRAINT: Write ONLY the scenes and events described in the "
+                    "Chapter Blueprint above. Do NOT invent new scenes, characters, or plot "
+                    "points that are not in the beats. Start at Beat 1. Stop after the final beat."
+                )
             user_content = f"{user_instruction}\n\n{beat_fence}"
             if draft_block.strip():
                 user_content += f"\n\n---\n{draft_block}"
@@ -322,18 +335,28 @@ class DraftEngine:
             user_content = f"{user_instruction}\n\n---\n{draft_block}"
 
         # ── Dynamic output token cap ─────────────────────────────────────────
-        # Convert the user's requested word count to a token budget and override
-        # the global num_predict so the LLM is physically able to produce that
-        # many words (default 4096 tokens ≈ ~3000 words which silently caps output).
-        # Rule of thumb: 1 token ≈ 0.75 words  →  words × 1.35 gives a safe margin.
         import math
-        _default_predict = int(__import__('os').environ.get("OLLAMA_NUM_PREDICT", "4096"))
-        if max_words > 0:
-            output_max_tokens = max(_default_predict, math.ceil(max_words * 1.35))
-        elif min_words > 0:
-            output_max_tokens = max(_default_predict, math.ceil(min_words * 1.35))
+        from norvel_writer.llm.langchain_bridge import get_context_mode as _gcm
+        if _gcm() == "full":
+            # Cloud mode: num_predict=-1 by default (unlimited).
+            # Only set an explicit ceiling when a word count target is given,
+            # and use a generous 2× multiplier so the model is never re-capped.
+            if max_words > 0:
+                output_max_tokens = math.ceil(max_words * 2.0)
+            elif min_words > 0:
+                output_max_tokens = math.ceil(min_words * 2.5)
+            else:
+                output_max_tokens = None  # truly unlimited
         else:
-            output_max_tokens = None  # use global default
+            # Local / RAG mode: floor at NUM_PREDICT so the override never
+            # shrinks below what the model was initialised with.
+            _default_predict = int(__import__('os').environ.get("OLLAMA_NUM_PREDICT", "4096"))
+            if max_words > 0:
+                output_max_tokens = max(_default_predict, math.ceil(max_words * 1.35))
+            elif min_words > 0:
+                output_max_tokens = max(_default_predict, math.ceil(min_words * 1.35))
+            else:
+                output_max_tokens = None
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -406,16 +429,27 @@ class DraftEngine:
             existing_text="",
             mode="rewrite",
             style_mode=style_mode,
+            min_words=min_words,
+            max_words=max_words,
         )
 
         import math
-        _default_predict = int(__import__('os').environ.get("OLLAMA_NUM_PREDICT", "4096"))
-        if max_words > 0:
-            output_max_tokens = max(_default_predict, math.ceil(max_words * 1.35))
-        elif min_words > 0:
-            output_max_tokens = max(_default_predict, math.ceil(min_words * 1.35))
+        from norvel_writer.llm.langchain_bridge import get_context_mode as _gcm
+        if _gcm() == "full":
+            if max_words > 0:
+                output_max_tokens = math.ceil(max_words * 2.0)
+            elif min_words > 0:
+                output_max_tokens = math.ceil(min_words * 2.5)
+            else:
+                output_max_tokens = None
         else:
-            output_max_tokens = None
+            _default_predict = int(__import__('os').environ.get("OLLAMA_NUM_PREDICT", "4096"))
+            if max_words > 0:
+                output_max_tokens = max(_default_predict, math.ceil(max_words * 1.35))
+            elif min_words > 0:
+                output_max_tokens = max(_default_predict, math.ceil(min_words * 1.35))
+            else:
+                output_max_tokens = None
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -502,6 +536,8 @@ class DraftEngine:
         language: str = "en",
         editor_note: str = "",
         qa_note: str = "",
+        min_words: int = 0,
+        max_words: int = 0,
     ) -> AsyncIterator[str]:
         """
         Role-based chat with full project context.
@@ -512,8 +548,38 @@ class DraftEngine:
         from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
         from norvel_writer.utils.text_utils import strip_html, truncate_to_tokens
         from norvel_writer.llm.prompt_builder import _lang_display
+        import math as _math
 
         limits = get_context_limits()
+
+        # ── Word count: explicit UI fields + natural-language parsing ─────────
+        # Parse the question for phrases like "at least 6000 words" so the
+        # writer can honour word count requests typed in chat, not just in the
+        # dedicated min/max fields.  Take the larger of explicit and parsed values.
+        _parsed_min, _parsed_max = _extract_word_target(question)
+        _eff_min = max(min_words, _parsed_min)
+        _eff_max = max(max_words, _parsed_max)
+
+        # Raise the token ceiling so the model is physically able to produce the
+        # requested length.  Cloud mode uses num_predict=-1 (unlimited) by default,
+        # so we only set an explicit ceiling when a word count is given — and use a
+        # generous multiplier so we never accidentally re-cap the model.
+        from norvel_writer.llm.langchain_bridge import get_context_mode as _gcm2
+        if _gcm2() == "full":
+            if _eff_max > 0:
+                _chat_output_max = _math.ceil(_eff_max * 2.0)
+            elif _eff_min > 0:
+                _chat_output_max = _math.ceil(_eff_min * 2.5)
+            else:
+                _chat_output_max = None  # unlimited — model stops at EOS
+        else:
+            _default_predict = int(__import__('os').environ.get("OLLAMA_NUM_PREDICT", "4096"))
+            if _eff_max > 0:
+                _chat_output_max = max(_default_predict, _math.ceil(_eff_max * 1.40))
+            elif _eff_min > 0:
+                _chat_output_max = max(_default_predict, _math.ceil(_eff_min * 1.50))
+            else:
+                _chat_output_max = None
 
         # ── Resolve response language ──────────────────────────────────────
         # Priority: explicit override in the user's message > project language
@@ -878,8 +944,6 @@ class DraftEngine:
 
             if _is_chapter_rewrite:
                 # ── Path 1: Rewrite ───────────────────────────────────────
-                # Chapter text goes into the USER message (most prominent
-                # position for small models) rather than buried in system prompt.
                 system_prompt = _build_writer_system_prompt(
                     lang_display=lang_display,
                     persona=persona,
@@ -889,12 +953,11 @@ class DraftEngine:
                     qa_note=qa_note,
                     style_chunks=style_chunks,
                     beats=ch_beats,
-                    existing_text="",          # NOT in system prompt
+                    existing_text="",
                     mode="rewrite",
-                    # If the user has uploaded style samples, write toward them.
-                    # "preserve_tone_rhythm" would lock the model to the old draft's
-                    # style, defeating the purpose of uploading a style reference.
                     style_mode="inspired_by" if style_chunks else "preserve_tone_rhythm",
+                    min_words=_eff_min,
+                    max_words=_eff_max,
                 )
                 _en_block = (
                     f"\n\nApply ALL editor suggestions above to the rewritten text."
@@ -948,16 +1011,26 @@ class DraftEngine:
                     qa_note=qa_note,
                     style_chunks=style_chunks,
                     beats=ch_beats,
-                    existing_text="",          # writing fresh from beats
+                    existing_text="",
                     mode="beats",
                     style_mode="inspired_by",
                     prev_chapter_tail=prev_chapter_tail,
+                    min_words=_eff_min,
+                    max_words=_eff_max,
                 )
-                beat_fence = (
-                    "⚠ BEATS CONSTRAINT: Write ONLY the scenes and events described in the "
-                    "Chapter Blueprint above. Do NOT invent new scenes, characters, or plot "
-                    "points that are not in the beats. Start at Beat 1. Stop after the final beat."
-                )
+                if _eff_min > 0 or _eff_max > 0:
+                    beat_fence = (
+                        "⚠ BEATS CONSTRAINT: Write ONLY the scenes and events described in the "
+                        "Chapter Blueprint above. Do NOT invent new scenes, characters, or plot "
+                        "points that are not in the beats. Start at Beat 1. "
+                        "Expand each beat with rich prose to meet the word count target."
+                    )
+                else:
+                    beat_fence = (
+                        "⚠ BEATS CONSTRAINT: Write ONLY the scenes and events described in the "
+                        "Chapter Blueprint above. Do NOT invent new scenes, characters, or plot "
+                        "points that are not in the beats. Start at Beat 1. Stop after the final beat."
+                    )
                 user_message = f"{question}\n\n{beat_fence}"
 
             else:
@@ -973,6 +1046,8 @@ class DraftEngine:
                     beats=ch_beats,
                     existing_text=chapter_text,
                     mode="chat",
+                    min_words=_eff_min,
+                    max_words=_eff_max,
                 )
                 user_message = question
 
@@ -1036,7 +1111,7 @@ class DraftEngine:
             messages.extend(history)
         messages.append({"role": "user", "content": user_message})
 
-        return await chat_stream(messages)
+        return await chat_stream(messages, output_max_tokens=_chat_output_max)
 
 
 def _fetch_image_context(db: Any, project_id: str, chapter_id: str = "") -> str:
@@ -1152,6 +1227,8 @@ def _build_writer_system_prompt(
     style_mode: str = "",
     constraints: Optional[List[str]] = None,
     prev_chapter_tail: str = "",
+    min_words: int = 0,
+    max_words: int = 0,
 ) -> str:
     """
     Build the Writer system prompt with the same priority ordering and TOML role
@@ -1212,6 +1289,27 @@ def _build_writer_system_prompt(
 
     # Mode-specific task description
     if mode == "beats":
+        # Build word count directive — injected into both task_line and the beats box
+        if max_words > 0 and min_words > 0:
+            _wc_task = (
+                f" The completed chapter MUST be between {min_words} and {max_words} words. "
+                f"Expand each beat with rich, detailed prose — dialogue, interiority, sensory detail, "
+                f"pacing — until the full target is reached. Do NOT wrap up early."
+            )
+        elif max_words > 0:
+            _wc_task = (
+                f" The completed chapter MUST be approximately {max_words} words. "
+                f"Expand each beat with rich, detailed prose to reach this target. Do NOT wrap up early."
+            )
+        elif min_words > 0:
+            _wc_task = (
+                f" The completed chapter MUST be at least {min_words} words. "
+                f"Expand each beat with rich, detailed prose — dialogue, interiority, sensory detail — "
+                f"until the minimum is exceeded. Do NOT stop until this target is met."
+            )
+        else:
+            _wc_task = ""
+
         if prev_chapter_tail:
             task_line = (
                 "Write a complete chapter that continues naturally from the previous chapter. "
@@ -1221,6 +1319,7 @@ def _build_writer_system_prompt(
                 "Each beat is a dramatic milestone — bring it fully to life as a scene: vivid setting, "
                 "character interiority, concrete sensory detail, rising tension, and dynamic prose. "
                 "Move through ALL beats in order. Write like a skilled novelist, not like someone filling in a form."
+                + _wc_task
             )
         else:
             task_line = (
@@ -1230,6 +1329,7 @@ def _build_writer_system_prompt(
                 "concrete sensory detail, rising tension, and dynamic prose. "
                 "Move through all beats in order, giving each one the space and depth it deserves. "
                 "Write like a skilled novelist, not like someone filling in a form."
+                + _wc_task
             )
     elif mode == "continue":
         if text_after_cursor:
@@ -1315,17 +1415,42 @@ def _build_writer_system_prompt(
     # new events.  Small models follow the most prominent recent block, so
     # placing beats before the codex prevents the codex from overriding them.
     if beats and mode == "beats":
+        # Word count directive for the beats box — placed prominently so the model
+        # sees it alongside the beats themselves, not buried in the user message.
+        if max_words > 0 and min_words > 0:
+            _wc_box = (
+                f"► WORD COUNT TARGET: {min_words}–{max_words} words.\n"
+                f"   Expand each beat into detailed scenes with dialogue, interiority, and sensory\n"
+                f"   richness. Do NOT end the chapter until the word count target is met.\n"
+            )
+            _stop_line = f"► Cover all beats in order. Do NOT stop until the word count target is reached.\n"
+        elif max_words > 0:
+            _wc_box = (
+                f"► WORD COUNT TARGET: approximately {max_words} words.\n"
+                f"   Expand each beat into detailed scenes. Do NOT end early.\n"
+            )
+            _stop_line = f"► Cover all beats in order. Do NOT stop until the word count target is reached.\n"
+        elif min_words > 0:
+            _wc_box = (
+                f"► MINIMUM WORD COUNT: {min_words} words.\n"
+                f"   Expand each beat with rich prose. Do NOT end the chapter before reaching this minimum.\n"
+            )
+            _stop_line = f"► Cover all beats in order. Do NOT stop until the minimum word count is exceeded.\n"
+        else:
+            _wc_box = ""
+            _stop_line = f"► Start writing at Beat 1. Stop writing after the final beat.\n"
+
         prompt += (
             f"\n\n╔══════════════════════════════════════════╗\n"
             f"║  YOUR WRITING DIRECTIVES — CHAPTER BEATS  ║\n"
             f"╚══════════════════════════════════════════╝\n"
             f"The beats below define the COMPLETE and ONLY structure of this chapter.\n"
-            f"► Start writing at Beat 1. Stop writing after the final beat.\n"
+            f"{_stop_line}"
             f"► Do NOT write scenes, events, or plot points that are not listed here.\n"
-            f"► Do NOT continue past the last beat.\n"
             f"► Do NOT use codex/world-building content to invent new events — "
             f"beats are your sole story guide.\n"
-            f"Each beat is a dramatic moment to bring fully to life — "
+            + (_wc_box)
+            + f"Each beat is a dramatic moment to bring fully to life — "
             f"then move directly to the next beat.\n\n"
             f"{beats}"
         )
@@ -1455,6 +1580,71 @@ def _build_writer_system_prompt(
         )
 
     return prompt
+
+
+def _extract_word_target(text: str) -> tuple:
+    """Parse an explicit word count target from natural language.
+
+    Returns (min_words, max_words) as integers; 0 means not specified.
+
+    Handles common English and CJK patterns, e.g.:
+      "at least 6000 words"  → (6000, 0)
+      "between 4000 and 5000 words" → (4000, 5000)
+      "keep words at least 3000"    → (3000, 0)
+      "写至少6000字"                  → (6000, 0)
+    """
+    import re
+
+    def _num(s: str) -> int:
+        return int(s.replace(",", "").replace("，", ""))
+
+    t = text.lower()
+
+    # ── Range: "between X and Y words" ────────────────────────────────────
+    m = re.search(r'between\s+([\d,]+)\s+and\s+([\d,]+)\s+words?', t)
+    if m:
+        return _num(m.group(1)), _num(m.group(2))
+
+    # ── Minimum: "at least / minimum / no less than / over …" ────────────
+    for pat in [
+        r'(?:at\s+least|minimum|min\.?|no\s+less\s+than|not\s+less\s+than|'
+        r'more\s+than|over|above|exceed(?:ing)?)\s+([\d,]+)\s+words?',
+        r'([\d,]+)\s+words?\s+(?:minimum|at\s+least|or\s+more)',
+        r'keep\s+(?:words?\s+)?(?:at\s+)?(?:least\s+)?([\d,]+)',
+        r'words?\s+(?:should\s+be|must\s+be|needs?\s+to\s+be)\s+(?:at\s+least\s+)?([\d,]+)',
+    ]:
+        m = re.search(pat, t)
+        if m:
+            n = _num(m.group(1))
+            if n >= 100:
+                return n, 0
+
+    # ── Approximate / exact: "write 5000 words", "about 6000 words" ───────
+    for pat in [
+        r'(?:write|generate|produce|output|about|around|approximately|'
+        r'roughly|~)\s+([\d,]+)\s+words?',
+        r'([\d,]+)[- ]word\b',        # "5000-word chapter"
+        r'([\d,]+)\s+words?\b',       # plain "6000 words"
+    ]:
+        m = re.search(pat, t)
+        if m:
+            n = _num(m.group(1))
+            if n >= 100:
+                return n, 0
+
+    # ── CJK: 至少6000字 / 6000字以上 / 6000个字 / 写6000字 ─────────────────
+    for pat in [
+        r'(?:至少|最少|不少于|不低于|超过|多于)\s*([\d,，]+)\s*[字词个]',
+        r'([\d,，]+)\s*[字词]\s*(?:以上|左右|至少)',
+        r'([\d,，]+)\s*[字词个]',
+    ]:
+        m = re.search(pat, text)   # keep original case for CJK
+        if m:
+            n = _num(m.group(1).replace('，', ','))
+            if n >= 100:
+                return n, 0
+
+    return 0, 0
 
 
 def _last_paragraphs(text: str, n_tokens: int = 512) -> str:

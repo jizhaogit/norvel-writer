@@ -11,9 +11,25 @@ BATCH_SIZE = 32
 MAX_RETRIES = 3
 RETRY_DELAY = 2.0
 
-# Dimension used for zero-vectors on failure.  Must match the embed model.
-# nomic-embed-text = 768; text-embedding-3-small = 1536
-_ZERO_DIM = 768
+# Infer the embedding vector dimension from the configured model so that
+# fallback zero-vectors always match the active collection's dimension.
+# Only used on hard failure (model not found, service down, etc.).
+def _infer_zero_dim() -> int:
+    import os
+    model = os.environ.get("OLLAMA_EMBED_MODEL", "").lower()
+    # 1024-dim models
+    if any(k in model for k in ("bge", "mxbai", "snowflake-arctic")):
+        return 1024
+    # OpenAI models
+    oai = os.environ.get("OPENAI_EMBED_MODEL", "").lower()
+    if "3-large" in oai:
+        return 3072
+    if "3-small" in oai or "ada" in oai:
+        return 1536
+    # Default: nomic-embed-text and most small Ollama models = 768
+    return 768
+
+_ZERO_DIM = _infer_zero_dim()
 
 # nomic-embed-text context limits:
 #   v1   → 2 048 tokens ≈  8 192 chars
