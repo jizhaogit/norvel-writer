@@ -14,3 +14,29 @@ config/__pycache__/
 
 # C extensions
 *.so
+src/norvel_writer/__pycache__/__init__.cpython-311.pyc
+src/norvel_writer/__pycache__/__main__.cpython-311.pyc
+src/norvel_writer/__pycache__/app.cpython-311.pyc
+src/norvel_writer/api/__pycache__/__init__.cpython-311.pyc
+src/norvel_writer/api/__pycache__/app.cpython-311.pyc
+src/norvel_writer/config/__pycache__/__init__.cpython-311.pyc
+src/norvel_writer/config/__pycache__/defaults.cpython-311.pyc
+src/norvel_writer/config/__pycache__/migrations.cpython-311.pyc
+src/norvel_writer/config/__pycache__/settings.cpython-311.pyc
+src/norvel_writer/core/__pycache__/__init__.cpython-311.pyc
+src/norvel_writer/core/__pycache__/project.cpython-311.pyc
+src/norvel_writer/llm/__pycache__/__init__.cpython-311.pyc
+src/norvel_writer/llm/__pycache__/langchain_bridge.cpython-311.pyc
+src/norvel_writer/llm/__pycache__/model_manager.cpython-311.pyc
+src/norvel_writer/llm/__pycache__/ollama_client.cpython-311.pyc
+src/norvel_writer/storage/__pycache__/__init__.cpython-311.pyc
+src/norvel_writer/storage/__pycache__/db.cpython-311.pyc
+src/norvel_writer/storage/__pycache__/vector_store.cpython-311.pyc
+src/norvel_writer/storage/repositories/__pycache__/__init__.cpython-311.pyc
+src/norvel_writer/storage/repositories/__pycache__/document_repo.cpython-311.pyc
+src/norvel_writer/storage/repositories/__pycache__/draft_repo.cpython-311.pyc
+src/norvel_writer/storage/repositories/__pycache__/project_repo.cpython-311.pyc
+src/norvel_writer/storage/repositories/__pycache__/style_repo.cpython-311.pyc
+src/norvel_writer/utils/__pycache__/__init__.cpython-311.pyc
+src/norvel_writer/utils/__pycache__/logging_config.cpython-311.pyc
+uv.lock
