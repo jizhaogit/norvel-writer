@@ -98,55 +98,73 @@ def get_llm():
             kw: dict = {
                 "model": _env("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
                 "api_key": _env("OPENAI_API_KEY"),
-                "temperature": 0.7,
-                "max_tokens": 4096,
+                "temperature": float(_env("OPENAI_TEMPERATURE", "0.7")),
+                "max_tokens": int(_env("OPENAI_MAX_TOKENS", "4096")),
                 "streaming": True,
             }
             base_url = _env("OPENAI_BASE_URL")
             if base_url:
                 kw["base_url"] = base_url
             _llm = ChatOpenAI(**kw)
-            log.info("LLM: OpenAI %s", kw["model"])
+            log.info("LLM: OpenAI %s (temp=%.2f)", kw["model"], kw["temperature"])
 
         elif provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
             _llm = ChatAnthropic(
                 model=_env("ANTHROPIC_CHAT_MODEL", "claude-3-5-haiku-20241022"),
                 api_key=_env("ANTHROPIC_API_KEY"),
-                temperature=0.7,
-                max_tokens=4096,
+                temperature=float(_env("ANTHROPIC_TEMPERATURE", "0.7")),
+                max_tokens=int(_env("ANTHROPIC_MAX_TOKENS", "4096")),
             )
-            log.info("LLM: Anthropic %s", _llm.model)
+            log.info("LLM: Anthropic %s (temp=%.2f)", _llm.model, _llm.temperature)
 
         elif provider == "gemini":
             from langchain_google_genai import ChatGoogleGenerativeAI
             _llm = ChatGoogleGenerativeAI(
                 model=_env("GEMINI_CHAT_MODEL", "gemini-1.5-flash"),
                 google_api_key=_env("GEMINI_API_KEY"),
-                temperature=0.7,
-                max_output_tokens=4096,
+                temperature=float(_env("GEMINI_TEMPERATURE", "0.7")),
+                max_output_tokens=int(_env("GEMINI_MAX_TOKENS", "4096")),
             )
-            log.info("LLM: Gemini %s", _llm.model)
+            log.info("LLM: Gemini %s (temp=%.2f)", _llm.model, _llm.temperature)
 
         else:  # ollama (default)
             from langchain_ollama import ChatOllama
-            _llm = ChatOllama(
-                base_url=_env("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
-                model=_env("OLLAMA_CHAT_MODEL", "gemma3:4b"),
-                temperature=0.7,
+            _ollama_kw: dict = {
+                "base_url":      _env("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+                "model":         _env("OLLAMA_CHAT_MODEL", "gemma3:4b"),
+                # Sampling — Google recommends temp=1.0 / top_p=0.95 / top_k=64 for Gemma 4.
+                # Defaults here are conservative (0.7) for older models; override in .env.
+                "temperature":   float(_env("OLLAMA_TEMPERATURE",    "0.7")),
                 # Large context window so system-prompt + chapter + beats all
                 # fit in a single pass without truncation (truncation causes loops).
-                num_ctx=int(_env("OLLAMA_NUM_CTX", "8192")),
+                "num_ctx":       int(_env("OLLAMA_NUM_CTX",          "8192")),
                 # Hard cap on generated tokens.
-                num_predict=int(_env("OLLAMA_NUM_PREDICT", "4096")),
+                "num_predict":   int(_env("OLLAMA_NUM_PREDICT",      "4096")),
                 # Repetition suppression: penalty applied to recent tokens.
                 # repeat_last_n — how many tokens back to scan (default 64 is too short
                 #   for long chapter rewrites; 512 catches multi-paragraph loops).
                 # repeat_penalty > 1.0 discourages reusing those tokens.
-                repeat_last_n=int(_env("OLLAMA_REPEAT_LAST_N", "512")),
-                repeat_penalty=float(_env("OLLAMA_REPEAT_PENALTY", "1.18")),
+                #   Llama/Gemma models: 1.05–1.18 recommended.
+                #   GPT-family models:  set to 1.0 (off) — their training already
+                #   handles repetition; external penalty degrades prose quality.
+                "repeat_last_n": int(_env("OLLAMA_REPEAT_LAST_N",   "512")),
+                "repeat_penalty":float(_env("OLLAMA_REPEAT_PENALTY", "1.1")),
+            }
+            # top_p / top_k — only set if explicitly configured (avoid overriding
+            # Ollama's own defaults when not needed, e.g. for non-Gemma models).
+            _top_p = _env("OLLAMA_TOP_P")
+            _top_k = _env("OLLAMA_TOP_K")
+            if _top_p:
+                _ollama_kw["top_p"] = float(_top_p)
+            if _top_k:
+                _ollama_kw["top_k"] = int(_top_k)
+            _llm = ChatOllama(**_ollama_kw)
+            log.info(
+                "LLM: Ollama %s @ %s (ctx=%d, temp=%.2f)",
+                _llm.model, _llm.base_url,
+                _ollama_kw["num_ctx"], _ollama_kw["temperature"],
             )
-            log.info("LLM: Ollama %s @ %s", _llm.model, _llm.base_url)
 
     except Exception as exc:
         log.error("LLM init failed for provider %r: %s", provider, exc)
@@ -267,6 +285,37 @@ async def chat_complete(messages: list[dict]) -> str:
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────
 
+def get_context_limits() -> dict:
+    """
+    Return token budget limits used when assembling system prompts.
+
+    All values are in *tokens* (1 token ≈ 4 characters for English prose).
+    They control how much of each context section is fed to the LLM.
+
+    Defaults are tuned for gemma3:4b (OLLAMA_NUM_CTX=8192).
+    When using a large-context model such as Gemma 4 (128 K), raise
+    OLLAMA_NUM_CTX and all CONTEXT_* values accordingly — see the
+    'Large-context models' block in .env for recommended values.
+
+    Rule of thumb for sizing:
+      input_budget  = OLLAMA_NUM_CTX - OLLAMA_NUM_PREDICT - ~1000 (prompt overhead)
+      RAG_BUDGET    ≈ input_budget × 0.40
+      STYLE_BUDGET  ≈ input_budget × 0.15
+      TEXT_BUDGET   ≈ input_budget × 0.35
+      (remaining ≈ 0.10 for beats, editor note, QA note, persona)
+    """
+    return {
+        "rag_budget":              int(_env("CONTEXT_RAG_BUDGET",      "3500")),
+        "style_budget":            int(_env("CONTEXT_STYLE_BUDGET",    "1500")),
+        "text_budget":             int(_env("CONTEXT_TEXT_BUDGET",     "3000")),
+        # Cosine distance ceiling for codex chunks in beats mode.
+        # Chunks with distance above this are excluded — they are too
+        # semantically distant from the beats query to be useful.
+        # Range 0.0–1.0: lower = stricter filtering.
+        "codex_distance_threshold": float(_env("CONTEXT_CODEX_THRESHOLD", "0.50")),
+    }
+
+
 def reset_singletons() -> None:
     """
     Clear cached LLM and embeddings instances.
@@ -331,15 +380,60 @@ OLLAMA_CHAT_MODEL=gemma3:4b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 # OLLAMA_VISION_MODEL=llava:7b
 #
-# Generation quality / repetition control (Ollama only)
-# OLLAMA_NUM_CTX sets the context window — increase if full-chapter rewrites
-# loop or truncate.  Must be <= what your model supports.
-# OLLAMA_REPEAT_LAST_N: how many recent tokens to scan for repeats (default 512)
-# OLLAMA_REPEAT_PENALTY: >1.0 = stronger repetition suppression (default 1.18)
+# ── Sampling parameters ───────────────────────────────────────────────────
+# OLLAMA_TEMPERATURE  creativity (0.0=deterministic → 1.0=most creative)
+#   gemma3:4b  → 0.7 (safe default for small models)
+#   gemma4:*   → 1.0 (Google's official recommendation for all Gemma 4 sizes)
+# OLLAMA_TOP_P / OLLAMA_TOP_K  — leave blank to use Ollama defaults
+#   gemma4:*   → TOP_P=0.95, TOP_K=64 (Google's official recommendation)
+# OLLAMA_NUM_CTX   context window — must be ≤ your model's hard maximum
+#   gemma3:4b  → 8192    (model maximum)
+#   gemma4:e2b → 32768   (sweet spot for 8 GB VRAM; absolute max is 131072)
+# OLLAMA_NUM_PREDICT   max tokens generated per call (~750 words per 1000 tokens)
+# OLLAMA_REPEAT_LAST_N / REPEAT_PENALTY   repetition suppression
+#   Gemma 4 is better at avoiding loops — 1.1 is enough (was 1.18 for Gemma 3)
+OLLAMA_TEMPERATURE=0.7
+OLLAMA_TOP_P=
+OLLAMA_TOP_K=
 OLLAMA_NUM_CTX=8192
 OLLAMA_NUM_PREDICT=4096
 OLLAMA_REPEAT_LAST_N=512
-OLLAMA_REPEAT_PENALTY=1.18
+OLLAMA_REPEAT_PENALTY=1.1
+
+# ── Context budgets (all providers) ───────────────────────────────────────
+#
+# Controls how many tokens of each section are fed into every prompt.
+# Formula:  input_budget = NUM_CTX - NUM_PREDICT - 1000 (overhead)
+#           RAG_BUDGET   ≈ input_budget × 0.40
+#           STYLE_BUDGET ≈ input_budget × 0.15
+#           TEXT_BUDGET  ≈ input_budget × 0.35
+#           (remaining ≈ 0.10 for beats, editor note, QA note, persona)
+#
+# ┌─────────────────┬──────────┬─────────────┬───────────────────────────┐
+# │ Model / Config  │ NUM_CTX  │ NUM_PREDICT │ RAG / STYLE / TEXT        │
+# ├─────────────────┼──────────┼─────────────┼───────────────────────────┤
+# │ gemma3:4b       │  8 192   │    4 096    │ 3500 / 1500 / 3000        │
+# │ gemma4:e2b 8GB  │ 32 768   │    8 192    │ 9000 / 3500 / 8000        │
+# │ gemma4:e2b 16GB │ 65 536   │    8 192    │ 22000 / 8000 / 19000      │
+# │ gemma4:e2b 24GB+│ 131 072  │    8 192    │ 48000 / 18000 / 42000     │
+# └─────────────────┴──────────┴─────────────┴───────────────────────────┘
+#
+CONTEXT_RAG_BUDGET=3500
+CONTEXT_STYLE_BUDGET=1500
+CONTEXT_TEXT_BUDGET=3000
+#
+# CONTEXT_CODEX_THRESHOLD  (cosine distance, 0.0 – 1.0)
+#   In "Write from Beats" mode, codex chunks are only included when their
+#   cosine distance to the beats query is at or below this value.
+#   This prevents large, only-vaguely-related codex documents from filling
+#   the context window and distracting the model from the beats structure.
+#
+#   0.35 = very strict  — only chunks that closely match a named character/place in the beats
+#   0.50 = moderate     — recommended default (relevant details in, noise out)
+#   0.65 = permissive   — lets in most of the codex; useful for very short beats
+#   1.00 = off          — no filtering (original behaviour)
+#
+CONTEXT_CODEX_THRESHOLD=0.50
 
 
 # ── OpenAI (https://platform.openai.com) ──────────────────────────────────

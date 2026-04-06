@@ -26,6 +26,71 @@ class DraftEngine:
         from norvel_writer.core.project import ProjectManager
         self._pm = project_manager or ProjectManager()
 
+    async def _rag_retrieve(
+        self,
+        project_id: str,
+        chapter_id: Optional[str],
+        query: str,
+        n_results: int,
+        doc_types: Optional[List[str]] = None,
+        include_project: bool = False,
+    ) -> List[Dict]:
+        """Retrieve RAG chunks with chapter-first priority and independent
+        per-category project fallback.
+
+        Codex and non-codex (notes / beats / research) are handled separately:
+        - If the chapter has a codex → use it; otherwise fall back to project codex.
+        - If the chapter has non-codex docs → use them; otherwise fall back to
+          project non-codex docs.
+        This ensures a missing chapter codex always pulls in the project codex
+        even when the chapter has other document types (e.g. notes).
+
+        If include_project=True both chapter and project results are merged,
+        with chapter results first so they win the _cap_rag budget competition.
+        """
+        effective_types = list(doc_types) if doc_types else ["codex", "beats", "notes", "research"]
+        wants_codex = "codex" in effective_types
+        non_codex_types = [t for t in effective_types if t != "codex"]
+
+        async def _fetch(scope: str, types: List[str], cid: Optional[str] = None) -> List[Dict]:
+            return await self._pm.retrieve_context(
+                project_id=project_id,
+                query=query,
+                n_results=n_results,
+                doc_types=types or None,
+                chapter_id=cid,
+                scope=scope,
+            )
+
+        results: List[Dict] = []
+
+        # ── Codex: chapter codex first, project codex fallback ─────────────
+        if wants_codex:
+            ch_codex = await _fetch("chapter", ["codex"], chapter_id) if chapter_id else []
+            if include_project:
+                proj_codex = await _fetch("project", ["codex"])
+                results.extend(ch_codex + proj_codex)       # chapter first
+            elif ch_codex:
+                results.extend(ch_codex)
+            else:
+                # No chapter codex → fall back to project codex
+                log.debug("_rag_retrieve: no chapter codex, falling back to project codex")
+                results.extend(await _fetch("project", ["codex"]))
+
+        # ── Non-codex: chapter first, project fallback ─────────────────────
+        if non_codex_types:
+            ch_other = await _fetch("chapter", non_codex_types, chapter_id) if chapter_id else []
+            if include_project:
+                proj_other = await _fetch("project", non_codex_types)
+                results.extend(ch_other + proj_other)       # chapter first
+            elif ch_other:
+                results.extend(ch_other)
+            else:
+                log.debug("_rag_retrieve: no chapter non-codex docs, falling back to project")
+                results.extend(await _fetch("project", non_codex_types))
+
+        return results
+
     async def continue_draft(
         self,
         project_id: str,
@@ -42,31 +107,124 @@ class DraftEngine:
         qa_note: str = "",
     ) -> AsyncIterator[str]:
         """Stream continuation tokens — uses the Writer role skill, same priority as chat Writer."""
-        from norvel_writer.llm.langchain_bridge import chat_stream
+        from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
         from norvel_writer.llm.prompt_builder import _lang_display
         from norvel_writer.utils.text_utils import truncate_to_tokens
 
+        limits = get_context_limits()
         lang_display = _lang_display(language)
         last_para = _last_paragraphs(current_text, n_tokens=512)
 
+        # Detect write-from-beats mode: no existing text but beats are present.
+        is_beats_mode = bool(beats.strip()) and not current_text.strip()
+
+        # ── Previous-chapter tail (beats mode only) ────────────────────────
+        # If this is not the first chapter of the project, we fetch the last
+        # ~600 tokens of the previous chapter's accepted draft and inject it
+        # as a "where the story left off" anchor.  This prevents the model from
+        # inventing a fresh opening instead of continuing naturally, while still
+        # letting the beats define what actually happens next.
+        prev_chapter_tail = ""
+        if is_beats_mode:
+            try:
+                from norvel_writer.utils.text_utils import strip_html
+                all_chapters = self._pm.list_chapters(project_id)
+                ch_ids = [c["id"] for c in all_chapters]
+                if chapter_id in ch_ids:
+                    idx = ch_ids.index(chapter_id)
+                    if idx > 0:
+                        prev_ch_id = ch_ids[idx - 1]
+                        prev_draft = self._pm.get_accepted_draft(prev_ch_id)
+                        if prev_draft:
+                            prev_raw = strip_html(prev_draft.get("content") or "")
+                            # Take only the tail — the transition / ending paragraphs
+                            tail_chars = 2400  # ≈ 600 tokens
+                            prev_chapter_tail = prev_raw[-tail_chars:].strip()
+                            log.debug(
+                                "beats: injecting %d chars from previous chapter %r",
+                                len(prev_chapter_tail), prev_ch_id,
+                            )
+            except Exception as exc:
+                log.warning("beats: could not fetch previous chapter: %s", exc)
+
+        # RAG query strategy — mirrors chat_with_context which uses the user's
+        # actual words as the semantic query, not just the last paragraph.
+        # • beats mode  → beats text (what's about to be written)
+        # • normal mode → combine user instruction + last paragraph so that
+        #   a request like "write a tense confrontation" pulls the right characters
+        #   and world rules, not just whatever prose was written last.
+        _default_instr = "Continue the story from where it left off."
+        if is_beats_mode:
+            rag_query = beats
+        elif user_instruction and user_instruction.strip() != _default_instr:
+            rag_query = f"{user_instruction}\n{last_para}".strip()
+        else:
+            rag_query = last_para
+
         # RAG — fetch extra candidates then cap to token budget so small local
         # models aren't silently overflowed (budget ≈ 3500 tok ≈ 14 000 chars).
-        rag_results = await self._pm.retrieve_context(
-            project_id=project_id,
-            query=last_para,
-            n_results=14,
-            doc_types=active_doc_types or ["codex", "beats", "research", "notes"],
-            chapter_id=chapter_id,
-        )
+        _all_types = active_doc_types or ["codex", "beats", "research", "notes"]
+
+        if is_beats_mode:
+            # In beats mode, codex documents can be very large and are only
+            # useful when they directly relate to the beats being written.
+            # Strategy: retrieve beats/notes/research unconditionally (they are
+            # always structurally relevant), then retrieve codex separately and
+            # filter out chunks that are semantically distant from the beats query.
+            _cx_threshold = limits["codex_distance_threshold"]
+            _non_codex    = [t for t in _all_types if t != "codex"]
+            _wants_codex  = "codex" in _all_types
+
+            if _non_codex:
+                _bn_results = await self._rag_retrieve(
+                    project_id, chapter_id, rag_query, 8, _non_codex,
+                )
+            else:
+                _bn_results = []
+
+            _cx_results = []
+            if _wants_codex:
+                _cx_raw = await self._rag_retrieve(
+                    project_id, chapter_id, rag_query, 10, ["codex"],
+                )
+                # Only keep codex chunks close enough to the beats query
+                _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
+                log.debug(
+                    "beats RAG: %d/%d codex chunks passed distance threshold %.2f",
+                    len(_cx_results), len(_cx_raw), _cx_threshold,
+                )
+
+            # Merge and re-sort by distance so _cap_rag's relevance ordering is
+            # correct across both sub-lists.  Without this, non-codex chunks
+            # (appended first) would consume the entire budget and all codex
+            # chunks would be silently abandoned.
+            rag_results = sorted(
+                _bn_results + _cx_results,
+                key=lambda r: r.get("distance", 0.0),
+            )
+        else:
+            rag_results = await self._rag_retrieve(
+                project_id, chapter_id, rag_query, 14, _all_types,
+            )
+
         style_results = await self._pm.retrieve_style_examples(
             project_id=project_id,
-            query=last_para,
+            query=rag_query,
             n_results=8,
         )
+        # In beats mode, apply the codex distance threshold across the entire
+        # merged list so that irrelevant non-codex chunks (research / notes with
+        # high distance) don't crowd out relevant codex entries.
+        # In normal mode no distance filter is applied (max_distance default=1.0).
+        _rag_max_dist = limits["codex_distance_threshold"] if is_beats_mode else 1.0
         rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=3500)
+            r["text"] for r in _cap_rag(
+                rag_results,
+                budget_tokens=limits["rag_budget"],
+                max_distance=_rag_max_dist,
+            )
         )
-        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=1500)]
+        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
 
         proj = self._pm.get_project(project_id)
         persona = (proj.get("persona") or "").strip() if proj else ""
@@ -74,7 +232,7 @@ class DraftEngine:
         # Image descriptions — same as Writer chat
         image_context = _fetch_image_context(self._pm._db, project_id, chapter_id)
 
-        context_text = truncate_to_tokens(current_text, max_tokens=2048)
+        context_text = truncate_to_tokens(current_text, max_tokens=limits["text_budget"])
 
         system_prompt = _build_writer_system_prompt(
             lang_display=lang_display,
@@ -86,10 +244,11 @@ class DraftEngine:
             style_chunks=style_chunks,
             beats=beats,
             existing_text=context_text,
-            mode="continue",
+            mode="beats" if is_beats_mode else "continue",
             text_after_cursor=text_after_cursor.strip(),
             style_mode=style_mode,
             constraints=constraints,
+            prev_chapter_tail=prev_chapter_tail,
         )
 
         # Construct user message with cursor marker when inserting mid-text
@@ -101,9 +260,25 @@ class DraftEngine:
         else:
             draft_block = context_text
 
+        # In beats mode the user message doubles as a final beats reminder.
+        # Because small models weight the most recently seen tokens highly,
+        # repeating the constraint here (after all the system-prompt context)
+        # significantly reduces the chance of the model going off-script.
+        if is_beats_mode:
+            beat_fence = (
+                "⚠ BEATS CONSTRAINT: Write ONLY the scenes and events described in the "
+                "Chapter Blueprint above. Do NOT invent new scenes, characters, or plot "
+                "points that are not in the beats. Start at Beat 1. Stop after the final beat."
+            )
+            user_content = f"{user_instruction}\n\n{beat_fence}"
+            if draft_block.strip():
+                user_content += f"\n\n---\n{draft_block}"
+        else:
+            user_content = f"{user_instruction}\n\n---\n{draft_block}"
+
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"{user_instruction}\n\n---\n{draft_block}"},
+            {"role": "user", "content": user_content},
         ]
         return await chat_stream(messages)
 
@@ -120,16 +295,15 @@ class DraftEngine:
         qa_note: str = "",
     ) -> AsyncIterator[str]:
         """Stream rewritten passage tokens — uses the Writer role skill, same priority as chat Writer."""
-        from norvel_writer.llm.langchain_bridge import chat_stream
+        from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
         from norvel_writer.llm.prompt_builder import _lang_display
 
+        limits = get_context_limits()
         lang_display = _lang_display(language)
 
-        rag_results = await self._pm.retrieve_context(
-            project_id=project_id,
-            query=passage,
-            n_results=12,
-            doc_types=["codex", "beats", "research", "notes"],
+        rag_results = await self._rag_retrieve(
+            project_id, chapter_id or None, passage, 14,
+            ["codex", "beats", "research", "notes"],
         )
         style_results = await self._pm.retrieve_style_examples(
             project_id=project_id,
@@ -137,9 +311,9 @@ class DraftEngine:
             n_results=8,
         )
         rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=3000)
+            r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
         )
-        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=1500)]
+        style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
 
         proj = self._pm.get_project(project_id)
         persona = (proj.get("persona") or "").strip() if proj else ""
@@ -172,11 +346,12 @@ class DraftEngine:
         language: str = "en",
     ) -> str:
         """Return a 1-3 sentence summary of a chapter."""
-        from norvel_writer.llm.langchain_bridge import chat_complete
+        from norvel_writer.llm.langchain_bridge import chat_complete, get_context_limits
         from norvel_writer.llm.prompt_builder import _lang_display
         from norvel_writer.utils.text_utils import truncate_to_tokens
 
-        text = truncate_to_tokens(chapter_text, max_tokens=3000)
+        limits = get_context_limits()
+        text = truncate_to_tokens(chapter_text, max_tokens=limits["text_budget"])
         lang = _lang_display(language)
         messages = [
             {
@@ -200,17 +375,18 @@ class DraftEngine:
         language: str = "en",
     ) -> str:
         """Check passage for contradictions with project codex/beats."""
-        from norvel_writer.llm.langchain_bridge import chat_complete
+        from norvel_writer.llm.langchain_bridge import chat_complete, get_context_limits
         from norvel_writer.llm.prompt_builder import _lang_display
 
+        limits = get_context_limits()
         rag_results = await self._pm.retrieve_context(
             project_id=project_id,
             query=passage,
-            n_results=12,
+            n_results=14,
             doc_types=["codex", "beats"],
         )
         context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=3000)
+            r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
         )
         lang = _lang_display(language)
 
@@ -250,9 +426,11 @@ class DraftEngine:
         Responds in the project language by default; switches if the user
         explicitly requests a different language (e.g. "respond in Japanese").
         """
-        from norvel_writer.llm.langchain_bridge import chat_stream
+        from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
         from norvel_writer.utils.text_utils import strip_html, truncate_to_tokens
         from norvel_writer.llm.prompt_builder import _lang_display
+
+        limits = get_context_limits()
 
         # ── Resolve response language ──────────────────────────────────────
         # Priority: explicit override in the user's message > project language
@@ -284,7 +462,7 @@ class DraftEngine:
                 draft = self._pm.get_accepted_draft(resolved_chapter_id)
                 if draft:
                     raw = draft.get("content") or ""
-                    chapter_text = truncate_to_tokens(strip_html(raw), max_tokens=3000)
+                    chapter_text = truncate_to_tokens(strip_html(raw), max_tokens=limits["text_budget"])
                     log.debug("chat: loaded chapter %r (%d chars)", chapter_title, len(chapter_text))
                 else:
                     log.debug("chat: no accepted draft for chapter %r", resolved_chapter_id)
@@ -355,15 +533,134 @@ class DraftEngine:
         if topic_wants_beats and "beats" not in rag_doc_types:
             rag_doc_types.append("beats")
 
-        rag_query = f"{chapter_title}: {question}" if chapter_title else question
-        rag_results = await self._pm.retrieve_context(
-            project_id=project_id,
-            query=rag_query,
-            n_results=14,
-            doc_types=rag_doc_types,
+        # ── Pre-load chapter beats (writer role only) ──────────────────────
+        # Must happen BEFORE the RAG query so we can use the beats text as the
+        # semantic query when write-from-beats intent is detected — identical to
+        # the strategy used in continue_draft's beats mode.
+        ch_beats = ""
+        if role == "writer" and resolved_chapter_id:
+            try:
+                _ch_row_pre = self._pm.get_chapter(resolved_chapter_id)
+                ch_beats = (_ch_row_pre.get("beats") or "").strip() if _ch_row_pre else ""
+            except Exception:
+                pass
+
+        # ── Intent detection (writer role) ────────────────────────────────
+        # Detect two distinct write intents so the correct prompt mode is used:
+        #   • rewrite  → chapter text is the target (rewrite the existing draft)
+        #   • write    → beats are the target (generate fresh prose from beats)
+        # Both are detected here so the RAG query can be adjusted before retrieval.
+        _rewrite_kws = [
+            "rewrite", "re-write", "re write", "rewrite the chapter",
+            "重写", "改写", "重新写", "重新改写",
+            "réécrire", "umschreiben", "riscrivere", "reescribir",
+        ]
+        _write_kws = [
+            # English
+            "write the chapter", "write this chapter", "write chapter",
+            "write from beats", "write from my beats", "write from the beats",
+            "write based on beats", "generate the chapter", "generate chapter",
+            "draft the chapter", "draft from beats",
+            # Chinese (Simplified + Traditional)
+            "写这章", "写章节", "写这个章节", "按节拍写", "根据节拍写", "写第",
+            "寫這章", "寫章節", "按節拍寫", "根據節拍寫",
+            # Japanese
+            "章を書いて", "チャプターを書いて",
+            # Korean
+            "챕터를 써줘", "장을 써줘", "챕터 작성",
+            # French
+            "écrire le chapitre", "écris le chapitre", "rédige le chapitre",
+            # German
+            "schreibe das kapitel", "schreib das kapitel",
+            # Spanish
+            "escribe el capítulo", "redacta el capítulo",
+            # Italian
+            "scrivi il capitolo",
+            # Portuguese
+            "escreve o capítulo", "escreva o capítulo",
+        ]
+        _is_chapter_rewrite = bool(
+            role == "writer" and chapter_text
+            and any(kw in q_lower for kw in _rewrite_kws)
         )
+        _is_write_from_beats = bool(
+            role == "writer" and ch_beats
+            and not _is_chapter_rewrite
+            and any(kw in q_lower for kw in _write_kws)
+        )
+
+        # Detect explicit request for project-level (centre) memory.
+        # By default the writer uses chapter memory only; project docs are included
+        # only when the user explicitly asks for them.
+        _project_memory_kws = [
+            # English
+            "project document", "project memory", "center memory", "centre memory",
+            "global memory", "all documents", "all my documents",
+            "include project", "use project", "project codex", "project notes",
+            "project knowledge", "project files",
+            # Chinese Simplified
+            "项目文档", "项目记忆", "中央记忆", "全局记忆", "项目资料",
+            "项目笔记", "项目设定", "包含项目", "使用项目",
+            # Chinese Traditional
+            "項目文檔", "項目記憶", "中央記憶", "全局記憶", "項目資料",
+            # Japanese
+            "プロジェクト文書", "プロジェクトメモリ",
+            # Korean
+            "프로젝트 문서", "전체 문서",
+        ]
+        _wants_project_memory = role == "writer" and any(
+            kw in q_lower for kw in _project_memory_kws
+        )
+
+        # ── RAG query & retrieval ──────────────────────────────────────────
+        # write-from-beats: use beats text as query (same as continue_draft)
+        # otherwise:        chapter-title-prefixed question
+        if _is_write_from_beats:
+            rag_query = ch_beats
+        else:
+            rag_query = f"{chapter_title}: {question}" if chapter_title else question
+
+        # write-from-beats: split codex / non-codex retrieval with distance
+        # filtering — identical to continue_draft's beats-mode strategy.
+        if _is_write_from_beats:
+            _cx_threshold = limits["codex_distance_threshold"]
+            _non_codex    = [t for t in rag_doc_types if t != "codex"]
+            _wants_codex  = "codex" in rag_doc_types
+            _bn_results: list = []
+            if _non_codex:
+                _bn_results = await self._rag_retrieve(
+                    project_id, resolved_chapter_id, rag_query, 8, _non_codex,
+                    include_project=_wants_project_memory,
+                )
+            _cx_results: list = []
+            if _wants_codex:
+                _cx_raw = await self._rag_retrieve(
+                    project_id, resolved_chapter_id, rag_query, 10, ["codex"],
+                    include_project=_wants_project_memory,
+                )
+                _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
+                log.debug(
+                    "chat-beats RAG: %d/%d codex chunks passed distance %.2f",
+                    len(_cx_results), len(_cx_raw), _cx_threshold,
+                )
+            rag_results = sorted(
+                _bn_results + _cx_results,
+                key=lambda r: r.get("distance", 0.0),
+            )
+            _rag_max_dist = _cx_threshold
+        else:
+            rag_results = await self._rag_retrieve(
+                project_id, resolved_chapter_id, rag_query, 14, rag_doc_types,
+                include_project=_wants_project_memory,
+            )
+            _rag_max_dist = 1.0
+
         rag_context = "\n\n---\n\n".join(
-            r["text"] for r in _cap_rag(rag_results, budget_tokens=3500)
+            r["text"] for r in _cap_rag(
+                rag_results,
+                budget_tokens=limits["rag_budget"],
+                max_distance=_rag_max_dist,
+            )
         )
 
         # ── Image description context (project-level + chapter-level) ─────────
@@ -376,12 +673,21 @@ class DraftEngine:
         if role == "writer":
             proj = self._pm.get_project(project_id)
             persona = (proj.get("persona") or "").strip() if proj else ""
+            # Style query: for chapter rewrites the user's instruction text
+            # ("rewrite this chapter…") has zero semantic similarity to uploaded
+            # prose samples.  Use the chapter text itself as the retrieval anchor
+            # so uploaded style references (e.g. a Dumas novel) are found by
+            # content similarity.  For all other paths keep rag_query.
+            _style_query = (
+                (chapter_text or "")[:2000] if (_is_chapter_rewrite and chapter_text)
+                else rag_query
+            )
             style_results = await self._pm.retrieve_style_examples(
                 project_id=project_id,
-                query=question,
+                query=_style_query,
                 n_results=8,
             )
-            style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=1500)]
+            style_chunks = [r["text"] for r in _cap_rag(style_results, budget_tokens=limits["style_budget"])]
 
         # ── Language instruction ───────────────────────────────────────────
         lang_line = (
@@ -400,6 +706,10 @@ class DraftEngine:
             return "\n".join(f"{prefix} {item}" for item in items)
 
         # ── Build role-specific system prompt ──────────────────────────────
+        # user_message is set per-role; for editor/QA it's always the plain
+        # question; for writer it may be enhanced for rewrite requests.
+        user_message = question
+
         if role == "editor":
             rd = load_role("editor")
             background = rd.get("identity", {}).get("background", "").strip() or (
@@ -463,28 +773,112 @@ class DraftEngine:
                 system_prompt += f"\n\n## Visual Reference Descriptions (for context only)\n{image_context}"
 
         elif role == "writer":
-            # Use the shared writer prompt builder — identical to Draft AI
-            # Beats for the resolved chapter are fetched from the DB
-            ch_beats = ""
-            if resolved_chapter_id:
-                try:
-                    ch_row = self._pm.get_chapter(resolved_chapter_id)
-                    ch_beats = (ch_row.get("beats") or "").strip() if ch_row else ""
-                except Exception:
-                    pass
+            # ch_beats already loaded above (before RAG query).
+            # Intent flags (_is_chapter_rewrite, _is_write_from_beats) also
+            # computed above.  Three mutually exclusive paths:
+            #   1. rewrite       — user wants to rewrite the existing draft
+            #   2. write-beats   — user wants fresh prose written from beats
+            #   3. chat          — general collaborative writing / discussion
 
-            system_prompt = _build_writer_system_prompt(
-                lang_display=lang_display,
-                persona=persona,
-                editor_note=editor_note,
-                rag_context=rag_context,
-                image_context=image_context,
-                qa_note=qa_note,
-                style_chunks=style_chunks,
-                beats=ch_beats,
-                existing_text=chapter_text,
-                mode="chat",
-            )
+            if _is_chapter_rewrite:
+                # ── Path 1: Rewrite ───────────────────────────────────────
+                # Chapter text goes into the USER message (most prominent
+                # position for small models) rather than buried in system prompt.
+                system_prompt = _build_writer_system_prompt(
+                    lang_display=lang_display,
+                    persona=persona,
+                    editor_note=editor_note,
+                    rag_context=rag_context,
+                    image_context=image_context,
+                    qa_note=qa_note,
+                    style_chunks=style_chunks,
+                    beats=ch_beats,
+                    existing_text="",          # NOT in system prompt
+                    mode="rewrite",
+                    # If the user has uploaded style samples, write toward them.
+                    # "preserve_tone_rhythm" would lock the model to the old draft's
+                    # style, defeating the purpose of uploading a style reference.
+                    style_mode="inspired_by" if style_chunks else "preserve_tone_rhythm",
+                )
+                _en_block = (
+                    f"\n\nApply ALL editor suggestions above to the rewritten text."
+                    if editor_note else ""
+                )
+                user_message = (
+                    f"{question}{_en_block}\n\n"
+                    f"════════════════════════════════════════\n"
+                    f"CHAPTER TO REWRITE: {chapter_title or 'Current Chapter'}\n"
+                    f"════════════════════════════════════════\n"
+                    f"{chapter_text}\n"
+                    f"════════════════════════════════════════\n"
+                    f"Rewrite the entire chapter above. Produce completely new prose "
+                    f"covering the same events and scenes. Do NOT summarise — "
+                    f"write full, publication-quality prose from start to finish."
+                )
+
+            elif _is_write_from_beats:
+                # ── Path 2: Write from Beats ──────────────────────────────
+                # Identical to Draft AI's "Write from Beats" button:
+                #   • mode="beats"  → beats FIRST in prompt + FINAL INSTRUCTION at end
+                #   • No existing_text (writing fresh, not continuing)
+                #   • Previous chapter tail injected as continuity anchor
+                #   • Beats fence repeated in user message (recency bias fix)
+                prev_chapter_tail = ""
+                try:
+                    from norvel_writer.utils.text_utils import strip_html as _strip_html
+                    _all_ch = self._pm.list_chapters(project_id)
+                    _ch_ids = [c["id"] for c in _all_ch]
+                    if resolved_chapter_id in _ch_ids:
+                        _idx = _ch_ids.index(resolved_chapter_id)
+                        if _idx > 0:
+                            _prev_id = _ch_ids[_idx - 1]
+                            _prev_draft = self._pm.get_accepted_draft(_prev_id)
+                            if _prev_draft:
+                                _prev_raw = _strip_html(_prev_draft.get("content") or "")
+                                prev_chapter_tail = _prev_raw[-2400:].strip()
+                                log.debug(
+                                    "chat-beats: injecting %d chars from prev chapter %r",
+                                    len(prev_chapter_tail), _prev_id,
+                                )
+                except Exception as exc:
+                    log.warning("chat-beats: could not fetch previous chapter: %s", exc)
+
+                system_prompt = _build_writer_system_prompt(
+                    lang_display=lang_display,
+                    persona=persona,
+                    editor_note=editor_note,
+                    rag_context=rag_context,
+                    image_context=image_context,
+                    qa_note=qa_note,
+                    style_chunks=style_chunks,
+                    beats=ch_beats,
+                    existing_text="",          # writing fresh from beats
+                    mode="beats",
+                    style_mode="inspired_by",
+                    prev_chapter_tail=prev_chapter_tail,
+                )
+                beat_fence = (
+                    "⚠ BEATS CONSTRAINT: Write ONLY the scenes and events described in the "
+                    "Chapter Blueprint above. Do NOT invent new scenes, characters, or plot "
+                    "points that are not in the beats. Start at Beat 1. Stop after the final beat."
+                )
+                user_message = f"{question}\n\n{beat_fence}"
+
+            else:
+                # ── Path 3: General collaborative chat ────────────────────
+                system_prompt = _build_writer_system_prompt(
+                    lang_display=lang_display,
+                    persona=persona,
+                    editor_note=editor_note,
+                    rag_context=rag_context,
+                    image_context=image_context,
+                    qa_note=qa_note,
+                    style_chunks=style_chunks,
+                    beats=ch_beats,
+                    existing_text=chapter_text,
+                    mode="chat",
+                )
+                user_message = question
 
         else:  # qa
             rd = load_role("qa")
@@ -538,10 +932,13 @@ class DraftEngine:
             if image_context:
                 system_prompt += f"\n\n## Visual Reference Descriptions (check visual consistency)\n{image_context}"
 
+        # user_message defaults to `question` at the top of this block.
+        # The writer role may replace it with a structured rewrite message
+        # that includes the full chapter text as the explicit target.
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         if history:
             messages.extend(history)
-        messages.append({"role": "user", "content": question})
+        messages.append({"role": "user", "content": user_message})
 
         return await chat_stream(messages)
 
@@ -577,6 +974,73 @@ def _fetch_image_context(db: Any, project_id: str, chapter_id: str = "") -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def _style_mode_directive(style_mode: str, style_chunks: List[str], operation_mode: str) -> str:
+    """Return a clear, behaviorally-specific directive for the given style_mode.
+
+    style_mode      : one of inspired_by | imitate_closely | preserve_tone_rhythm | avoid_exact_phrasing
+    style_chunks    : uploaded style-sample chunks (may be empty)
+    operation_mode  : "continue" | "beats" | "rewrite" | "chat"
+    """
+    has_samples = bool(style_chunks)
+    is_rewrite = operation_mode == "rewrite"
+
+    if style_mode == "imitate_closely":
+        if has_samples:
+            return (
+                "Closely imitate the voice in the Style Reference Samples (Priority 6). "
+                "Replicate their sentence length variation, paragraph rhythm, dialogue formatting, "
+                "punctuation density, and characteristic vocabulary precisely. "
+                "The prose should sound as if it were written by the sample author."
+            )
+        else:
+            return (
+                "Closely imitate the author's established voice as already present in this chapter. "
+                "Replicate the existing sentence length variation, paragraph rhythm, and characteristic "
+                "vocabulary — keep the style distinctively consistent with what came before."
+            )
+
+    elif style_mode == "preserve_tone_rhythm":
+        return (
+            "Preserve the established tone, rhythm, and voice of the existing prose exactly. "
+            "Keep the same narrative distance, sentence-length patterns, and vocabulary register. "
+            "Refine word choice and structure where needed — but do not shift toward any external style, "
+            "even if Style Reference Samples are provided."
+        )
+
+    elif style_mode == "avoid_exact_phrasing":
+        if is_rewrite:
+            suffix = (
+                "Draw loosely on the Style Reference Samples (Priority 6) for vocabulary and imagery."
+                if has_samples else
+                "Preserve the narrative content and emotional beats while refreshing the language entirely."
+            )
+            return (
+                "Produce substantially different prose — restructure sentences, vary word choices, and "
+                "refresh phrasing throughout. Do not reuse any exact phrases or sentence patterns from "
+                f"the original text. {suffix}"
+            )
+        else:
+            return (
+                "Vary sentence structures and word choices throughout — avoid predictable patterns and "
+                "flat phrasing. Every sentence should feel fresh and precisely chosen, with no repeated "
+                "constructions or filler language."
+            )
+
+    else:  # inspired_by (default)
+        if has_samples:
+            return (
+                "Draw inspiration from the Style Reference Samples (Priority 6) — let their sentence "
+                "rhythms, vocabulary, and prose characteristics inform your writing, while adapting "
+                "naturally to fit this story's existing voice and context."
+            )
+        else:
+            return (
+                "Write in a style inspired by the author's established voice. "
+                "Maintain the narrative tone, prose rhythm, and sentence structure that fits naturally "
+                "within the project."
+            )
+
+
 def _build_writer_system_prompt(
     lang_display: str,
     persona: str,
@@ -587,10 +1051,11 @@ def _build_writer_system_prompt(
     style_chunks: List[str],
     beats: str,
     existing_text: str,
-    mode: str,          # "continue" | "rewrite"
+    mode: str,          # "continue" | "beats" | "rewrite" | "chat"
     text_after_cursor: str = "",
     style_mode: str = "",
     constraints: Optional[List[str]] = None,
+    prev_chapter_tail: str = "",
 ) -> str:
     """
     Build the Writer system prompt with the same priority ordering and TOML role
@@ -633,8 +1098,44 @@ def _build_writer_system_prompt(
         "When you reach the final beat, end the chapter naturally and STOP",
     ])
 
+    # Beats-mode quality rules — layered on top of base rules.
+    # Replace the mechanical checklist mindset with literary craft guidance.
+    beats_quality_rules: List[str] = []
+    if mode == "beats":
+        beats_quality_rules = [
+            "Treat each beat as a dramatic SCENE to write — not a sentence to paraphrase or summarise",
+            "SHOW, don't tell — render action, emotion, and revelation through specific concrete detail",
+            "Write with sensory richness: what characters see, hear, feel, smell, think, and want",
+            "Give characters interiority — their inner reactions make beats feel alive, not mechanical",
+            "Vary your pacing deliberately — build tension through action, then let it breathe in reflection or dialogue",
+            "Let transitions between beats flow naturally; avoid abrupt 'next, this happened' jumps",
+            "Strong verbs, precise nouns — avoid vague filler words and weak verb+adverb combinations",
+            "Dialogue should reveal character and advance the scene, not just deliver information",
+            "Scene-setting should be selective and purposeful — ground the reader without slowing momentum",
+        ]
+
     # Mode-specific task description
-    if mode == "continue":
+    if mode == "beats":
+        if prev_chapter_tail:
+            task_line = (
+                "Write a complete chapter that continues naturally from the previous chapter. "
+                "Your Chapter Blueprint (beats) defines what happens — follow it exactly and completely. "
+                "Open your chapter by flowing smoothly from where the previous chapter ended. "
+                "Do NOT start a new scene, introduce a new location, or jump in time unless a beat explicitly requires it. "
+                "Each beat is a dramatic milestone — bring it fully to life as a scene: vivid setting, "
+                "character interiority, concrete sensory detail, rising tension, and dynamic prose. "
+                "Move through ALL beats in order. Write like a skilled novelist, not like someone filling in a form."
+            )
+        else:
+            task_line = (
+                "Write a complete, compelling chapter from scratch, using the Chapter Blueprint below as your structural backbone. "
+                "Each beat is a dramatic milestone — not a script to recite word-for-word. "
+                "Bring every beat fully to life as a scene: vivid setting, character interiority, "
+                "concrete sensory detail, rising tension, and dynamic prose. "
+                "Move through all beats in order, giving each one the space and depth it deserves. "
+                "Write like a skilled novelist, not like someone filling in a form."
+            )
+    elif mode == "continue":
         if text_after_cursor:
             task_line = (
                 "Write new content to INSERT at the cursor position (marked ✍ in the draft below). "
@@ -643,9 +1144,10 @@ def _build_writer_system_prompt(
         else:
             task_line = "Continue the story directly from where the current draft ends."
     elif mode == "rewrite":
+        _style_directive = _style_mode_directive(style_mode, style_chunks, "rewrite")
         task_line = (
             f"Rewrite the passage provided by the author. "
-            f"Style guidance: {style_mode.replace('_', ' ')}. "
+            f"{_style_directive} "
             "Preserve the narrative content and plot events, but produce SUBSTANTIALLY DIFFERENT prose. "
             "Improve sentence structure, word choice, rhythm, imagery, and overall prose quality. "
             "The rewrite MUST NOT be a near-copy, a paraphrase, or a lightly edited version of the original. "
@@ -672,6 +1174,9 @@ def _build_writer_system_prompt(
     # Rewrite mode and chat mode: append critical differentiator rules.
     # Chat mode needs them because users can type "rewrite this chapter" in any language.
     rewrite_rules: List[str] = []
+    if mode == "beats":
+        # beats_quality_rules already set above — merged below
+        pass
     if mode in ("rewrite", "chat"):
         rewrite_rules = [
             # Bilingual so small models catch it regardless of conversation language
@@ -684,7 +1189,12 @@ def _build_writer_system_prompt(
             "Keep all rewritten content consistent with memory documents — character names, traits, world rules, and plot facts from the Codex and Beats must not be altered or contradicted",
         ]
 
-    all_rules = rules + rewrite_rules if rewrite_rules else rules
+    if mode == "beats":
+        all_rules = rules + beats_quality_rules
+    elif rewrite_rules:
+        all_rules = rules + rewrite_rules
+    else:
+        all_rules = rules
 
     prompt = (
         # Language instruction FIRST — before the English background so small models
@@ -703,6 +1213,40 @@ def _build_writer_system_prompt(
         f"6. {p6}\n\n"
         f"When writing:\n{_bullets(all_rules)}"
     )
+
+    # ── BEATS MODE: beats appear FIRST — they are the structural directive. ──
+    # Memory/codex is demoted to "supporting detail" and must not introduce
+    # new events.  Small models follow the most prominent recent block, so
+    # placing beats before the codex prevents the codex from overriding them.
+    if beats and mode == "beats":
+        prompt += (
+            f"\n\n╔══════════════════════════════════════════╗\n"
+            f"║  YOUR WRITING DIRECTIVES — CHAPTER BEATS  ║\n"
+            f"╚══════════════════════════════════════════╝\n"
+            f"The beats below define the COMPLETE and ONLY structure of this chapter.\n"
+            f"► Start writing at Beat 1. Stop writing after the final beat.\n"
+            f"► Do NOT write scenes, events, or plot points that are not listed here.\n"
+            f"► Do NOT continue past the last beat.\n"
+            f"► Do NOT use codex/world-building content to invent new events — "
+            f"beats are your sole story guide.\n"
+            f"Each beat is a dramatic moment to bring fully to life — "
+            f"then move directly to the next beat.\n\n"
+            f"{beats}"
+        )
+
+        # If a previous chapter exists, anchor the opening here —
+        # immediately after the beats so the model sees them together.
+        if prev_chapter_tail:
+            prompt += (
+                f"\n\n╔══════════════════════════════════════════╗\n"
+                f"║  WHERE THE STORY LEFT OFF (prev. chapter)  ║\n"
+                f"╚══════════════════════════════════════════╝\n"
+                f"Your chapter must open by continuing naturally from this passage.\n"
+                f"Do NOT start a new scene, new location, or jump in time unless a beat explicitly says so.\n\n"
+                f"...\n"
+                f"{prev_chapter_tail}\n"
+                f"[End of previous chapter]"
+            )
 
     # Priority 2 — Persona
     if persona:
@@ -727,12 +1271,24 @@ def _build_writer_system_prompt(
         )
 
     # Priority 4 — Memory (codex / beats / notes / research) + visual references
+    # In beats mode this is supporting context only — label it accordingly so the
+    # model does not treat it as a source of new plot events.
     combined_memory = rag_context
     if image_context:
         sep = "\n\n---\n\n" if combined_memory else ""
         combined_memory += f"{sep}### Visual Reference Descriptions\n{image_context}"
     if combined_memory:
-        prompt += f"\n\n## PRIORITY 4 — Project Memory (Codex / Beats / Notes / Research / Visuals)\n{combined_memory}"
+        if mode == "beats":
+            prompt += (
+                f"\n\n## SUPPORTING CONTEXT — Character & World Details\n"
+                f"Use the following ONLY to fill in consistent character names, physical descriptions, "
+                f"world details, and established facts. "
+                f"Do NOT derive new plot events, scenes, or sub-plots from this context — "
+                f"the beats listed above are your sole structural guide.\n\n"
+                f"{combined_memory}"
+            )
+        else:
+            prompt += f"\n\n## PRIORITY 4 — Project Memory (Codex / Beats / Notes / Research / Visuals)\n{combined_memory}"
 
     # Priority 5 — QA issues
     if qa_note:
@@ -752,8 +1308,9 @@ def _build_writer_system_prompt(
         for chunk in style_chunks:
             prompt += f"---\n{chunk}\n"
 
-    # Chapter beats (belongs with memory context but shown separately for clarity)
-    if beats:
+    # Chapter beats — for non-beats modes, append here as before.
+    # For beats mode the beats were already placed at the top of the context.
+    if beats and mode != "beats":
         prompt += (
             f"\n\n## Chapter Beats — FOLLOW THESE EXACTLY\n"
             f"Cover each beat in order. Do NOT skip any. Do NOT add unlisted beats.\n\n"
@@ -766,26 +1323,40 @@ def _build_writer_system_prompt(
             label = "Current Draft (for context — do NOT repeat this; write NEW content only)"
             prompt += f"\n\n## {label}\n{existing_text}"
         elif mode == "chat":
-            # Sandwich the chapter between two warnings so small models don't lose
-            # the instruction by the time they finish reading long chapters.
             prompt += (
-                f"\n\n## Current Chapter Content"
-                f"\n⚠️ REWRITE WARNING (重写警告): The text below is the ORIGINAL. "
-                f"If the user asks to rewrite (重写/改写/rewrite), you MUST write completely NEW prose. "
-                f"Do NOT copy or closely paraphrase this text — treat it as a plot summary only, then write fresh.\n"
-                f"\n{existing_text}\n"
-                f"\n⚠️ END OF ORIGINAL CHAPTER — 以上是原文。"
-                f"If rewriting: do NOT reproduce the above. Write entirely new prose covering the same events."
+                f"\n\n## Current Chapter Draft\n"
+                f"(EXISTING text — do NOT reproduce it verbatim. "
+                f"If the user asks to rewrite, produce completely new prose covering the same events.)\n"
+                f"\n{existing_text}"
             )
         else:
             label = "Current Chapter Content (existing draft)"
             prompt += f"\n\n## {label}\n{existing_text}"
 
-    # Continue-specific: style mode + constraints
-    if mode == "continue":
-        prompt += f"\n\nStyle guidance: {style_mode.replace('_', ' ')}"
+    # Style guidance + constraints (shared by continue and beats modes)
+    if mode in ("continue", "beats"):
+        prompt += f"\n\nStyle guidance: {_style_mode_directive(style_mode, style_chunks, mode)}"
         if constraints:
             prompt += "\n\n## Additional Constraints\n" + _bullets(constraints)
+
+    # ── BEATS MODE: repeat the directive at the very end ──────────────────
+    # Small models have recency bias — the last few hundred tokens of the
+    # system prompt strongly influence generation.  By restating the beats
+    # constraint here (after all context blocks) we prevent the codex or
+    # style content from overwriting the model's working directive.
+    if mode == "beats" and beats:
+        prompt += (
+            f"\n\n╔══════════════════════════════════════════╗\n"
+            f"║  ⚠  FINAL INSTRUCTION — BEATS ARE YOUR LAW  ⚠  ║\n"
+            f"╚══════════════════════════════════════════╝\n"
+            f"You have read the Chapter Blueprint and all supporting context.\n"
+            f"Now write prose ONLY for what the beats describe — nothing more.\n"
+            f"► Beat 1 is your starting point.\n"
+            f"► The final beat is your stopping point.\n"
+            f"► Every scene, event, and revelation must come from the beats list.\n"
+            f"► Supporting context (codex, world details) informs HOW you write, not WHAT happens.\n"
+            f"► Output pure prose only — no beat labels, no numbers, no headings."
+        )
 
     return prompt
 
@@ -798,22 +1369,41 @@ def _last_paragraphs(text: str, n_tokens: int = 512) -> str:
     return text[-max_chars:]
 
 
-def _cap_rag(results: list, budget_tokens: int) -> list:
+def _cap_rag(results: list, budget_tokens: int, max_distance: float = 1.0) -> list:
     """
     Select as many RAG result chunks as fit within *budget_tokens* total,
-    preserving relevance order (results are already sorted best-first).
+    preserving relevance order (results are already sorted best-first by
+    ChromaDB cosine distance — lower distance = more similar).
 
-    Using a token budget instead of a fixed count means:
-      - Small chunks  → more results fit → richer context
-      - Large chunks  → fewer results fit → prompt stays safe for small models
-    Token estimate: 1 token ≈ 4 chars (consistent with _estimate_tokens in chunker).
+    Parameters
+    ----------
+    results       : list of dicts with keys 'text' and 'distance'
+    budget_tokens : maximum total tokens to include (1 token ≈ 4 chars)
+    max_distance  : cosine distance ceiling — chunks with distance ABOVE
+                    this value are skipped entirely.  Use < 1.0 to exclude
+                    low-relevance chunks.  Default 1.0 = no distance filter.
+                    Because ChromaDB returns results sorted best-first,
+                    once a chunk exceeds the threshold all subsequent ones
+                    will too, so we break early for efficiency.
+
+    Note on budget overflow: when a chunk is individually larger than the
+    remaining budget we *skip* it (continue) rather than stopping — a later
+    smaller chunk may still fit.  The max_distance check uses break because
+    the list is sorted ascending; all subsequent chunks are equally or more
+    distant.
     """
     selected: list = []
     used = 0
     for r in results:
+        if r.get("distance", 0.0) > max_distance:
+            # List is sorted ascending by distance — every remaining chunk is
+            # equally or more distant.  No point continuing.
+            break
         tokens = max(1, len(r["text"]) // 4)
         if used + tokens > budget_tokens:
-            break
+            # This chunk alone is too large for the remaining space, but a
+            # subsequent smaller chunk might still fit — skip, don't break.
+            continue
         selected.append(r)
         used += tokens
     return selected
@@ -909,7 +1499,8 @@ def _detect_language_override(question: str) -> Optional[str]:
     OVERRIDE_PATTERNS: list = [
         # Japanese
         (r"(?:respond|reply|write|answer|output|日语|日文|japanese|japanisch|japonais|japonés)\s*(?:in\s+)?(?:japanese|日语|日文|日本語|にほんご)", "ja"),
-        (r"(?:用|以|用日语|用日文|日本語で|일본어로)", "ja"),
+        # NOTE: bare 用/以 removed — they are common Chinese characters and cause false positives
+        (r"(?:用日语|用日文|日本語で|일본어로)", "ja"),
         # Chinese Simplified
         (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:chinese simplified|simplified chinese|简体中文|简体)", "zh"),
         (r"(?:用|以)\s*(?:简体中文|中文简体|中文)", "zh"),
@@ -918,7 +1509,8 @@ def _detect_language_override(question: str) -> Optional[str]:
         (r"(?:用|以)\s*(?:繁體中文|繁體|繁体)", "zh-tw"),
         # Korean
         (r"(?:respond|reply|write|answer|output)?\s*(?:in\s+)?(?:korean|한국어|한글|koreanisch|coréen|coreano)", "ko"),
-        (r"(?:用|以|한국어로|韓国語で)", "ko"),
+        # NOTE: bare 用/以 removed — they are common Chinese characters and cause false positives
+        (r"(?:用韩语|用韓語|한국어로|韓国語で)", "ko"),
         # French
         (r"(?:respond|reply|write|answer|output|répondez|réponds|écris)?\s*(?:in\s+|en\s+)?(?:french|français|franzöisch|francés|francese)", "fr"),
         # German

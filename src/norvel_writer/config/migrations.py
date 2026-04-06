@@ -138,4 +138,26 @@ MIGRATIONS: List[Tuple[int, str]] = [
         CREATE INDEX IF NOT EXISTS idx_project_images_project ON project_images(project_id);
         """,
     ),
+    (
+        6,
+        """
+        CREATE TABLE IF NOT EXISTS chapter_versions (
+            id          TEXT PRIMARY KEY,
+            chapter_id  TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+            label       TEXT NOT NULL,
+            content     TEXT NOT NULL DEFAULT '',
+            is_sheet    INTEGER NOT NULL DEFAULT 0,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_chapter_versions_chapter ON chapter_versions(chapter_id);
+        """,
+    ),
+    (
+        7,
+        """
+        ALTER TABLE chapters ADD COLUMN editor_note TEXT NOT NULL DEFAULT '';
+        ALTER TABLE chapters ADD COLUMN qa_note TEXT NOT NULL DEFAULT '';
+        """,
+    ),
 ]

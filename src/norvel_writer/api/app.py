@@ -394,6 +394,16 @@ async def create_chapter(project_id: str, body: ChapterCreate):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.post("/api/ensure-chapter-folders")
+async def ensure_chapter_folders():
+    """Create chapter files directories for all existing chapters (idempotent)."""
+    try:
+        count = get_pm().ensure_all_chapter_folders()
+        return {"ok": True, "count": count}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.get("/api/chapters/{chapter_id}")
 async def get_chapter(chapter_id: str):
     try:
@@ -446,6 +456,87 @@ async def update_chapter_content(chapter_id: str, body: ContentUpdate):
         pm = get_pm()
         draft_id = pm.save_draft(chapter_id, body.content, body.model_used)
         pm.accept_draft(draft_id)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Chapter Versions ───────────────────────────────────────────────────────
+
+@app.get("/api/chapters/{chapter_id}/versions")
+async def list_versions(chapter_id: str):
+    try:
+        from norvel_writer.storage.repositories.version_repo import VersionRepo
+        return VersionRepo(get_db()).list_versions(chapter_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class VersionCreate(BaseModel):
+    id: str
+    label: str
+    content: str = ""
+    is_sheet: bool = False
+    sort_order: int = 0
+    created_at: str
+
+
+@app.post("/api/chapters/{chapter_id}/versions")
+async def create_version(chapter_id: str, body: VersionCreate):
+    try:
+        from norvel_writer.storage.repositories.version_repo import VersionRepo
+        return VersionRepo(get_db()).create_version(
+            chapter_id=chapter_id,
+            id=body.id,
+            label=body.label,
+            content=body.content,
+            is_sheet=body.is_sheet,
+            sort_order=body.sort_order,
+            created_at=body.created_at,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class VersionRelabel(BaseModel):
+    label_map: Dict[str, str]   # {version_id: new_label}
+
+
+# NOTE: /relabel must be registered BEFORE /{version_id} so FastAPI doesn't
+# treat the literal string "relabel" as a version_id path parameter.
+@app.post("/api/chapters/{chapter_id}/versions/relabel")
+async def relabel_versions(chapter_id: str, body: VersionRelabel):
+    try:
+        from norvel_writer.storage.repositories.version_repo import VersionRepo
+        VersionRepo(get_db()).update_labels(body.label_map)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class VersionUpdate(BaseModel):
+    label: Optional[str] = None
+    content: Optional[str] = None
+    is_sheet: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+@app.put("/api/chapters/{chapter_id}/versions/{version_id}")
+async def update_version(chapter_id: str, version_id: str, body: VersionUpdate):
+    try:
+        from norvel_writer.storage.repositories.version_repo import VersionRepo
+        kwargs = {k: v for k, v in body.dict().items() if v is not None}
+        VersionRepo(get_db()).update_version(version_id, **kwargs)
+        return {"ok": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/chapters/{chapter_id}/versions/{version_id}")
+async def delete_version(chapter_id: str, version_id: str):
+    try:
+        from norvel_writer.storage.repositories.version_repo import VersionRepo
+        VersionRepo(get_db()).delete_version(version_id)
         return {"ok": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -510,6 +601,68 @@ async def ingest_document(
         # Clean up the saved file if ingestion failed
         if dest_path.exists():
             dest_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/projects/{project_id}/chapters/{chapter_id}/ingest")
+async def ingest_chapter_document(
+    project_id: str,
+    chapter_id: str,
+    file: UploadFile,
+    doc_type: str = Form("notes"),
+):
+    """Upload a document into a specific chapter's memory."""
+    from norvel_writer.config.defaults import DOC_TYPES
+    from norvel_writer.config.settings import get_config
+    if doc_type not in DOC_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid doc_type '{doc_type}'. Must be one of: {', '.join(DOC_TYPES)}",
+        )
+    cfg = get_config()
+
+    files_dir = cfg.projects_path / project_id / "chapters" / chapter_id / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = Path(file.filename or "upload").name
+    dest_path = files_dir / safe_name
+    if dest_path.exists():
+        stem = dest_path.stem
+        suffix = dest_path.suffix
+        i = 1
+        while dest_path.exists():
+            dest_path = files_dir / f"{stem}_{i}{suffix}"
+            i += 1
+
+    try:
+        content = await file.read()
+        dest_path.write_bytes(content)
+
+        from norvel_writer.ingestion.pipeline import IngestPipeline
+        pipeline = IngestPipeline()
+        doc_id = await pipeline.run(
+            file_path=dest_path,
+            project_id=project_id,
+            doc_type=doc_type,
+            chapter_id=chapter_id,
+        )
+        return {"id": doc_id, "ok": True, "stored_path": str(dest_path)}
+    except Exception as exc:
+        if dest_path.exists():
+            dest_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/projects/{project_id}/chapters/{chapter_id}/documents")
+async def list_chapter_documents(
+    project_id: str,
+    chapter_id: str,
+    doc_type: Optional[str] = Query(default=None),
+):
+    """List documents scoped to a specific chapter."""
+    try:
+        return get_pm().list_chapter_documents(project_id, chapter_id, doc_type)
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -636,6 +789,7 @@ class ContinueRequest(BaseModel):
     active_doc_types: Optional[List[str]] = None
     editor_note: str = ""           # pinned editor suggestion from the browser
     qa_note: str = ""               # pinned QA report from the browser
+    beats: str = ""                 # beats from the UI textarea (may be unsaved)
 
 
 @app.post("/api/projects/{project_id}/continue")
@@ -644,9 +798,10 @@ async def continue_draft(project_id: str, body: ContinueRequest):
         try:
             from norvel_writer.core.draft_engine import DraftEngine
             engine = DraftEngine(project_manager=get_pm())
-            # Load beats for this chapter from DB
-            chapter_beats = ""
-            if body.chapter_id:
+            # Beats resolution: prefer what the UI sent (may be unsaved edits),
+            # fall back to the DB value so Continue Write still gets chapter beats.
+            chapter_beats = body.beats.strip()
+            if not chapter_beats and body.chapter_id:
                 from norvel_writer.storage.repositories.project_repo import ProjectRepo
                 from norvel_writer.storage.db import get_db
                 ch_row = ProjectRepo(get_db()).get_chapter(body.chapter_id)
@@ -1139,6 +1294,156 @@ async def generate_beats(chapter_id: str, body: BeatsGenRequest):
         except Exception as exc:
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
     return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+# ── Chapter Codex Generation ───────────────────────────────────────────────
+
+class ChapterCodexGenRequest(BaseModel):
+    beats: str = ""
+    language: str = "en"
+
+
+@app.post("/api/projects/{project_id}/chapters/{chapter_id}/generate-chapter-codex")
+async def generate_chapter_codex(
+    project_id: str, chapter_id: str, body: ChapterCodexGenRequest
+):
+    """
+    Stream a focused Chapter Codex synthesized from project-level memory.
+    Only includes codex/notes/research entries relevant to the chapter beats.
+    """
+    async def _gen():
+        try:
+            from norvel_writer.llm.langchain_bridge import chat_stream, get_context_limits
+            from norvel_writer.llm.prompt_builder import _lang_display
+            from norvel_writer.core.draft_engine import _cap_rag
+
+            pm = get_pm()
+
+            # Use provided beats or load from DB
+            beats = body.beats.strip()
+            if not beats:
+                ch = pm.get_chapter(chapter_id)
+                beats = (ch.get("beats") or "").strip() if ch else ""
+
+            if not beats:
+                yield f"data: {json.dumps({'error': 'No beats found for this chapter. Add beats first.'})}\n\n"
+                return
+
+            lang = _lang_display(body.language)
+            limits = get_context_limits()
+
+            # Retrieve from project-level memory using beats as the query
+            rag_results = await pm.retrieve_context(
+                project_id=project_id,
+                query=beats,
+                n_results=24,
+                doc_types=["codex", "notes", "research"],
+                scope="project",
+            )
+
+            if not rag_results:
+                _err_msg = "No project memory documents found. Add codex, notes, or research to the project memory first."
+                yield f"data: {json.dumps({'error': _err_msg})}\n\n"
+                return
+
+            capped = _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
+            context = "\n\n---\n\n".join(r["text"] for r in capped)
+
+            system_prompt = (
+                f"You are a novel writing assistant. "
+                f"Analyze the chapter beats and the project master memory to produce a focused "
+                f"'Chapter Codex' — a distilled reference document containing ONLY the information "
+                f"from the master memory that is directly needed to write this specific chapter.\n\n"
+                f"Output language: {lang}\n\n"
+                f"Structure your output with these sections (omit any section with no relevant content):\n\n"
+                f"## Characters\n"
+                f"Only characters who appear or are referenced in the beats. "
+                f"For each: name, relevant traits, motivations, and details that matter for this chapter.\n\n"
+                f"## Locations\n"
+                f"Only the settings where the beats take place. "
+                f"Key atmosphere, layout, or facts the writer needs.\n\n"
+                f"## Key Facts & World-Building\n"
+                f"Historical, cultural, or world rules directly referenced in the beats.\n\n"
+                f"## Relationships & Dynamics\n"
+                f"How the characters in these beats relate to each other — only what is relevant.\n\n"
+                f"## Objects & Artifacts\n"
+                f"Items, weapons, documents, or plot objects that appear in the beats.\n\n"
+                f"STRICT RULES:\n"
+                f"- INCLUDE only information directly relevant to the beats\n"
+                f"- EXCLUDE characters, places, or lore not referenced in the beats\n"
+                f"- Be concise and specific — this is a working reference, not an encyclopedia\n"
+                f"- Do NOT add preamble, commentary, or closing remarks\n"
+                f"- Output ONLY the codex document"
+            )
+
+            user_content = (
+                f"## Chapter Beats\n{beats}\n\n"
+                f"## Project Master Memory\n{context}"
+            )
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+
+            async for chunk in await chat_stream(messages):
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+
+        except Exception as exc:
+            log.error("generate_chapter_codex error: %s", exc)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+class SaveChapterCodexRequest(BaseModel):
+    content: str
+    title: str = ""
+
+
+@app.post("/api/projects/{project_id}/chapters/{chapter_id}/save-chapter-codex")
+async def save_chapter_codex(
+    project_id: str, chapter_id: str, body: SaveChapterCodexRequest
+):
+    """Save a generated chapter codex as a .txt file in chapter memory and ingest it."""
+    from norvel_writer.config.settings import get_config
+    cfg = get_config()
+
+    files_dir = cfg.projects_path / project_id / "chapters" / chapter_id / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_title = body.title.strip() or "chapter_codex"
+    safe_title = "".join(
+        c if c.isalnum() or c in (" ", "-", "_") else "_" for c in raw_title
+    ).strip().replace(" ", "_")[:60]
+    dest_path = files_dir / f"{safe_title}.txt"
+
+    if dest_path.exists():
+        stem = dest_path.stem
+        i = 1
+        while dest_path.exists():
+            dest_path = files_dir / f"{stem}_{i}.txt"
+            i += 1
+
+    try:
+        dest_path.write_text(body.content, encoding="utf-8")
+        from norvel_writer.ingestion.pipeline import IngestPipeline
+        pipeline = IngestPipeline()
+        doc_id = await pipeline.run(
+            file_path=dest_path,
+            project_id=project_id,
+            doc_type="codex",
+            chapter_id=chapter_id,
+        )
+        from norvel_writer.storage.repositories.document_repo import DocumentRepo
+        from norvel_writer.storage.db import get_db
+        DocumentRepo(get_db()).update_document_title(doc_id, safe_title)
+        return {"id": doc_id, "ok": True, "stored_path": str(dest_path)}
+    except Exception as exc:
+        if dest_path.exists():
+            dest_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ── Style ──────────────────────────────────────────────────────────────────

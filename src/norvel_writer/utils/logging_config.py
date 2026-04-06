@@ -34,3 +34,8 @@ def setup_logging(log_dir: Path, level: int = logging.INFO) -> None:
     # logs ERROR on every event even when telemetry is disabled.
     # Silence it completely — it carries no actionable information.
     logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
+
+    # ChromaDB's HNSW segment emits a WARNING when n_results > collection size.
+    # This is harmless (ChromaDB clamps it automatically), but noisy — especially
+    # right after a small upload when fewer chunks exist than the default n_results.
+    logging.getLogger("chromadb.segment.impl.vector.local_persistent_hnsw").setLevel(logging.ERROR)

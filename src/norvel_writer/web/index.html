@@ -331,6 +331,48 @@ body {
 }
 .ch-images-add:hover { color: var(--accent); }
 
+/* ── Chapter memory folder (sidebar) ── */
+.ch-mem-folder-row {
+  padding: 3px 10px 3px 36px;
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.ch-mem-folder-row:hover { background: var(--surface2); color: var(--text); }
+.ch-mem-expand-icon { font-size: 9px; transition: none; }
+.ch-mem-doc-item {
+  padding: 3px 10px 3px 50px;
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+.ch-mem-doc-item:hover { background: var(--surface2); color: var(--text); }
+.ch-mem-doc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem-edit-btn, .ch-mem-delete-btn { display:none; background:none; border:none; cursor:pointer; font-size:11px; padding:0 2px; line-height:1; color:var(--muted); }
+.ch-mem-doc-item:hover .ch-mem-edit-btn, .ch-mem-doc-item:hover .ch-mem-delete-btn { display:inline; }
+.ch-mem-add-link {
+  padding: 3px 10px 3px 50px;
+  font-size: 10px;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0.7;
+}
+.ch-mem-add-link:hover { opacity: 1; }
+.ch-mem-loading, .ch-mem-empty {
+  padding: 3px 10px 3px 50px;
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+
 /* ── Image viewer (main area overlay) ── */
 #image-viewer {
   display: none;
@@ -594,6 +636,29 @@ body {
   line-height: 1;
 }
 .rewrite-tab-del:hover { color: var(--red); }
+/* Blank sheet tabs — teal accent to distinguish from AI-generated rewrites */
+.rewrite-tab.sheet { border-color: #34d399; color: #34d399; }
+.rewrite-tab.sheet.active {
+  border-color: #34d399;
+  background: color-mix(in srgb, #34d399 14%, transparent);
+  color: #34d399;
+  font-weight: 600;
+}
+/* + button in panel bar */
+#rewrite-add-sheet {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: #34d399;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: bold;
+  line-height: 1;
+  padding: 1px 7px 2px;
+  transition: border-color .15s, background .15s;
+}
+#rewrite-add-sheet:hover { border-color: #34d399; background: color-mix(in srgb, #34d399 10%, transparent); }
 #rewrite-panel-close {
   margin-left: auto;
   background: none;
@@ -609,7 +674,38 @@ body {
   flex: 1;
   overflow: hidden;
   display: flex;
+  flex-direction: column;
 }
+#rewrite-viewer-actions {
+  display: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--surface2);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#rewrite-active-label {
+  font-size: 11px;
+  color: var(--subtext);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#rewrite-apply-btn {
+  font-size: 11px;
+  padding: 4px 12px;
+  background: #34d399;
+  color: #052e16;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+#rewrite-apply-btn:hover { opacity: .85; }
 #rewrite-viewer {
   flex: 1;
   resize: none;
@@ -1143,6 +1239,17 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   max-height: 180px;
   overflow-y: auto;
 }
+#editor-notes-expand-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--subtext);
+  font-size: 11px;
+  padding: 1px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#editor-notes-expand-btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 #editor-notes-clear-btn {
   background: none;
   border: 1px solid var(--border);
@@ -1193,6 +1300,17 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
   max-height: 180px;
   overflow-y: auto;
 }
+#qa-notes-expand-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--subtext);
+  font-size: 11px;
+  padding: 1px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#qa-notes-expand-btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 #qa-notes-clear-btn {
   background: none;
   border: 1px solid var(--border);
@@ -1327,12 +1445,19 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     <div id="rewrite-panel" style="display:none;">
       <div id="rewrite-drag-handle" title="Drag to resize"></div>
       <div id="rewrite-panel-bar">
-        <span id="rewrite-panel-label">📄 Rewrite Versions</span>
+        <span id="rewrite-panel-label">📄 Versions</span>
         <div id="rewrite-tabs-row"></div>
+        <button id="rewrite-add-sheet" title="New blank sheet">+</button>
         <button id="rewrite-panel-close" title="Close versions panel">✕</button>
       </div>
       <div id="rewrite-viewer-wrap">
-        <textarea id="rewrite-viewer" readonly placeholder="Select a version tab to read it…"></textarea>
+        <textarea id="rewrite-viewer" spellcheck="true"
+          placeholder="Select a version tab — or click + for a blank sheet you can type and generate into…"></textarea>
+        <div id="rewrite-viewer-actions">
+          <span id="rewrite-active-label"></span>
+          <span id="rewrite-word-count" style="font-size:11px;color:var(--muted);margin-left:auto;flex-shrink:0;"></span>
+          <button id="rewrite-apply-btn" title="Copy this sheet into the main editor and save">✓ Apply to Editor</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1358,12 +1483,12 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     <!-- Draft AI tab -->
     <div class="tab-pane active" id="tab-draft">
       <div class="form-group">
-        <label>Style Mode</label>
+        <label data-i18n="draft.style_mode_label">Style Mode</label>
         <select id="draft-style-mode">
-          <option value="inspired_by">Inspired By</option>
-          <option value="imitate_closely">Imitate Closely</option>
-          <option value="preserve_tone_rhythm">Preserve Tone &amp; Rhythm</option>
-          <option value="avoid_exact_phrasing">Avoid Exact Phrasing</option>
+          <option value="inspired_by" data-i18n="draft.style_mode.inspired_by">Inspired By</option>
+          <option value="imitate_closely" data-i18n="draft.style_mode.imitate_closely">Imitate Closely</option>
+          <option value="preserve_tone_rhythm" data-i18n="draft.style_mode.preserve_tone">Preserve Tone &amp; Rhythm</option>
+          <option value="avoid_exact_phrasing" data-i18n="draft.style_mode.avoid_phrasing">Avoid Exact Phrasing</option>
         </select>
       </div>
       <div class="form-group">
@@ -1376,6 +1501,26 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         </label>
         <textarea id="beats-editor" class="ctrl" placeholder="Enter chapter beats (e.g.)&#10;1. Hero discovers the letter&#10;2. Confronts the villain&#10;3. Escapes the castle" style="min-height:90px;resize:vertical;"></textarea>
       </div>
+
+      <!-- ── Generate Chapter Codex ── -->
+      <div class="form-group" id="codex-gen-section" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg);">
+        <div style="display:flex;align-items:center;margin-bottom:6px;">
+          <span style="font-size:12px;font-weight:600;color:var(--text);">🔮 Chapter Codex</span>
+        </div>
+        <div style="font-size:11px;color:var(--subtext);margin-bottom:8px;">
+          Scans project memory (codex, notes, research) and extracts only what's relevant to your beats. Saves the result to chapter memory.
+        </div>
+        <div id="codex-gen-result" style="display:flex;flex-direction:column;gap:8px;">
+          <textarea id="codex-gen-text" class="ctrl" style="min-height:160px;resize:both;font-size:11px;line-height:1.5;font-family:inherit;"></textarea>
+          <input id="codex-gen-title" class="ctrl" style="width:100%;font-size:12px;box-sizing:border-box;" placeholder="Codex filename (e.g. ch3_codex)">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="btn" id="gen-chapter-codex-btn" style="padding:4px 12px;font-size:12px;" title="Analyze project memory against your beats and generate a focused chapter codex">Generate from Beats</button>
+            <button class="btn primary" id="save-chapter-codex-btn" style="padding:4px 12px;font-size:12px;">Save to Chapter Memory</button>
+          </div>
+          <div id="codex-save-status" style="font-size:11px;color:var(--green);display:none;"></div>
+        </div>
+      </div>
+
       <!-- ── AI Mode selector ── -->
       <div class="form-group">
         <div class="ai-mode-selector">
@@ -1480,11 +1625,11 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <!-- Role selector -->
       <div class="chat-role-selector">
         <label class="chat-role-opt" title="Publisher editor giving structural, pacing &amp; prose feedback">
-          <input type="radio" name="chat-role" value="editor" checked>
+          <input type="radio" name="chat-role" value="editor">
           <span>✏️ Editor</span>
         </label>
         <label class="chat-role-opt" title="Co-author who follows your persona, style, codex &amp; beats">
-          <input type="radio" name="chat-role" value="writer">
+          <input type="radio" name="chat-role" value="writer" checked>
           <span>🖊 Writer</span>
         </label>
         <label class="chat-role-opt" title="QA checker for logic, codex compliance &amp; continuity">
@@ -1492,13 +1637,14 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
           <span>🔍 QA</span>
         </label>
       </div>
-      <div id="chat-role-hint" class="chat-role-hint">Professional editor: feedback on structure, pacing, voice, dialogue, and prose.</div>
+      <div id="chat-role-hint" class="chat-role-hint">Co-author: writes content following your persona, style, codex, and beats.</div>
 
       <!-- Pinned editor notes for the current chapter -->
       <div id="editor-notes-box" style="display:none;">
         <div class="editor-notes-header">
           <span>📌 Editor Notes</span>
           <span id="editor-notes-chapter" class="editor-notes-chapter"></span>
+          <button id="editor-notes-expand-btn" title="Expand / collapse the note">⤢ Expand</button>
           <button id="editor-notes-clear-btn" title="Clear this note and allow a fresh one">🗑 Clear</button>
         </div>
         <div id="editor-notes-content" class="editor-notes-content"></div>
@@ -1509,6 +1655,7 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
         <div class="qa-notes-header">
           <span>🔍 QA Notes</span>
           <span id="qa-notes-chapter" class="qa-notes-chapter"></span>
+          <button id="qa-notes-expand-btn" title="Expand / collapse the note">⤢ Expand</button>
           <button id="qa-notes-clear-btn" title="Clear this QA note">🗑 Clear</button>
         </div>
         <div id="qa-notes-content" class="qa-notes-content"></div>
@@ -1562,6 +1709,19 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
       <input type="file" id="file-input" style="display:none" multiple
         accept=".txt,.md,.docx,.odt,.pdf,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp">
       <div id="upload-progress">Uploading...</div>
+
+      <!-- Chapter memory upload stubs (hidden, used by sidebar + Add file link) -->
+      <input type="file" id="chapter-file-input" style="display:none" multiple
+        accept=".txt,.md,.docx,.odt,.pdf,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp">
+      <select id="chapter-import-doc-type" style="display:none">
+        <option value="codex">Codex</option>
+        <option value="beats">Beats</option>
+        <option value="research">Research</option>
+        <option value="notes" selected>Notes</option>
+        <option value="visual">Visual</option>
+      </select>
+      <button id="chapter-add-files-btn" style="display:none"></button>
+      <div id="chapter-upload-progress" style="display:none;"></div>
 
       <!-- Project Image Memory -->
       <div id="proj-img-section">
@@ -1969,6 +2129,11 @@ const TRANSLATIONS = {
     'beats.req_title':'Chapter Beats Required',
     'beats.req_hint':'This chapter has no beats yet. The AI writes based on beats to stay on track.',
     'beats.req_write':'Write Beats Now','beats.req_skip':'Continue Anyway',
+    'draft.style_mode_label':'Style Mode',
+    'draft.style_mode.inspired_by':'Inspired By',
+    'draft.style_mode.imitate_closely':'Imitate Closely',
+    'draft.style_mode.preserve_tone':'Preserve Tone & Rhythm',
+    'draft.style_mode.avoid_phrasing':'Avoid Exact Phrasing',
     'chat.send':'Send','chat.clear':'Clear Chat',
     'chat.ph':'Ask about your project... (Enter to send, Shift+Enter for newline)',
   },
@@ -1996,6 +2161,11 @@ const TRANSLATIONS = {
     'beats.req_title':'需要章节节拍',
     'beats.req_hint':'此章节尚无节拍。AI 根据节拍写作以保持故事方向。',
     'beats.req_write':'现在写节拍','beats.req_skip':'仍然继续',
+    'draft.style_mode_label':'风格模式',
+    'draft.style_mode.inspired_by':'风格启发',
+    'draft.style_mode.imitate_closely':'紧密模仿',
+    'draft.style_mode.preserve_tone':'保持语调节奏',
+    'draft.style_mode.avoid_phrasing':'避免原文措辞',
     'chat.send':'发送','chat.clear':'清除对话',
     'chat.ph':'询问关于你的项目... (Enter 发送, Shift+Enter 换行)',
   },
@@ -2016,6 +2186,11 @@ const TRANSLATIONS = {
     'beats.req_title':'チャプタービートが必要です',
     'beats.req_hint':'このチャプターにはまだビートがありません。',
     'beats.req_write':'今すぐビートを書く','beats.req_skip':'続けて',
+    'draft.style_mode_label':'スタイルモード',
+    'draft.style_mode.inspired_by':'インスパイア',
+    'draft.style_mode.imitate_closely':'忠実に模倣',
+    'draft.style_mode.preserve_tone':'トーン＆リズムを維持',
+    'draft.style_mode.avoid_phrasing':'表現の繰り返しを避ける',
     'chat.send':'送信','chat.clear':'チャットをクリア',
   },
   ko: {
@@ -2035,6 +2210,11 @@ const TRANSLATIONS = {
     'beats.req_title':'챕터 비트 필요',
     'beats.req_hint':'이 챕터에는 아직 비트가 없습니다.',
     'beats.req_write':'지금 비트 작성','beats.req_skip':'계속 진행',
+    'draft.style_mode_label':'스타일 모드',
+    'draft.style_mode.inspired_by':'영감 받기',
+    'draft.style_mode.imitate_closely':'밀접하게 모방',
+    'draft.style_mode.preserve_tone':'어조 및 리듬 유지',
+    'draft.style_mode.avoid_phrasing':'원문 표현 회피',
     'chat.send':'보내기','chat.clear':'채팅 지우기',
   },
   fr: {
@@ -2053,6 +2233,11 @@ const TRANSLATIONS = {
     'beats.gen_cancel':'Annuler','beats.gen_run':'Générer depuis le chapitre','beats.gen_accept':'Utiliser ces beats',
     'beats.req_title':'Beats requis','beats.req_hint':'Ce chapitre n\'a pas encore de beats.',
     'beats.req_write':'Écrire les beats','beats.req_skip':'Continuer quand même',
+    'draft.style_mode_label':'Mode de style',
+    'draft.style_mode.inspired_by':'Inspiré par',
+    'draft.style_mode.imitate_closely':'Imiter fidèlement',
+    'draft.style_mode.preserve_tone':'Préserver ton & rythme',
+    'draft.style_mode.avoid_phrasing':'Éviter les formulations exactes',
     'chat.send':'Envoyer','chat.clear':'Effacer le chat',
   },
   de: {
@@ -2071,6 +2256,11 @@ const TRANSLATIONS = {
     'beats.gen_cancel':'Abbrechen','beats.gen_run':'Aus Kapitel generieren','beats.gen_accept':'Diese Beats verwenden',
     'beats.req_title':'Kapitel-Beats erforderlich','beats.req_hint':'Dieses Kapitel hat noch keine Beats.',
     'beats.req_write':'Beats jetzt schreiben','beats.req_skip':'Trotzdem fortfahren',
+    'draft.style_mode_label':'Stilmodus',
+    'draft.style_mode.inspired_by':'Inspiriert von',
+    'draft.style_mode.imitate_closely':'Eng imitieren',
+    'draft.style_mode.preserve_tone':'Ton & Rhythmus beibehalten',
+    'draft.style_mode.avoid_phrasing':'Genaue Formulierungen vermeiden',
     'chat.send':'Senden','chat.clear':'Chat löschen',
   },
   es: {
@@ -2089,6 +2279,11 @@ const TRANSLATIONS = {
     'beats.gen_cancel':'Cancelar','beats.gen_run':'Generar desde capítulo','beats.gen_accept':'Usar estos beats',
     'beats.req_title':'Se requieren beats','beats.req_hint':'Este capítulo aún no tiene beats.',
     'beats.req_write':'Escribir beats ahora','beats.req_skip':'Continuar de todos modos',
+    'draft.style_mode_label':'Modo de estilo',
+    'draft.style_mode.inspired_by':'Inspirado en',
+    'draft.style_mode.imitate_closely':'Imitar de cerca',
+    'draft.style_mode.preserve_tone':'Preservar tono y ritmo',
+    'draft.style_mode.avoid_phrasing':'Evitar frases exactas',
     'chat.send':'Enviar','chat.clear':'Limpiar chat',
   },
 };
@@ -2106,7 +2301,10 @@ function applyI18n(lang) {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.dataset.i18n;
     const val = t(key);
-    if (val) el.textContent = val;
+    if (!val) return;
+    // HTMLOptionElement.text triggers select re-render; textContent alone may not
+    if (el.tagName === 'OPTION') el.text = val;
+    else el.textContent = val;
   });
   // Apply placeholder translations
   const ph = {
@@ -2244,6 +2442,8 @@ async function init() {
   await loadSettings();
   applyI18n(_currentLang);
   await loadProjects();
+  // One-time: ensure chapter memory folders exist for all chapters
+  apiFetch('/api/ensure-chapter-folders', { method: 'POST' }).catch(() => {});
 
   const lastPid = localStorage.getItem('lastProjectId');
   if (lastPid && state.projects.find(p => p.id === lastPid)) {
@@ -2400,9 +2600,9 @@ async function loadSettings() {
     // ai-lang bar default — will be overridden when a project is selected
     populateLangSelect(el('ai-lang'), state.settings.default_content_language || 'en');
     state.projectLang = state.settings.default_content_language || 'en';
-    if (s.ui_language) {
-      el('cfg-ui-lang').value = s.ui_language;
-      applyI18n(s.ui_language);
+    if (state.settings.ui_language) {
+      el('cfg-ui-lang').value = state.settings.ui_language;
+      applyI18n(state.settings.ui_language);
     }
   } catch (e) {
     console.error('Failed to load settings:', e);
@@ -2773,6 +2973,18 @@ async function loadChapters(pid) {
       imgList.className = 'ch-images-list';
       imgList.id = 'ch-images-' + ch.id;
       cl.appendChild(imgList);
+
+      // Chapter memory folder row
+      const memFolder = document.createElement('div');
+      memFolder.className = 'ch-mem-folder-row';
+      memFolder.id = 'ch-mem-folder-' + ch.id;
+      memFolder.innerHTML = '<span class="ch-mem-expand-icon">▶</span>📁 <span>Chapter Memory</span>';
+      memFolder.addEventListener('click', (e) => { e.stopPropagation(); _chMemFolderToggle(ch.id); });
+      cl.appendChild(memFolder);
+
+      const memDocs = document.createElement('div');
+      memDocs.id = 'ch-mem-docs-' + ch.id;
+      cl.appendChild(memDocs);
     }
   } catch (e) {
     console.error('Failed to load chapters:', e);
@@ -2865,7 +3077,8 @@ async function selectChapter(cid) {
   }
 
   await loadBeats(cid);
-  _rwCheckForChapter(cid);
+  await _rwCheckForChapter(cid);
+  await _notesFetch(cid);
   _enRender(cid);
   _qnRender(cid);
   // If image viewer is open, close it and go back to editor
@@ -3134,9 +3347,10 @@ el('generate-btn').addEventListener('click', async () => {
 
     const wordNote  = _buildWordCountNote(el('beats-min-words'), el('beats-max-words'), '');
     const instrBase = el('draft-instruction').value.trim() ||
-      'Write the complete chapter covering ALL the beats provided, in order. ' +
-      'Every single beat must appear in the prose — do not skip or combine any. ' +
-      'Begin with the first beat and conclude with the last.';
+      'Write the chapter by dramatising each beat in the order listed. ' +
+      'Start at Beat 1 and stop as soon as the final beat is complete. ' +
+      'Do NOT add scenes, events, or content that are not in the beats list. ' +
+      'Do NOT continue writing after the last beat ends.';
 
     output.textContent = '';
     state.draftOutput  = '';
@@ -3159,6 +3373,7 @@ el('generate-btn').addEventListener('click', async () => {
           language:          state.projectLang,
           editor_note:       _enLoad(state.currentChapterId) || '',
           qa_note:           _qnLoad(state.currentChapterId) || '',
+          beats:             beats,  // always send current textarea value (even if unsaved)
         }),
       });
       for await (const ev of readSSE(res)) {
@@ -3174,22 +3389,29 @@ el('generate-btn').addEventListener('click', async () => {
           }
         }
         if (ev.done) {
-          // Auto-save as a new chapter version
           if (state.draftOutput.trim()) {
-            try {
-              const htmlContent = escHtml(state.draftOutput).replace(/\n/g, '<br>');
-              await apiFetch('/api/chapters/' + state.currentChapterId + '/content', {
-                method: 'PUT',
-                body: { content: htmlContent, model_used: 'beats' },
-              });
-              // Update editor to show the new version
-              el('editor').innerHTML = htmlContent;
-              el('word-count').textContent = countWords(el('editor').innerText) + ' words';
-              state.isDirty = false;
-              setStatus('✓ New version saved', 4000);
-            } catch (saveErr) {
-              console.error('[Write from Beats] auto-save failed:', saveErr);
-              setStatus('Done — auto-save failed. Click "Insert into Editor" to save manually.', 5000);
+            const activeSheet = _rwGetActiveVersion(state.currentChapterId);
+            if (activeSheet) {
+              // Active sheet exists — write the result into it
+              _rwUpdateContent(state.currentChapterId, _rwActiveId, state.draftOutput);
+              _rwRender(state.currentChapterId);
+              setStatus(`✓ Written into "${activeSheet.label}" — click Apply to Editor when ready`, 5000);
+            } else {
+              // No active sheet — original behaviour: auto-save to main editor
+              try {
+                const htmlContent = escHtml(state.draftOutput).replace(/\n/g, '<br>');
+                await apiFetch('/api/chapters/' + state.currentChapterId + '/content', {
+                  method: 'PUT',
+                  body: { content: htmlContent, model_used: 'beats' },
+                });
+                el('editor').innerHTML = htmlContent;
+                el('word-count').textContent = countWords(el('editor').innerText) + ' words';
+                state.isDirty = false;
+                setStatus('✓ New version saved', 4000);
+              } catch (saveErr) {
+                console.error('[Write from Beats] auto-save failed:', saveErr);
+                setStatus('Done — auto-save failed. Click "Insert into Editor" to save manually.', 5000);
+              }
             }
           }
           break;
@@ -3221,8 +3443,9 @@ el('generate-btn').addEventListener('click', async () => {
     let endBefore  = el('continue-end-before').value.trim();
 
     if (!startFrom.trim()) {
-      // Auto-fill from the full editor content when left blank
-      startFrom = el('editor').innerText;
+      // Prefer active sheet content when one is selected; fall back to main editor
+      const _activeSheet = _rwGetActiveVersion(state.currentChapterId);
+      startFrom = _activeSheet ? _activeSheet.content : el('editor').innerText;
     }
 
     const wordNote  = _buildWordCountNote(el('continue-min-words'), el('continue-max-words'), startFrom);
@@ -3263,7 +3486,19 @@ el('generate-btn').addEventListener('click', async () => {
             break;
           }
         }
-        if (ev.done) break;
+        if (ev.done) {
+          // If an active sheet exists, append the generated text to it
+          if (state.draftOutput.trim()) {
+            const activeSheet = _rwGetActiveVersion(state.currentChapterId);
+            if (activeSheet) {
+              const newContent = (activeSheet.content ? activeSheet.content + '\n\n' : '') + state.draftOutput;
+              _rwUpdateContent(state.currentChapterId, _rwActiveId, newContent);
+              _rwRender(state.currentChapterId);
+              setStatus(`✓ Appended to "${activeSheet.label}"`, 3500);
+            }
+          }
+          break;
+        }
       }
     } catch (e) {
       if (e.name !== 'AbortError') {
@@ -3323,7 +3558,18 @@ el('generate-btn').addEventListener('click', async () => {
             break;
           }
         }
-        if (ev.done) break;
+        if (ev.done) {
+          // If an active sheet exists, replace its content with the rewrite
+          if (state.draftOutput.trim()) {
+            const activeSheet = _rwGetActiveVersion(state.currentChapterId);
+            if (activeSheet) {
+              _rwUpdateContent(state.currentChapterId, _rwActiveId, state.draftOutput);
+              _rwRender(state.currentChapterId);
+              setStatus(`✓ Rewrite saved to "${activeSheet.label}"`, 3500);
+            }
+          }
+          break;
+        }
       }
     } catch (e) {
       if (e.name !== 'AbortError') {
@@ -3457,6 +3703,12 @@ async function sendChat() {
   el('chat-send-btn').disabled = true;
 
   try {
+    // Flush any unsaved editor edits before sending — the 2-second autosave
+    // debounce means the DB could be stale if the user just typed something.
+    // This guarantees the chat always operates on exactly what is visible in
+    // the main panel, not a slightly older version.
+    if (state.isDirty) await saveChapterContent();
+
     const historyToSend = state.chatHistory.slice(0, -1); // exclude current question (already in body)
     const res = await fetch('/api/projects/' + state.currentProjectId + '/chat', {
       method: 'POST',
@@ -3496,6 +3748,12 @@ async function sendChat() {
       }
       if (ev.done) break;
     }
+    // If the model returned nothing at all, clear the "Thinking…" state
+    // so the bubble doesn't stay stuck forever.
+    if (!fullText) {
+      assistantBubble.classList.remove('chat-thinking');
+      assistantBubble.textContent = '⚠️ No response — the model returned empty output. Try rephrasing your request or check the Ollama logs.';
+    }
     state.chatHistory.push({ role: 'assistant', content: fullText });
 
     // Role-specific action buttons after response
@@ -3503,18 +3761,14 @@ async function sendChat() {
       const role = _activeChatRole();
 
       if (role === 'writer') {
-        // Writer: save full response as a versioned rewrite
-        const saveBtn = document.createElement('button');
-        saveBtn.className = 'btn btn-sm';
-        saveBtn.style.cssText = 'margin-top:6px;font-size:11px;align-self:flex-end;';
-        saveBtn.textContent = '💾 Save as Rewrite Version';
-        saveBtn.addEventListener('click', () => {
-          _rwAddVersion(state.currentChapterId, state.currentChapterTitle, fullText);
-          _rwRender(state.currentChapterId);
-          saveBtn.textContent = '✔ Saved';
-          saveBtn.disabled = true;
-        });
-        assistantBubble.parentElement.appendChild(saveBtn);
+        // Writer: auto-save result directly to the versions panel (same as
+        // Write from Beats / Continue Write / Rewrite Selection in Draft AI).
+        await _rwAddVersion(state.currentChapterId, state.currentChapterTitle, fullText);
+        _rwRender(state.currentChapterId);
+        const savedNote = document.createElement('div');
+        savedNote.style.cssText = 'margin-top:5px;font-size:11px;color:var(--subtext);align-self:flex-end;';
+        savedNote.textContent = '✔ Saved as new version — select it in the Versions panel and click Apply to Editor when ready.';
+        assistantBubble.parentElement.appendChild(savedNote);
 
       } else if (role === 'editor') {
         // Editor: pin suggestion as a persistent note for this chapter
@@ -3523,8 +3777,8 @@ async function sendChat() {
         pinBtn.className = 'btn btn-sm';
         pinBtn.style.cssText = 'margin-top:6px;font-size:11px;align-self:flex-start;background:color-mix(in srgb,var(--yellow) 12%,var(--surface2));color:var(--yellow);border-color:color-mix(in srgb,var(--yellow) 30%,var(--border));';
         pinBtn.textContent = existingNote ? '📌 Update Editor Note' : '📌 Pin as Editor Note';
-        pinBtn.addEventListener('click', () => {
-          _enSave(state.currentChapterId, fullText);
+        pinBtn.addEventListener('click', async () => {
+          await _enSave(state.currentChapterId, fullText);
           _enRender(state.currentChapterId);
           pinBtn.textContent = '✔ Pinned';
           pinBtn.disabled = true;
@@ -3538,8 +3792,8 @@ async function sendChat() {
         qaPinBtn.className = 'btn btn-sm';
         qaPinBtn.style.cssText = 'margin-top:6px;font-size:11px;align-self:flex-start;background:color-mix(in srgb,var(--accent) 12%,var(--surface2));color:var(--accent);border-color:color-mix(in srgb,var(--accent) 30%,var(--border));';
         qaPinBtn.textContent = existingQaNote ? '📌 Update QA Note' : '📌 Pin as QA Note';
-        qaPinBtn.addEventListener('click', () => {
-          _qnSave(state.currentChapterId, fullText);
+        qaPinBtn.addEventListener('click', async () => {
+          await _qnSave(state.currentChapterId, fullText);
           _qnRender(state.currentChapterId);
           qaPinBtn.textContent = '✔ Pinned';
           qaPinBtn.disabled = true;
@@ -3602,6 +3856,151 @@ function renderDocList(docs) {
 }
 
 el('doc-filter').addEventListener('change', loadDocuments);
+
+// ── Chapter Memory ────────────────────────────────────────────────────────
+
+function _switchToMemoryTab() {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  const btn = document.querySelector('.tab-btn[data-tab="memory"]');
+  if (btn) btn.classList.add('active');
+  const pane = el('tab-memory');
+  if (pane) pane.classList.add('active');
+}
+
+async function _chMemFolderToggle(chId) {
+  const folderRow = el('ch-mem-folder-' + chId);
+  const docsDiv = el('ch-mem-docs-' + chId);
+  if (!folderRow || !docsDiv) return;
+  const isOpen = folderRow.dataset.open === '1';
+  if (isOpen) {
+    folderRow.dataset.open = '0';
+    folderRow.querySelector('.ch-mem-expand-icon').textContent = '▶';
+    docsDiv.innerHTML = '';
+  } else {
+    folderRow.dataset.open = '1';
+    folderRow.querySelector('.ch-mem-expand-icon').textContent = '▼';
+    await _chMemFolderLoad(chId, docsDiv);
+  }
+}
+
+async function _chMemFolderLoad(chId, docsDiv) {
+  const pid = state.currentProjectId;
+  if (!pid) return;
+  docsDiv.innerHTML = '<div class="ch-mem-loading">Loading…</div>';
+  try {
+    const docs = await apiFetch('/api/projects/' + pid + '/chapters/' + chId + '/documents');
+    docsDiv.innerHTML = '';
+    if (!docs || !docs.length) {
+      const empty = document.createElement('div');
+      empty.className = 'ch-mem-empty';
+      empty.textContent = 'No files yet';
+      docsDiv.appendChild(empty);
+    } else {
+      for (const doc of docs) {
+        const item = document.createElement('div');
+        item.className = 'ch-mem-doc-item';
+        const name = doc.title || (doc.file_path || '').split(/[\\/]/).pop() || doc.id;
+        item.innerHTML =
+          '<span>📄</span>' +
+          '<span class="ch-mem-doc-name">' + escHtml(name) + '</span>' +
+          '<button class="ch-mem-edit-btn" title="Edit">✏️</button>' +
+          '<button class="ch-mem-delete-btn" title="Delete">🗑️</button>';
+        item.querySelector('.ch-mem-edit-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          state.selectedDocId = doc.id;
+          el('doc-editor-title').textContent = name;
+          el('doc-editor-badge').textContent = doc.doc_type || '';
+          el('doc-editor-area').value = '';
+          el('doc-editor-status').textContent = 'Loading…';
+          el('doc-editor-modal').style.display = 'flex';
+          try {
+            const res = await apiFetch('/api/documents/' + doc.id + '/content');
+            el('doc-editor-area').value = res.text || '';
+            el('doc-editor-status').textContent = '';
+          } catch (err) {
+            el('doc-editor-status').textContent = 'Failed to load: ' + err.message;
+          }
+        });
+        item.querySelector('.ch-mem-delete-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm('Delete "' + name + '" from chapter memory?')) return;
+          try {
+            await apiFetch('/api/documents/' + doc.id + '?project_id=' + pid, { method: 'DELETE' });
+            await _chMemFolderLoad(chId, docsDiv);
+          } catch (err) {
+            alert('Delete failed: ' + err.message);
+          }
+        });
+        item.addEventListener('click', async (e) => {
+          e.stopPropagation();
+        });
+        docsDiv.appendChild(item);
+      }
+    }
+    const addLink = document.createElement('div');
+    addLink.className = 'ch-mem-add-link';
+    addLink.textContent = '+ Add file';
+    addLink.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (state.currentChapterId !== chId) await selectChapter(chId);
+      _switchToMemoryTab();
+      setTimeout(() => el('chapter-add-files-btn')?.click(), 150);
+    });
+    docsDiv.appendChild(addLink);
+  } catch (e) {
+    docsDiv.innerHTML = '<div class="ch-mem-loading" style="color:var(--red);">Error loading</div>';
+  }
+}
+
+async function _chMemFolderRefresh(chId) {
+  if (!chId) return;
+  const folderRow = el('ch-mem-folder-' + chId);
+  const docsDiv = el('ch-mem-docs-' + chId);
+  if (!folderRow || !docsDiv || folderRow.dataset.open !== '1') return;
+  await _chMemFolderLoad(chId, docsDiv);
+}
+
+
+el('chapter-add-files-btn').addEventListener('click', () =>
+  el('chapter-file-input').click()
+);
+
+el('chapter-file-input').addEventListener('change', async (e) => {
+  const cid = state.currentChapterId;
+  const pid = state.currentProjectId;
+  if (!cid || !pid) { alert('Select a chapter first.'); return; }
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  const prog = el('chapter-upload-progress');
+  prog.style.display = 'block';
+  const docType = el('chapter-import-doc-type').value;
+  let done = 0;
+  for (const file of files) {
+    prog.textContent = 'Uploading ' + (done + 1) + '/' + files.length + '…';
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('doc_type', docType);
+      const res = await fetch(
+        '/api/projects/' + pid + '/chapters/' + cid + '/ingest',
+        { method: 'POST', body: fd }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        console.error('[chapter-memory] upload failed:', err.detail);
+      }
+    } catch (err) {
+      console.error('[chapter-memory] upload error:', err);
+    }
+    done++;
+  }
+  prog.style.display = 'none';
+  e.target.value = '';
+  await loadChapterDocuments();
+  await _chMemFolderRefresh(cid);
+});
+
 
 el('add-files-btn').addEventListener('click', () => el('file-input').click());
 
@@ -3942,6 +4341,101 @@ el('beats-gen-accept').addEventListener('click', () => {
   }).catch(() => {});
 });
 
+// ── Generate Chapter Codex ────────────────────────────────────────────────
+let _codexGenText = '';
+
+el('gen-chapter-codex-btn').addEventListener('click', async () => {
+  const pid = state.currentProjectId;
+  const cid = state.currentChapterId;
+  if (!pid || !cid) { alert('Select a chapter first.'); return; }
+  const beats = (el('beats-editor').value || '').trim();
+  if (!beats) { alert('Add chapter beats first — the codex is generated from your beats.'); return; }
+
+  const btn = el('gen-chapter-codex-btn');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  el('codex-gen-text').value = '';
+  el('codex-save-status').style.display = 'none';
+  el('save-chapter-codex-btn').disabled = false;
+  _codexGenText = '';
+
+  // Default filename: ch<position>_codex
+  const ch = (state.projects.flatMap ? null : null); // placeholder
+  const chTitle = state.currentChapterTitle || 'chapter';
+  el('codex-gen-title').value = (chTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'chapter') + '_codex';
+
+  try {
+    const lang = el('ai-lang')?.value || state.projectLang || 'en';
+    const res = await fetch(
+      '/api/projects/' + pid + '/chapters/' + cid + '/generate-chapter-codex',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ beats, language: lang }),
+      }
+    );
+    if (!res.ok) { throw new Error(await res.text()); }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = JSON.parse(line.slice(6));
+        if (payload.error) { el('codex-gen-text').value = '⚠ ' + payload.error; break; }
+        if (payload.text) {
+          _codexGenText += payload.text;
+          el('codex-gen-text').value = _codexGenText;
+          el('codex-gen-text').scrollTop = el('codex-gen-text').scrollHeight;
+        }
+      }
+    }
+  } catch (e) {
+    el('codex-gen-text').value = '⚠ Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Regenerate';
+  }
+});
+
+el('save-chapter-codex-btn').addEventListener('click', async () => {
+  const pid = state.currentProjectId;
+  const cid = state.currentChapterId;
+  const content = el('codex-gen-text').value.trim();
+  if (!content || content.startsWith('⚠')) { alert('Nothing to save.'); return; }
+  if (!pid || !cid) { alert('Select a chapter first.'); return; }
+
+  const btn = el('save-chapter-codex-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  const title = el('codex-gen-title').value.trim() || 'chapter_codex';
+
+  try {
+    await apiFetch(
+      '/api/projects/' + pid + '/chapters/' + cid + '/save-chapter-codex',
+      { method: 'POST', body: JSON.stringify({ content, title }) }
+    );
+    el('codex-save-status').textContent = '✓ Saved to chapter memory';
+    el('codex-save-status').style.display = 'block';
+    // Refresh sidebar folder and memory panel if open
+    await _chMemFolderRefresh(cid);
+    if (el('chapter-memory-section').style.display !== 'none') await loadChapterDocuments();
+  } catch (e) {
+    el('codex-save-status').textContent = '⚠ Save failed: ' + e.message;
+    el('codex-save-status').style.display = 'block';
+    el('codex-save-status').style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save to Chapter Memory';
+  }
+});
+
+
 // Beats required modal
 el('beats-req-dismiss').addEventListener('click', () => {
   el('beats-required-modal').style.display = 'none';
@@ -3965,92 +4459,242 @@ function escHtml(str) {
 }
 
 // ── Rewrite Versions ────────────────────────────────────────────────────────
-const _RW_STORE = 'norvel_rewrite_versions';
+// Versions are persisted in SQLite via the API so they survive restarts.
+// An in-memory cache (_rwVersionsCache) keeps synchronous read paths fast;
+// all writes update the cache immediately (optimistic) then persist via API.
+// A one-time migration uploads any existing localStorage versions to the DB.
 
-function _rwLoad(chapterId) {
-  try {
-    const all = JSON.parse(localStorage.getItem(_RW_STORE) || '{}');
-    return all[chapterId] || [];
-  } catch (_) { return []; }
+const _RW_LS_LEGACY = 'norvel_rewrite_versions'; // legacy localStorage key
+
+let _rwVersionsCache = {};  // { [chapterId]: version[] }
+let _rwActiveId      = null;
+let _rwSaveTimer     = null; // debounce handle for viewer-input autosave
+
+// ── Cache helpers ────────────────────────────────────────────────────────────
+
+function _rwGetVersions(chapterId) {
+  return _rwVersionsCache[chapterId] || [];
 }
 
-function _rwSave(chapterId, versions) {
+async function _rwFetchVersions(chapterId) {
   try {
-    const all = JSON.parse(localStorage.getItem(_RW_STORE) || '{}');
-    all[chapterId] = versions;
-    localStorage.setItem(_RW_STORE, JSON.stringify(all));
-  } catch (_) {}
+    const versions = await apiFetch('/api/chapters/' + chapterId + '/versions');
+    _rwVersionsCache[chapterId] = versions;
+    return versions;
+  } catch (_) {
+    _rwVersionsCache[chapterId] = [];
+    return [];
+  }
 }
 
-function _rwAddVersion(chapterId, chapterTitle, content) {
-  const versions = _rwLoad(chapterId);
-  const n = versions.length + 1;
-  versions.push({
-    id:    Date.now().toString(36),
-    label: `${chapterTitle || 'Chapter'} – Rewrite v${n}`,
+// ── One-time localStorage → DB migration ─────────────────────────────────────
+
+async function _rwMigrateChapter(chapterId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_RW_LS_LEGACY) || '{}');
+    const lsVersions = all[chapterId];
+    if (!lsVersions || !lsVersions.length) return;
+    // If DB already has versions, just clear the legacy entry
+    const existing = await apiFetch('/api/chapters/' + chapterId + '/versions');
+    if (existing.length > 0) {
+      delete all[chapterId];
+      localStorage.setItem(_RW_LS_LEGACY, JSON.stringify(all));
+      return;
+    }
+    // Upload each legacy version to the DB
+    for (let i = 0; i < lsVersions.length; i++) {
+      const v = lsVersions[i];
+      await apiFetch('/api/chapters/' + chapterId + '/versions', {
+        method: 'POST',
+        body: {
+          id:         v.id || (Date.now().toString(36) + i),
+          label:      v.label   || `Version ${i + 1}`,
+          content:    v.content || '',
+          is_sheet:   !!(v.isSheet || v.is_sheet),
+          sort_order: i,
+          created_at: v.createdAt || v.created_at || new Date().toISOString(),
+        },
+      });
+    }
+    delete all[chapterId];
+    localStorage.setItem(_RW_LS_LEGACY, JSON.stringify(all));
+    console.log('[versions] migrated', lsVersions.length, 'versions from localStorage for', chapterId);
+  } catch (e) {
+    console.warn('[versions] localStorage migration failed:', e);
+  }
+}
+
+// ── Version operations ───────────────────────────────────────────────────────
+
+async function _rwAddVersion(chapterId, chapterTitle, content) {
+  const versions = _rwGetVersions(chapterId);
+  const n = versions.filter(v => !v.is_sheet).length + 1;
+  const v = {
+    id:         Date.now().toString(36),
+    label:      `${chapterTitle || 'Chapter'} \u2013 Rewrite v${n}`,
     content,
-    createdAt: new Date().toISOString(),
+    is_sheet:   false,
+    sort_order: versions.length,
+    created_at: new Date().toISOString(),
+  };
+  _rwVersionsCache[chapterId] = [...versions, v];
+  try {
+    await apiFetch('/api/chapters/' + chapterId + '/versions', { method: 'POST', body: v });
+  } catch (e) { console.error('[_rwAddVersion]', e); }
+  return v;
+}
+
+async function _rwDeleteVersion(chapterId, versionId) {
+  let versions = _rwGetVersions(chapterId).filter(v => v.id !== versionId);
+  // Renumber non-sheet rewrite labels sequentially
+  let rwN = 1;
+  const labelMap = {};
+  versions = versions.map(v => {
+    if (!v.is_sheet) {
+      const updated = v.label.replace(/Rewrite v\d+$/, `Rewrite v${rwN++}`);
+      if (updated !== v.label) { labelMap[v.id] = updated; return { ...v, label: updated }; }
+    }
+    return v;
   });
-  _rwSave(chapterId, versions);
-  return versions;
+  _rwVersionsCache[chapterId] = versions;
+  try {
+    await apiFetch('/api/chapters/' + chapterId + '/versions/' + versionId, { method: 'DELETE' });
+    if (Object.keys(labelMap).length) {
+      await apiFetch('/api/chapters/' + chapterId + '/versions/relabel', {
+        method: 'POST', body: { label_map: labelMap },
+      });
+    }
+  } catch (e) { console.error('[_rwDeleteVersion]', e); }
 }
 
-function _rwDeleteVersion(chapterId, versionId) {
-  let versions = _rwLoad(chapterId).filter(v => v.id !== versionId);
-  // Renumber labels
-  let n = 1;
-  const base = versions[0]?.label.replace(/\s*–\s*Rewrite v\d+$/, '') || 'Chapter';
-  versions = versions.map(v => ({
-    ...v,
-    label: `${base} – Rewrite v${n++}`,
-  }));
-  _rwSave(chapterId, versions);
-  return versions;
+async function _rwAddBlankSheet(chapterId) {
+  const versions = _rwGetVersions(chapterId);
+  const sheetN = versions.filter(v => v.is_sheet).length + 1;
+  const v = {
+    id:         Date.now().toString(36),
+    label:      `Sheet ${sheetN}`,
+    content:    '',
+    is_sheet:   true,
+    sort_order: versions.length,
+    created_at: new Date().toISOString(),
+  };
+  _rwVersionsCache[chapterId] = [...versions, v];
+  _rwActiveId = v.id;
+  try {
+    await apiFetch('/api/chapters/' + chapterId + '/versions', { method: 'POST', body: v });
+  } catch (e) { console.error('[_rwAddBlankSheet]', e); }
+  return v;
 }
 
-let _rwActiveId = null;  // currently selected version id
+// Synchronous — updates cache immediately; debounces the API call by 800 ms
+function _rwUpdateContent(chapterId, versionId, content) {
+  _rwVersionsCache[chapterId] = (_rwVersionsCache[chapterId] || []).map(v =>
+    v.id === versionId ? { ...v, content } : v
+  );
+  clearTimeout(_rwSaveTimer);
+  _rwSaveTimer = setTimeout(async () => {
+    try {
+      await apiFetch('/api/chapters/' + chapterId + '/versions/' + versionId, {
+        method: 'PUT', body: { content },
+      });
+    } catch (e) { console.error('[_rwUpdateContent]', e); }
+  }, 800);
+}
 
-function _rwRender(chapterId) {
-  const panel   = el('rewrite-panel');
-  const tabsRow = el('rewrite-tabs-row');
-  const viewer  = el('rewrite-viewer');
-  const versions = _rwLoad(chapterId);
+// Synchronous — reads from cache (populated by _rwRender / _rwFetchVersions)
+function _rwGetActiveVersion(chapterId) {
+  if (!_rwActiveId || !chapterId) return null;
+  return _rwGetVersions(chapterId).find(v => v.id === _rwActiveId) || null;
+}
+
+async function _rwRenameVersion(chapterId, versionId, newLabel) {
+  const label = newLabel.trim();
+  if (!label) return;
+  _rwVersionsCache[chapterId] = (_rwVersionsCache[chapterId] || []).map(v =>
+    v.id === versionId ? { ...v, label } : v
+  );
+  try {
+    await apiFetch('/api/chapters/' + chapterId + '/versions/' + versionId, {
+      method: 'PUT', body: { label },
+    });
+  } catch (e) { console.error('[_rwRenameVersion]', e); }
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+
+async function _rwRender(chapterId) {
+  const panel       = el('rewrite-panel');
+  const tabsRow     = el('rewrite-tabs-row');
+  const viewer      = el('rewrite-viewer');
+  const actionsBar  = el('rewrite-viewer-actions');
+  const activeLabel = el('rewrite-active-label');
+
+  // Fetch from API if the cache has no entry yet for this chapter
+  if (!_rwVersionsCache[chapterId]) await _rwFetchVersions(chapterId);
+  const versions = _rwGetVersions(chapterId);
 
   tabsRow.innerHTML = '';
 
   if (!versions.length) {
-    panel.style.display = 'none';
+    panel.style.display = 'flex';
     _rwActiveId = null;
+    viewer.value = '';
+    viewer.placeholder = 'No versions yet.\nClick  +  to create a blank sheet, or generate content with Draft AI / Chat Writer.';
+    viewer.disabled = true;
+    viewer.oninput  = null;
+    actionsBar.style.display = 'none';
+    activeLabel.textContent  = '';
     return;
   }
 
+  viewer.disabled     = false;
+  viewer.placeholder  = '';
   panel.style.display = 'flex';
 
-  // If active version was deleted, pick the last one
   if (!versions.find(v => v.id === _rwActiveId)) {
     _rwActiveId = versions[versions.length - 1].id;
   }
 
   versions.forEach(v => {
+    const isActive = v.id === _rwActiveId;
     const tab = document.createElement('div');
-    tab.className = 'rewrite-tab' + (v.id === _rwActiveId ? ' active' : '');
+    tab.className = 'rewrite-tab'
+      + (isActive   ? ' active' : '')
+      + (v.is_sheet ? ' sheet'  : '');
     tab.title = v.label;
 
     const lbl = document.createElement('span');
     lbl.textContent = v.label;
-    lbl.style.maxWidth = '180px';
-    lbl.style.overflow = 'hidden';
-    lbl.style.textOverflow = 'ellipsis';
+    lbl.style.cssText = 'max-width:160px;overflow:hidden;text-overflow:ellipsis;';
+    lbl.title = 'Double-click to rename';
+    lbl.addEventListener('dblclick', async e => {
+      e.stopPropagation();
+      const inp = document.createElement('input');
+      inp.value = v.label;
+      inp.style.cssText = 'width:120px;font-size:11px;padding:0 2px;border:1px solid var(--accent);border-radius:3px;background:var(--bg);color:var(--text);outline:none;';
+      lbl.replaceWith(inp);
+      inp.focus(); inp.select();
+      const commit = async () => {
+        const newLabel = inp.value.trim() || v.label;
+        await _rwRenameVersion(chapterId, v.id, newLabel);
+        _rwRender(chapterId);
+      };
+      inp.addEventListener('keydown', e2 => {
+        if (e2.key === 'Enter')  { e2.preventDefault(); commit(); }
+        if (e2.key === 'Escape') { _rwRender(chapterId); }
+      });
+      inp.addEventListener('blur', commit);
+    });
     tab.appendChild(lbl);
 
     const del = document.createElement('span');
     del.className = 'rewrite-tab-del';
     del.textContent = '✕';
     del.title = 'Delete this version';
-    del.addEventListener('click', e => {
+    del.addEventListener('click', async e => {
       e.stopPropagation();
       if (!confirm(`Delete "${v.label}"?`)) return;
-      _rwDeleteVersion(chapterId, v.id);
+      await _rwDeleteVersion(chapterId, v.id);
       _rwRender(chapterId);
     });
     tab.appendChild(del);
@@ -4064,16 +4708,69 @@ function _rwRender(chapterId) {
 
   const active = versions.find(v => v.id === _rwActiveId);
   viewer.value = active ? active.content : '';
+
+  // Autosave viewer edits — debounced to avoid flooding the API
+  viewer.oninput = active ? () => {
+    _rwUpdateContent(chapterId, _rwActiveId, viewer.value);
+    el('rewrite-word-count').textContent = countWords(viewer.value) + ' words';
+  } : null;
+
+  if (active) {
+    actionsBar.style.display = 'flex';
+    activeLabel.textContent  = active.is_sheet
+      ? `\u270F Editing: ${active.label}`
+      : `\uD83D\uDC41 Viewing: ${active.label}`;
+    el('rewrite-word-count').textContent = countWords(active.content) + ' words';
+  } else {
+    actionsBar.style.display = 'none';
+    el('rewrite-word-count').textContent = '';
+  }
 }
 
-// Show panel when switching to a chapter that has versions
-function _rwCheckForChapter(chapterId) {
+// Show the versions panel when a chapter is selected; run localStorage migration first.
+async function _rwCheckForChapter(chapterId) {
   if (!chapterId) { el('rewrite-panel').style.display = 'none'; return; }
-  _rwRender(chapterId);
+  await _rwMigrateChapter(chapterId);           // one-time, no-op if already done
+  delete _rwVersionsCache[chapterId];            // force fresh fetch from DB
+  el('rewrite-panel').style.display = 'flex';
+  await _rwRender(chapterId);
 }
 
 el('rewrite-panel-close').addEventListener('click', () => {
   el('rewrite-panel').style.display = 'none';
+});
+
+// + button — create a new blank sheet and open it
+el('rewrite-add-sheet').addEventListener('click', async () => {
+  if (!state.currentChapterId) { setStatus('Select a chapter first', 2500); return; }
+  await _rwAddBlankSheet(state.currentChapterId);
+  _rwRender(state.currentChapterId);
+  el('rewrite-panel').style.display = 'flex';
+  el('rewrite-viewer').focus();
+  setStatus('Blank sheet created — type freely or use Draft AI to generate into it', 3500);
+});
+
+// Apply to Editor — copy active version into the main editor and save as accepted draft
+el('rewrite-apply-btn').addEventListener('click', async () => {
+  if (!state.currentChapterId || !_rwActiveId) return;
+  const active = _rwGetActiveVersion(state.currentChapterId);
+  if (!active) return;
+  const content = active.content.trim();
+  if (!content) { setStatus('Sheet is empty — write something first', 2500); return; }
+  const htmlContent = escHtml(content).replace(/\n/g, '<br>');
+  try {
+    await apiFetch('/api/chapters/' + state.currentChapterId + '/content', {
+      method: 'PUT',
+      body: { content: htmlContent, model_used: 'sheet' },
+    });
+    el('editor').innerHTML = htmlContent;
+    el('word-count').textContent = countWords(el('editor').innerText) + ' words';
+    state.isDirty = false;
+    setStatus(`\u2713 "${active.label}" applied to editor`, 4000);
+  } catch (e) {
+    console.error('[Apply to Editor]', e);
+    setStatus('Failed to apply: ' + e.message, 4000);
+  }
 });
 
 // ── Drag-to-resize: Rewrite Versions panel ──────────────────────────────────
@@ -4164,29 +4861,79 @@ el('rewrite-panel-close').addEventListener('click', () => {
   makeColResizer('right-panel-resize-handle',  el('right-panel'),  -1, 220, 600, 'right-panel');
 }());
 
-// ── Editor Notes (per-chapter, persisted) ───────────────────────────────────
-const _EN_STORE = 'norvel_editor_notes';
+// ── Editor & QA Notes (per-chapter, persisted to DB) ────────────────────────
+// Legacy localStorage keys kept only for one-time migration
+const _NOTES_LS_EN = 'norvel_editor_notes';
+const _NOTES_LS_QN = 'norvel_qa_notes';
+let _notesCache = {};  // { [chapterId]: { editor_note: string|null, qa_note: string|null } }
 
-function _enLoad(chapterId) {
+async function _notesFetch(chapterId) {
+  if (!chapterId) return;
+  // One-time localStorage → DB migration
   try {
-    const all = JSON.parse(localStorage.getItem(_EN_STORE) || '{}');
-    return all[chapterId] || null;
-  } catch (_) { return null; }
+    const lsEn = JSON.parse(localStorage.getItem(_NOTES_LS_EN) || '{}');
+    const lsQn = JSON.parse(localStorage.getItem(_NOTES_LS_QN) || '{}');
+    const migrateEn = lsEn[chapterId] || null;
+    const migrateQn = lsQn[chapterId] || null;
+    if (migrateEn || migrateQn) {
+      const ch = await apiFetch('/api/chapters/' + chapterId);
+      const dbEn = ch.editor_note || null;
+      const dbQn = ch.qa_note || null;
+      const payload = {};
+      if (!dbEn && migrateEn) payload.editor_note = migrateEn;
+      if (!dbQn && migrateQn) payload.qa_note = migrateQn;
+      if (Object.keys(payload).length) {
+        await apiFetch('/api/chapters/' + chapterId, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+      }
+      delete lsEn[chapterId];
+      delete lsQn[chapterId];
+      localStorage.setItem(_NOTES_LS_EN, JSON.stringify(lsEn));
+      localStorage.setItem(_NOTES_LS_QN, JSON.stringify(lsQn));
+      _notesCache[chapterId] = {
+        editor_note: payload.editor_note || dbEn || null,
+        qa_note:     payload.qa_note     || dbQn || null,
+      };
+      return;
+    }
+  } catch (_) {}
+  // Normal DB fetch
+  try {
+    const ch = await apiFetch('/api/chapters/' + chapterId);
+    _notesCache[chapterId] = {
+      editor_note: ch.editor_note || null,
+      qa_note:     ch.qa_note     || null,
+    };
+  } catch (_) {
+    _notesCache[chapterId] = { editor_note: null, qa_note: null };
+  }
 }
 
-function _enSave(chapterId, text) {
+function _enLoad(chapterId) {
+  return (_notesCache[chapterId] || {}).editor_note || null;
+}
+
+async function _enSave(chapterId, text) {
+  if (!_notesCache[chapterId]) _notesCache[chapterId] = { editor_note: null, qa_note: null };
+  _notesCache[chapterId].editor_note = text;
   try {
-    const all = JSON.parse(localStorage.getItem(_EN_STORE) || '{}');
-    all[chapterId] = text;
-    localStorage.setItem(_EN_STORE, JSON.stringify(all));
+    await apiFetch('/api/chapters/' + chapterId, {
+      method: 'PUT',
+      body: JSON.stringify({ editor_note: text }),
+    });
   } catch (_) {}
 }
 
-function _enClear(chapterId) {
+async function _enClear(chapterId) {
+  if (!_notesCache[chapterId]) _notesCache[chapterId] = { editor_note: null, qa_note: null };
+  _notesCache[chapterId].editor_note = null;
   try {
-    const all = JSON.parse(localStorage.getItem(_EN_STORE) || '{}');
-    delete all[chapterId];
-    localStorage.setItem(_EN_STORE, JSON.stringify(all));
+    await apiFetch('/api/chapters/' + chapterId, {
+      method: 'PUT',
+      body: JSON.stringify({ editor_note: '' }),
+    });
   } catch (_) {}
 }
 
@@ -4200,38 +4947,51 @@ function _enRender(chapterId) {
   box.style.display = 'block';
   content.textContent = note;
   chLabel.textContent = '— ' + (state.currentChapterTitle || '');
+  // Reset expand state whenever the note is re-rendered
+  content.style.maxHeight = '180px';
+  el('editor-notes-expand-btn').textContent = '⤢ Expand';
 }
 
-el('editor-notes-clear-btn').addEventListener('click', () => {
+el('editor-notes-expand-btn').addEventListener('click', () => {
+  const content = el('editor-notes-content');
+  const btn     = el('editor-notes-expand-btn');
+  const expanded = content.style.maxHeight !== '180px';
+  content.style.maxHeight = expanded ? '180px' : '60vh';
+  btn.textContent = expanded ? '⤢ Expand' : '⤡ Collapse';
+});
+
+el('editor-notes-clear-btn').addEventListener('click', async () => {
   if (!state.currentChapterId) return;
   if (!confirm('Clear the pinned editor note for this chapter?')) return;
-  _enClear(state.currentChapterId);
+  await _enClear(state.currentChapterId);
   _enRender(state.currentChapterId);
 });
 
-// ── QA Notes (per-chapter, persisted) ──────────────────────────────────────
-const _QN_STORE = 'norvel_qa_notes';
+// ── QA Notes ────────────────────────────────────────────────────────────────
 
 function _qnLoad(chapterId) {
-  try {
-    const all = JSON.parse(localStorage.getItem(_QN_STORE) || '{}');
-    return all[chapterId] || null;
-  } catch (_) { return null; }
+  return (_notesCache[chapterId] || {}).qa_note || null;
 }
 
-function _qnSave(chapterId, text) {
+async function _qnSave(chapterId, text) {
+  if (!_notesCache[chapterId]) _notesCache[chapterId] = { editor_note: null, qa_note: null };
+  _notesCache[chapterId].qa_note = text;
   try {
-    const all = JSON.parse(localStorage.getItem(_QN_STORE) || '{}');
-    all[chapterId] = text;
-    localStorage.setItem(_QN_STORE, JSON.stringify(all));
+    await apiFetch('/api/chapters/' + chapterId, {
+      method: 'PUT',
+      body: JSON.stringify({ qa_note: text }),
+    });
   } catch (_) {}
 }
 
-function _qnClear(chapterId) {
+async function _qnClear(chapterId) {
+  if (!_notesCache[chapterId]) _notesCache[chapterId] = { editor_note: null, qa_note: null };
+  _notesCache[chapterId].qa_note = null;
   try {
-    const all = JSON.parse(localStorage.getItem(_QN_STORE) || '{}');
-    delete all[chapterId];
-    localStorage.setItem(_QN_STORE, JSON.stringify(all));
+    await apiFetch('/api/chapters/' + chapterId, {
+      method: 'PUT',
+      body: JSON.stringify({ qa_note: '' }),
+    });
   } catch (_) {}
 }
 
@@ -4245,12 +5005,23 @@ function _qnRender(chapterId) {
   box.style.display = 'block';
   content.textContent = note;
   chLabel.textContent = '— ' + (state.currentChapterTitle || '');
+  // Reset expand state whenever the note is re-rendered
+  content.style.maxHeight = '180px';
+  el('qa-notes-expand-btn').textContent = '⤢ Expand';
 }
 
-el('qa-notes-clear-btn').addEventListener('click', () => {
+el('qa-notes-expand-btn').addEventListener('click', () => {
+  const content = el('qa-notes-content');
+  const btn     = el('qa-notes-expand-btn');
+  const expanded = content.style.maxHeight !== '180px';
+  content.style.maxHeight = expanded ? '180px' : '60vh';
+  btn.textContent = expanded ? '⤢ Expand' : '⤡ Collapse';
+});
+
+el('qa-notes-clear-btn').addEventListener('click', async () => {
   if (!state.currentChapterId) return;
   if (!confirm('Clear the pinned QA note for this chapter?')) return;
-  _qnClear(state.currentChapterId);
+  await _qnClear(state.currentChapterId);
   _qnRender(state.currentChapterId);
 });
 

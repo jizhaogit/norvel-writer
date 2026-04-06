@@ -100,9 +100,11 @@ class IngestPipeline:
 
         file_hash = hash_file(file_path)
 
-        # Skip if already indexed with same hash
+        # Skip if already indexed with same hash IN THE SAME SCOPE.
+        # A file uploaded to project memory and the same file uploaded to a
+        # chapter's memory are different records — chapter_id must match.
         if not reindex:
-            existing = doc_repo.find_by_hash(project_id, file_hash)
+            existing = doc_repo.find_by_hash(project_id, file_hash, chapter_id)
             if existing and existing["status"] == "ready":
                 log.info("Skipping already-indexed file: %s", file_path.name)
                 return existing["id"]
