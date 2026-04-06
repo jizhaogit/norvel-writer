@@ -2408,6 +2408,21 @@ function setStatus(msg, timeout = 0) {
 // what the AI reports when it says "I wrote X 字".
 const _CJK_RE = /[\u2E80-\u2FFF\u3000-\u9FFF\uF900-\uFAFF\uAC00-\uD7AF\uFF00-\uFFEF]/g;
 
+// Strip AI-generated word/character count summaries from prose output.
+// Models often append "(全文约X字)" or "(Total: ~X words)" — these are
+// always inaccurate (LLMs cannot count their own output) and pollute the text.
+function _stripLengthSummary(text) {
+  if (!text) return text;
+  return text
+    // Chinese full-width parens: （全文约X字）（共X字）（约X字）etc.
+    .replace(/[（(【\[]\s*(?:全文|全篇|共|约|总计|总字数|字数统计|本文|合计)[^）)】\]]{0,60}?(?:字|词|个字)[^）)】\]]{0,20}?[）)】\]]/g, '')
+    // English: (Total: ~6000 words) (Word count: X) (~X words) (approx X words)
+    .replace(/[(\[]\s*(?:total|word\s*count|approx(?:imately)?|~|about|roughly)[^)\]]{0,60}?words?[^)\]]{0,20}?[)\]]/gi, '')
+    // Bare trailing line like "全文约X字" or "共X字" at end of text
+    .replace(/\n+(?:全文|全篇|共|约|总计)[^\n]{0,40}(?:字|词)\s*$/g, '')
+    .trim();
+}
+
 function countWords(text) {
   if (!text || !text.trim()) return 0;
   const cjk = (text.match(_CJK_RE) || []).length;
@@ -3389,6 +3404,8 @@ el('generate-btn').addEventListener('click', async () => {
           }
         }
         if (ev.done) {
+          state.draftOutput = _stripLengthSummary(state.draftOutput);
+          output.textContent = state.draftOutput;
           if (state.draftOutput.trim()) {
             const activeSheet = _rwGetActiveVersion(state.currentChapterId);
             if (activeSheet) {
@@ -3489,6 +3506,8 @@ el('generate-btn').addEventListener('click', async () => {
           }
         }
         if (ev.done) {
+          state.draftOutput = _stripLengthSummary(state.draftOutput);
+          output.textContent = state.draftOutput;
           // If an active sheet exists, append the generated text to it
           if (state.draftOutput.trim()) {
             const activeSheet = _rwGetActiveVersion(state.currentChapterId);
@@ -3563,6 +3582,8 @@ el('generate-btn').addEventListener('click', async () => {
           }
         }
         if (ev.done) {
+          state.draftOutput = _stripLengthSummary(state.draftOutput);
+          output.textContent = state.draftOutput;
           // If an active sheet exists, replace its content with the rewrite
           if (state.draftOutput.trim()) {
             const activeSheet = _rwGetActiveVersion(state.currentChapterId);
@@ -4759,7 +4780,7 @@ el('rewrite-apply-btn').addEventListener('click', async () => {
   if (!state.currentChapterId || !_rwActiveId) return;
   const active = _rwGetActiveVersion(state.currentChapterId);
   if (!active) return;
-  const content = active.content.trim();
+  const content = _stripLengthSummary(active.content.trim());
   if (!content) { setStatus('Sheet is empty — write something first', 2500); return; }
   const htmlContent = escHtml(content).replace(/\n/g, '<br>');
   try {

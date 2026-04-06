@@ -1264,6 +1264,9 @@ def _build_writer_system_prompt(
     rules = rd.get("rules", {}).get("items", [
         "Output ONLY the prose — no beat labels, no beat numbers, no headings, no annotations, nothing except the story text",
         "Do NOT add meta-commentary, preambles, or explain your choices",
+        "Do NOT append any word count, character count, or length summary — "
+        "no '(全文约X字)', no '(Total: ~X words)', no '[共X字]' or similar. "
+        "Pure prose only, nothing after the final sentence / 文末不得添加字数统计",
         "Maintain the established POV and tense throughout",
         "Write directly usable prose — not outlines or summaries",
         "Cover each beat EXACTLY ONCE — once written, move on",
@@ -1421,27 +1424,32 @@ def _build_writer_system_prompt(
     # follow system-prompt directives; they routinely ignore identical text in
     # the user message.
     if mode != "beats" and (min_words > 0 or max_words > 0):
+        _target = max_words if max_words > 0 else min_words
         if min_words > 0 and max_words > 0:
             _len_req = f"between {min_words} and {max_words} {_unit}"
-            _len_instr = f"Do NOT stop writing until you have produced at least {min_words} {_unit}."
         elif max_words > 0:
             _len_req = f"approximately {max_words} {_unit}"
-            _len_instr = f"Aim for {max_words} {_unit}. Do not pad, but do not stop short either."
         else:
             _len_req = f"at least {min_words} {_unit}"
-            _len_instr = (
-                f"Do NOT stop writing until you have produced at least {min_words} {_unit}. "
-                f"Keep writing — expand scenes, add interiority, develop dialogue — "
-                f"until this minimum is met."
-            )
+        # Give concrete per-scene guidance: total ÷ 3 gives a local milestone
+        # the model can aim for within each major story beat, making the abstract
+        # total feel achievable rather than overwhelming.
+        _scene_target = max(300, _target // 3)
         prompt += (
             f"\n\n╔══════════════════════════════════════════╗\n"
             f"║  ⚠  MANDATORY LENGTH REQUIREMENT           ║\n"
             f"╚══════════════════════════════════════════╝\n"
             f"Your output MUST be {_len_req}.\n"
-            f"{_len_instr}\n"
-            f"Stopping early — even if the content feels complete — is NOT acceptable.\n"
-            f"Count carefully. If you are below the target, continue writing more prose."
+            f"Writing strategy to reach this target:\n"
+            f"► Divide your content into roughly 3 major sections.\n"
+            f"► Each section should be approximately {_scene_target} {_unit}.\n"
+            f"► For each section: write detailed scenes with rich dialogue, "
+            f"character interiority, sensory detail, and pacing.\n"
+            f"► After finishing what feels like a natural ending — check yourself: "
+            f"have you reached {_target} {_unit}? If not, continue expanding the "
+            f"final scene or add a closing reflection / epilogue passage.\n"
+            f"► Do NOT add any word count summary at the end. Pure prose only.\n"
+            f"Stopping short of {_len_req} is NOT acceptable."
         )
 
     # ── BEATS MODE: beats appear FIRST — they are the structural directive. ──
