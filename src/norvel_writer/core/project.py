@@ -114,6 +114,33 @@ class ProjectManager:
         self._projects.update_chapter(chapter_id, **kwargs)
 
     def delete_chapter(self, chapter_id: str) -> None:
+        # Look up chapter first so we have project_id for ChromaDB cleanup.
+        chapter = self._projects.get_chapter(chapter_id)
+        if chapter:
+            project_id = chapter["project_id"]
+
+            # 1. Collect document IDs before deletion (needed for ChromaDB cleanup).
+            doc_ids = self._documents.get_document_ids_by_chapter(chapter_id)
+
+            # 2. Remove each document's embeddings from the project ChromaDB collection.
+            for doc_id in doc_ids:
+                self._vs.delete_by_document(f"project_{project_id}", doc_id)
+                self._vs.delete_by_document(f"style_{project_id}", doc_id)
+
+            # 3. Bulk-delete document + chunk rows from SQLite (chunks cascade via FK).
+            self._documents.delete_documents_by_chapter(chapter_id)
+
+            # 4. Remove the chapter files directory from disk.
+            try:
+                from norvel_writer.config.settings import get_config
+                import shutil
+                ch_dir = get_config().projects_path / project_id / "chapters" / chapter_id
+                if ch_dir.exists():
+                    shutil.rmtree(ch_dir, ignore_errors=True)
+            except Exception as exc:
+                log.warning("delete_chapter: could not remove files dir for %s: %s", chapter_id, exc)
+
+        # 5. Delete the chapter record (SQLite CASCADE removes drafts, versions, images).
         self._projects.delete_chapter(chapter_id)
 
     def list_chapter_documents(

@@ -113,6 +113,18 @@ class DocumentRepo:
         with self._db.connect() as conn:
             conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
 
+    def get_document_ids_by_chapter(self, chapter_id: str) -> List[str]:
+        """Return all document IDs scoped to a chapter (for pre-delete ChromaDB cleanup)."""
+        rows = self._db.execute(
+            "SELECT id FROM documents WHERE chapter_id=?", (chapter_id,)
+        )
+        return [row["id"] for row in rows]
+
+    def delete_documents_by_chapter(self, chapter_id: str) -> None:
+        """Bulk-delete all documents scoped to a chapter (chunks cascade via FK)."""
+        with self._db.connect() as conn:
+            conn.execute("DELETE FROM documents WHERE chapter_id=?", (chapter_id,))
+
     def find_by_hash(
         self,
         project_id: str,

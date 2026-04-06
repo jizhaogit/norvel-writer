@@ -163,8 +163,18 @@ class DraftEngine:
         else:
             rag_query = last_para
 
-        # RAG — fetch extra candidates then cap to token budget so small local
-        # models aren't silently overflowed (budget ≈ 3500 tok ≈ 14 000 chars).
+        # RAG — derive n_results dynamically from the configured budget so that
+        # large-budget cloud setups (e.g. 48K tokens) actually retrieve enough
+        # chunks to fill the window.  _cap_rag hard-caps the token total, so
+        # over-requesting is always safe — extra chunks are simply discarded.
+        # Avg chunk ≈ 250 tokens → budget // 250 gives a safe upper bound.
+        # Floor of 20 preserves reasonable coverage on tiny local-model budgets.
+        _AVG_CHUNK_TOKENS = 250
+        _n_rag   = max(20, min(500, limits["rag_budget"]   // _AVG_CHUNK_TOKENS))
+        _n_style = max(8,  min(200, limits["style_budget"] // _AVG_CHUNK_TOKENS))
+        log.debug("RAG n_results: rag=%d style=%d (budgets: %d / %d tokens)",
+                  _n_rag, _n_style, limits["rag_budget"], limits["style_budget"])
+
         _all_types = active_doc_types or ["codex", "beats", "research", "notes"]
 
         if is_beats_mode:
@@ -177,9 +187,13 @@ class DraftEngine:
             _non_codex    = [t for t in _all_types if t != "codex"]
             _wants_codex  = "codex" in _all_types
 
+            # Split budget: 40 % non-codex, 60 % codex (codex is typically larger)
+            _n_non_codex = max(10, _n_rag * 4 // 10)
+            _n_codex     = max(10, _n_rag * 6 // 10)
+
             if _non_codex:
                 _bn_results = await self._rag_retrieve(
-                    project_id, chapter_id, rag_query, 8, _non_codex,
+                    project_id, chapter_id, rag_query, _n_non_codex, _non_codex,
                 )
             else:
                 _bn_results = []
@@ -187,7 +201,7 @@ class DraftEngine:
             _cx_results = []
             if _wants_codex:
                 _cx_raw = await self._rag_retrieve(
-                    project_id, chapter_id, rag_query, 10, ["codex"],
+                    project_id, chapter_id, rag_query, _n_codex, ["codex"],
                 )
                 # Only keep codex chunks close enough to the beats query
                 _cx_results = [r for r in _cx_raw if r.get("distance", 1.0) <= _cx_threshold]
@@ -206,13 +220,13 @@ class DraftEngine:
             )
         else:
             rag_results = await self._rag_retrieve(
-                project_id, chapter_id, rag_query, 14, _all_types,
+                project_id, chapter_id, rag_query, _n_rag, _all_types,
             )
 
         style_results = await self._pm.retrieve_style_examples(
             project_id=project_id,
             query=rag_query,
-            n_results=8,
+            n_results=_n_style,
         )
         # In beats mode, apply the codex distance threshold across the entire
         # merged list so that irrelevant non-codex chunks (research / notes with
@@ -319,14 +333,18 @@ class DraftEngine:
         limits = get_context_limits()
         lang_display = _lang_display(language)
 
+        _AVG_CHUNK_TOKENS = 250
+        _n_rag   = max(20, min(500, limits["rag_budget"]   // _AVG_CHUNK_TOKENS))
+        _n_style = max(8,  min(200, limits["style_budget"] // _AVG_CHUNK_TOKENS))
+
         rag_results = await self._rag_retrieve(
-            project_id, chapter_id or None, passage, 14,
+            project_id, chapter_id or None, passage, _n_rag,
             ["codex", "beats", "research", "notes"],
         )
         style_results = await self._pm.retrieve_style_examples(
             project_id=project_id,
             query=passage,
-            n_results=8,
+            n_results=_n_style,
         )
         rag_context = "\n\n---\n\n".join(
             r["text"] for r in _cap_rag(rag_results, budget_tokens=limits["rag_budget"])
