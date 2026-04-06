@@ -140,11 +140,13 @@ def get_llm():
                 # fit in a single pass without truncation (truncation causes loops).
                 "num_ctx":       int(_env("OLLAMA_NUM_CTX",          "8192")),
                 # Output token cap.
-                # Full-doc / cloud mode: -1 = unlimited (model stops at its own EOS).
+                # Full-doc / cloud mode: omit num_predict entirely so Ollama uses its
+                # own server default (unlimited).  Sending -1 causes a 400 error from
+                # the API ("max_tokens must be positive").
                 # Local / RAG mode: use OLLAMA_NUM_PREDICT (default 4096) as a ceiling
                 # to prevent runaway generation on small-context local models.
-                "num_predict":   -1 if get_context_mode() == "full"
-                                 else int(_env("OLLAMA_NUM_PREDICT", "4096")),
+                **({} if get_context_mode() == "full"
+                   else {"num_predict": int(_env("OLLAMA_NUM_PREDICT", "4096"))}),
                 # Repetition suppression: penalty applied to recent tokens.
                 # repeat_last_n — how many tokens back to scan (default 64 is too short
                 #   for long chapter rewrites; 512 catches multi-paragraph loops).
