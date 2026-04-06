@@ -268,12 +268,21 @@ async def chat_stream(
 
     # Apply per-call output length override when the user requests more words
     # than the global default cap allows.
+    # We clone the LLM via model_copy (Pydantic v2) / copy (Pydantic v1) so
+    # the parameter lands in the model's own field — not as a raw kwarg passed
+    # straight to AsyncClient.chat() which rejects unknown top-level arguments.
     if output_max_tokens:
         provider = _env("LLM_PROVIDER", "ollama").lower()
-        if provider == "ollama":
-            llm = llm.bind(num_predict=output_max_tokens)
-        else:
-            llm = llm.bind(max_tokens=output_max_tokens)
+        if provider == "gemini":
+            _override = {"max_output_tokens": output_max_tokens}
+        elif provider == "ollama":
+            _override = {"num_predict": output_max_tokens}
+        else:  # openai / anthropic
+            _override = {"max_tokens": output_max_tokens}
+        try:
+            llm = llm.model_copy(update=_override)   # Pydantic v2
+        except AttributeError:
+            llm = llm.copy(update=_override)          # Pydantic v1 fallback
 
     lc_messages = _to_lc_messages(messages)
 
