@@ -184,6 +184,94 @@ In **Write from Beats** mode, codex chunks are retrieved separately and filtered
 | `0.65` | Permissive — lets in most of the codex; useful for very short beats |
 | `1.00` | Off — no filtering (original behaviour) |
 
+## Getting Professional, On-Style Results
+
+The app has several layered mechanisms for teaching the AI your desired voice and quality standard. Use them together for the best results.
+
+### 1. Upload Style Samples (strongest signal)
+
+Go to **Documents → Style tab** and upload 1–3 chapters of prose whose style you want to match — a favourite author, your own best work, or a mix of both. These are stored in a dedicated style collection and injected into every generation as Priority 6.
+
+**Tips:**
+- One 3 000-word passage beats ten 300-word fragments
+- Mix dialogue-heavy and narrative-heavy samples for balanced coverage
+- For cloud / large-context models (`CONTEXT_MODE=full`), the full text of every style document is sent in each call — no chunking loss
+
+### 2. Write a Persona (permanent voice instructions)
+
+In **Project Settings → Persona**, describe your writing voice like you would brief a ghostwriter. This is Priority 2 — it overrides style samples and all stylistic defaults.
+
+```
+Write in close third-person past tense. Sentences are mid-length with
+occasional short punches for impact. No adverbs on dialogue tags —
+use action beats instead. Inner monologue in italics. Prose is lean
+and cinematic, never flowery. Tension should simmer beneath the surface
+even in quieter scenes.
+```
+
+### 3. Pin Editor Notes (per-chapter persistent rules)
+
+Click the **📌 Editor** button in the chat panel and write chapter-specific style or quality rules. These persist across sessions and are injected at Priority 3 into every generation for that chapter.
+
+```
+This chapter should feel tense and claustrophobic. Short paragraphs.
+Avoid passive voice. Every scene must end on an unresolved beat.
+```
+
+### 4. Create a Style Rules document
+
+Add a **Notes** document to your project (e.g. `Writing Style Guide`) listing your prose dos and don'ts. In cloud / full-doc mode the entire document is sent to the AI on every call.
+
+```markdown
+## Prose Rules
+- Show emotion through action, not adjectives
+- Use sensory detail: what the character smells, hears, and feels
+- Dialogue subtext: characters rarely say exactly what they mean
+
+## Forbidden patterns
+- No adverbs attached to dialogue tags (said softly, shouted angrily)
+- No dream sequences unless explicitly listed in beats
+- No word-count summaries or chapter epilogue narration
+```
+
+### 5. Be specific in the Draft Instruction field
+
+Instead of a vague prompt, give the AI concrete direction:
+
+> *Write the chapter in the style of Cormac McCarthy's The Road — sparse prose, no quotation marks on dialogue, short declarative sentences, a tone of bleak but resilient humanity. Each beat should expand to at least 600 words.*
+
+### 6. Use the QA → Editor feedback loop
+
+After a generation you are not satisfied with:
+1. Open **Chat → QA role** and ask it to audit the prose quality
+2. Pin the QA report with 📌
+3. Regenerate — the next call sees the pinned issues and avoids them
+
+### Priority order (all AI entry points)
+
+Every generation honours this strict order:
+
+| Priority | Source | Where to set it |
+|---|---|---|
+| 1 | Current instruction | Draft field or chat message |
+| 2 | **Author Persona** | Project Settings |
+| 3 | **Pinned Editor Notes** | 📌 in Chat panel |
+| 4 | Codex / Beats / Notes / Research / Images | Documents tab |
+| 5 | Pinned QA Notes | 📌 in Chat panel |
+| 6 | **Style Samples** | Documents → Style tab |
+
+### Recommended setup for a new project
+
+1. Write a **Persona** (100–200 words describing your exact voice)
+2. Upload **2 style sample chapters** from your reference author(s)
+3. Create a **Notes doc** called "Style Rules" with your prose dos/don'ts
+4. Generate one chapter, then use **Chat → Editor** to critique it and pin the result
+5. Regenerate — the second attempt will be noticeably closer to your target
+
+The Persona + Style Samples combination typically covers 80 % of the style gap. Pinned Editor Notes handle the remaining chapter-specific 20 %.
+
+---
+
 ## Development
 
 ```bash
