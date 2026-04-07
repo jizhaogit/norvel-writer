@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSplitter,
     QTextEdit,
     QToolBar,
@@ -216,16 +217,27 @@ class EditorPanel(QWidget):
         self._toolbar.addWidget(self._chapter_label)
         self._toolbar.addSeparator()
 
-        act_save = QAction("Save", self)
-        act_save.setShortcut("Ctrl+S")
-        act_save.triggered.connect(self._save_now)
-        self._toolbar.addAction(act_save)
+        btn_save = QPushButton("Save")
+        btn_save.setShortcut("Ctrl+S")
+        btn_save.setToolTip("Save (Ctrl+S)")
+        btn_save.clicked.connect(self._save_now)
+        self._toolbar.addWidget(btn_save)
 
         self._word_count_label = QLabel("0 words")
         self._word_count_label.setObjectName("subtitle")
         self._word_count_label.setStyleSheet("padding: 0 12px; color: #a6adc8;")
-
         self._toolbar.addWidget(self._word_count_label)
+
+        # Stretch spacer pushes Read controls to the right
+        spacer = QWidget()
+        spacer.setSizePolicy(
+            spacer.sizePolicy().horizontalPolicy(),
+            spacer.sizePolicy().verticalPolicy(),
+        )
+        from PySide6.QtWidgets import QSizePolicy
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._toolbar.addWidget(spacer)
+
         self._toolbar.addSeparator()
 
         voice_label = QLabel("Voice:")
@@ -237,12 +249,13 @@ class EditorPanel(QWidget):
         self._voice_combo.setFixedWidth(80)
         self._toolbar.addWidget(self._voice_combo)
 
-        self._act_read = QAction("▶ Read", self)
-        self._act_read.setToolTip(
-            "Read chapter aloud (auto-detects language, requires internet)"
+        self._btn_read = QPushButton("Read Aloud")
+        self._btn_read.setToolTip("Read chapter aloud (auto-detects language, requires internet)")
+        self._btn_read.setStyleSheet(
+            "QPushButton { padding: 2px 10px; }"
         )
-        self._act_read.triggered.connect(self._toggle_read)
-        self._toolbar.addAction(self._act_read)
+        self._btn_read.clicked.connect(self._toggle_read)
+        self._toolbar.addWidget(self._btn_read)
 
         layout.addWidget(self._toolbar)
 
@@ -320,12 +333,12 @@ class EditorPanel(QWidget):
         gender = self._voice_combo.currentText()
         self._tts_worker = _TTSWorker(text, gender, self)
         self._tts_worker.finished.connect(self._on_tts_finished)
-        self._act_read.setText("■ Stop")
+        self._btn_read.setText("Stop Reading")
         self._voice_combo.setEnabled(False)
         self._tts_worker.start()
 
     def _on_tts_finished(self) -> None:
-        self._act_read.setText("▶ Read")
+        self._btn_read.setText("Read Aloud")
         self._voice_combo.setEnabled(True)
         self._tts_worker = None
 
