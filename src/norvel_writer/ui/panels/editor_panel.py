@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
-import io
+import os
+import sys
+import tempfile
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
@@ -84,9 +86,11 @@ def _resolve_voice(text: str, gender: str) -> str:
 class _TTSWorker(QThread):
     """
     Background thread: fetches audio via edge-tts (neural, multi-language),
-    then plays it through pygame.mixer.  Supports mid-speech stop.
-    Requires internet access (edge-tts streams from Microsoft's servers).
+    then plays it using the Windows MCI API (ctypes, stdlib — no extra deps).
+    Supports mid-speech stop.  Requires internet for edge-tts.
     """
+
+    _MCI_ALIAS = "norvel_tts_player"
 
     finished = Signal()
 
@@ -109,7 +113,6 @@ class _TTSWorker(QThread):
 
     async def _speak_async(self) -> None:
         import edge_tts
-        import pygame
 
         voice = _resolve_voice(self._text, self._voice_gender)
         communicate = edge_tts.Communicate(self._text, voice)
@@ -124,25 +127,58 @@ class _TTSWorker(QThread):
         if self._stop_flag or not audio_data:
             return
 
-        if not pygame.mixer.get_init():
-            pygame.mixer.init()
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        try:
+            tmp.write(audio_data)
+            tmp.close()
+            await self._play_file(tmp.name)
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
 
-        pygame.mixer.music.load(io.BytesIO(audio_data), "mp3")
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            if self._stop_flag:
-                pygame.mixer.music.stop()
-                break
-            await asyncio.sleep(0.1)
+    async def _play_file(self, path: str) -> None:
+        if sys.platform == "win32":
+            await self._play_win32(path)
+        else:
+            # macOS / Linux fallback via subprocess
+            import subprocess
+            player = "afplay" if sys.platform == "darwin" else "mpg123"
+            proc = await asyncio.create_subprocess_exec(player, path)
+            while proc.returncode is None:
+                if self._stop_flag:
+                    proc.terminate()
+                    break
+                await asyncio.sleep(0.1)
+
+    async def _play_win32(self, path: str) -> None:
+        import ctypes
+        winmm = ctypes.windll.winmm
+        alias = self._MCI_ALIAS
+        buf = ctypes.create_unicode_buffer(256)
+        winmm.mciSendStringW(f'open "{path}" type mpegvideo alias {alias}', None, 0, None)
+        winmm.mciSendStringW(f'play {alias}', None, 0, None)
+        try:
+            while True:
+                winmm.mciSendStringW(f'status {alias} mode', buf, 255, None)
+                if buf.value not in ("playing", "seeking") or self._stop_flag:
+                    break
+                await asyncio.sleep(0.1)
+        finally:
+            winmm.mciSendStringW(f'stop {alias}', None, 0, None)
+            winmm.mciSendStringW(f'close {alias}', None, 0, None)
 
     def stop_speaking(self) -> None:
         self._stop_flag = True
-        try:
-            import pygame
-            if pygame.mixer.get_init():
-                pygame.mixer.music.stop()
-        except Exception:
-            pass
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.winmm.mciSendStringW(
+                    f'stop {self._MCI_ALIAS}', None, 0, None
+                )
+            except Exception:
+                pass
 
 
 class EditorPanel(QWidget):
