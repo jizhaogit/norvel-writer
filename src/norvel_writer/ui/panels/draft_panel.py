@@ -1,10 +1,15 @@
 """Draft generation sidebar panel."""
 from __future__ import annotations
 
+import asyncio
+import os
+import sys
+import tempfile
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
+    QFrame,
     QCheckBox,
     QComboBox,
     QDockWidget,
@@ -19,6 +24,140 @@ from PySide6.QtWidgets import (
 )
 
 from norvel_writer.ui.widgets.streaming_text import StreamingTextEdit
+
+# ── TTS voice map: (iso-lang, gender) → edge-tts neural voice ────────────────
+_VOICE_MAP: dict[tuple[str, str], str] = {
+    ("en",    "male"):   "en-US-GuyNeural",
+    ("en",    "female"): "en-US-JennyNeural",
+    ("zh",    "male"):   "zh-CN-YunxiNeural",
+    ("zh",    "female"): "zh-CN-XiaoxiaoNeural",
+    ("zh-tw", "male"):   "zh-TW-YunJheNeural",
+    ("zh-tw", "female"): "zh-TW-HsiaoChenNeural",
+    ("ja",    "male"):   "ja-JP-KeitaNeural",
+    ("ja",    "female"): "ja-JP-NanamiNeural",
+    ("ko",    "male"):   "ko-KR-InJoonNeural",
+    ("ko",    "female"): "ko-KR-SunHiNeural",
+    ("es",    "male"):   "es-ES-AlvaroNeural",
+    ("es",    "female"): "es-ES-ElviraNeural",
+    ("fr",    "male"):   "fr-FR-HenriNeural",
+    ("fr",    "female"): "fr-FR-DeniseNeural",
+    ("de",    "male"):   "de-DE-ConradNeural",
+    ("de",    "female"): "de-DE-KatjaNeural",
+    ("ru",    "male"):   "ru-RU-DmitryNeural",
+    ("ru",    "female"): "ru-RU-SvetlanaNeural",
+    ("pt",    "male"):   "pt-BR-AntonioNeural",
+    ("pt",    "female"): "pt-BR-FranciscaNeural",
+    ("ar",    "male"):   "ar-SA-HamedNeural",
+    ("ar",    "female"): "ar-SA-ZariyahNeural",
+    ("hi",    "male"):   "hi-IN-MadhurNeural",
+    ("hi",    "female"): "hi-IN-SwaraNeural",
+    ("it",    "male"):   "it-IT-DiegoNeural",
+    ("it",    "female"): "it-IT-ElsaNeural",
+    ("nl",    "male"):   "nl-NL-MaartenNeural",
+    ("nl",    "female"): "nl-NL-ColetteNeural",
+    ("pl",    "male"):   "pl-PL-MarekNeural",
+    ("pl",    "female"): "pl-PL-ZofiaNeural",
+    ("tr",    "male"):   "tr-TR-AhmetNeural",
+    ("tr",    "female"): "tr-TR-EmelNeural",
+    ("vi",    "male"):   "vi-VN-NamMinhNeural",
+    ("vi",    "female"): "vi-VN-HoaiMyNeural",
+    ("th",    "male"):   "th-TH-NiwatNeural",
+    ("th",    "female"): "th-TH-PremwadeeNeural",
+}
+
+
+def _resolve_voice(text: str, gender: str) -> str:
+    lang = "en"
+    try:
+        from langdetect import detect, DetectorFactory
+        DetectorFactory.seed = 0
+        detected = detect(text[:500])
+        lang = "zh-tw" if detected.startswith("zh") and "tw" in detected else detected.split("-")[0]
+    except Exception:
+        pass
+    return _VOICE_MAP.get((lang, gender)) or _VOICE_MAP.get(("en", gender), "en-US-GuyNeural")
+
+
+class _TTSWorker(QThread):
+    """Fetches audio via edge-tts and plays it using Windows MCI (no extra deps)."""
+
+    finished = Signal()
+    _MCI_ALIAS = "norvel_tts_player"
+
+    def __init__(self, text: str, voice_gender: str, parent=None) -> None:
+        super().__init__(parent)
+        self._text = text
+        self._voice_gender = voice_gender.lower()
+        self._stop_flag = False
+
+    def run(self) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(self._speak_async())
+        except Exception:
+            pass
+        finally:
+            loop.close()
+            self.finished.emit()
+
+    async def _speak_async(self) -> None:
+        import edge_tts
+        voice = _resolve_voice(self._text, self._voice_gender)
+        communicate = edge_tts.Communicate(self._text, voice)
+        audio_data = b""
+        async for chunk in communicate.stream():
+            if self._stop_flag:
+                return
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+        if self._stop_flag or not audio_data:
+            return
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        try:
+            tmp.write(audio_data)
+            tmp.close()
+            await self._play_file(tmp.name)
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+
+    async def _play_file(self, path: str) -> None:
+        if sys.platform == "win32":
+            import ctypes
+            winmm = ctypes.windll.winmm
+            alias = self._MCI_ALIAS
+            buf = ctypes.create_unicode_buffer(256)
+            winmm.mciSendStringW(f'open "{path}" type mpegvideo alias {alias}', None, 0, None)
+            winmm.mciSendStringW(f'play {alias}', None, 0, None)
+            try:
+                while True:
+                    winmm.mciSendStringW(f'status {alias} mode', buf, 255, None)
+                    if buf.value not in ("playing", "seeking") or self._stop_flag:
+                        break
+                    await asyncio.sleep(0.1)
+            finally:
+                winmm.mciSendStringW(f'stop {alias}', None, 0, None)
+                winmm.mciSendStringW(f'close {alias}', None, 0, None)
+        else:
+            player = "afplay" if sys.platform == "darwin" else "mpg123"
+            proc = await asyncio.create_subprocess_exec(player, path)
+            while proc.returncode is None:
+                if self._stop_flag:
+                    proc.terminate()
+                    break
+                await asyncio.sleep(0.1)
+
+    def stop_speaking(self) -> None:
+        self._stop_flag = True
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.winmm.mciSendStringW(f'stop {self._MCI_ALIAS}', None, 0, None)
+            except Exception:
+                pass
 
 
 class DraftPanel(QDockWidget):
@@ -37,6 +176,7 @@ class DraftPanel(QDockWidget):
         self._current_chapter_id: Optional[str] = None
         self._current_project_id: Optional[str] = None
         self._active_future = None
+        self._tts_worker: Optional[_TTSWorker] = None
         self.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea
         )
@@ -121,6 +261,26 @@ class DraftPanel(QDockWidget):
         self._status = QLabel("")
         self._status.setObjectName("subtitle")
         layout.addWidget(self._status)
+
+        # ── Read Aloud ────────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #313244;")
+        layout.addWidget(sep)
+
+        layout.addWidget(QLabel("Read Chapter Aloud:"))
+
+        voice_row = QHBoxLayout()
+        voice_row.addWidget(QLabel("Voice:"))
+        self._voice_combo = QComboBox()
+        self._voice_combo.addItems(["Male", "Female"])
+        voice_row.addWidget(self._voice_combo)
+        voice_row.addStretch()
+        layout.addLayout(voice_row)
+
+        self._btn_read = QPushButton("Start Reading")
+        self._btn_read.clicked.connect(self._toggle_read)
+        layout.addWidget(self._btn_read)
 
         self.setWidget(container)
 
@@ -248,3 +408,30 @@ class DraftPanel(QDockWidget):
         self._btn_continue.setEnabled(not generating)
         self._btn_rewrite.setEnabled(not generating)
         self._btn_stop.setEnabled(generating)
+
+    # ── Read Aloud ────────────────────────────────────────────────────────
+
+    def _toggle_read(self) -> None:
+        if self._tts_worker and self._tts_worker.isRunning():
+            self._tts_worker.stop_speaking()
+            self._tts_worker.wait()
+            return
+        text = ""
+        if hasattr(self, "_get_editor_content"):
+            text = self._get_editor_content().strip()
+        if not text:
+            self._status.setText("No chapter text to read.")
+            return
+        gender = self._voice_combo.currentText()
+        self._tts_worker = _TTSWorker(text, gender, self)
+        self._tts_worker.finished.connect(self._on_tts_finished)
+        self._btn_read.setText("Stop Reading")
+        self._voice_combo.setEnabled(False)
+        self._status.setText("Reading aloud…")
+        self._tts_worker.start()
+
+    def _on_tts_finished(self) -> None:
+        self._btn_read.setText("Start Reading")
+        self._voice_combo.setEnabled(True)
+        self._status.setText("")
+        self._tts_worker = None

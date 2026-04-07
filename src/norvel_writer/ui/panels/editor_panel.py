@@ -1,20 +1,12 @@
 """Central editor panel with autosave and word count."""
 from __future__ import annotations
 
-import asyncio
-import os
-import sys
-import tempfile
 from typing import Optional
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QFont, QTextCursor
 from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
     QLabel,
-    QPushButton,
-    QSplitter,
     QTextEdit,
     QToolBar,
     QVBoxLayout,
@@ -22,163 +14,6 @@ from PySide6.QtWidgets import (
 )
 
 from norvel_writer.config.defaults import AUTOSAVE_INTERVAL_MS
-
-# Maps (iso-lang-code, gender) -> edge-tts neural voice name.
-# Covers every language in defaults.LANGUAGES.
-_VOICE_MAP: dict[tuple[str, str], str] = {
-    ("en",    "male"):   "en-US-GuyNeural",
-    ("en",    "female"): "en-US-JennyNeural",
-    ("zh",    "male"):   "zh-CN-YunxiNeural",
-    ("zh",    "female"): "zh-CN-XiaoxiaoNeural",
-    ("zh-tw", "male"):   "zh-TW-YunJheNeural",
-    ("zh-tw", "female"): "zh-TW-HsiaoChenNeural",
-    ("ja",    "male"):   "ja-JP-KeitaNeural",
-    ("ja",    "female"): "ja-JP-NanamiNeural",
-    ("ko",    "male"):   "ko-KR-InJoonNeural",
-    ("ko",    "female"): "ko-KR-SunHiNeural",
-    ("es",    "male"):   "es-ES-AlvaroNeural",
-    ("es",    "female"): "es-ES-ElviraNeural",
-    ("fr",    "male"):   "fr-FR-HenriNeural",
-    ("fr",    "female"): "fr-FR-DeniseNeural",
-    ("de",    "male"):   "de-DE-ConradNeural",
-    ("de",    "female"): "de-DE-KatjaNeural",
-    ("ru",    "male"):   "ru-RU-DmitryNeural",
-    ("ru",    "female"): "ru-RU-SvetlanaNeural",
-    ("pt",    "male"):   "pt-BR-AntonioNeural",
-    ("pt",    "female"): "pt-BR-FranciscaNeural",
-    ("ar",    "male"):   "ar-SA-HamedNeural",
-    ("ar",    "female"): "ar-SA-ZariyahNeural",
-    ("hi",    "male"):   "hi-IN-MadhurNeural",
-    ("hi",    "female"): "hi-IN-SwaraNeural",
-    ("it",    "male"):   "it-IT-DiegoNeural",
-    ("it",    "female"): "it-IT-ElsaNeural",
-    ("nl",    "male"):   "nl-NL-MaartenNeural",
-    ("nl",    "female"): "nl-NL-ColetteNeural",
-    ("pl",    "male"):   "pl-PL-MarekNeural",
-    ("pl",    "female"): "pl-PL-ZofiaNeural",
-    ("tr",    "male"):   "tr-TR-AhmetNeural",
-    ("tr",    "female"): "tr-TR-EmelNeural",
-    ("vi",    "male"):   "vi-VN-NamMinhNeural",
-    ("vi",    "female"): "vi-VN-HoaiMyNeural",
-    ("th",    "male"):   "th-TH-NiwatNeural",
-    ("th",    "female"): "th-TH-PremwadeeNeural",
-}
-
-
-def _resolve_voice(text: str, gender: str) -> str:
-    """Auto-detect language from text and return the matching edge-tts voice."""
-    lang = "en"
-    try:
-        from langdetect import detect, DetectorFactory
-        DetectorFactory.seed = 0
-        detected = detect(text[:500])
-        # Normalise langdetect variants to our registry keys
-        if detected.startswith("zh"):
-            lang = "zh-tw" if "tw" in detected else "zh"
-        else:
-            lang = detected.split("-")[0]
-    except Exception:
-        pass
-    key = (lang, gender)
-    return _VOICE_MAP.get(key) or _VOICE_MAP.get(("en", gender), "en-US-GuyNeural")
-
-
-class _TTSWorker(QThread):
-    """
-    Background thread: fetches audio via edge-tts (neural, multi-language),
-    then plays it using the Windows MCI API (ctypes, stdlib — no extra deps).
-    Supports mid-speech stop.  Requires internet for edge-tts.
-    """
-
-    _MCI_ALIAS = "norvel_tts_player"
-
-    finished = Signal()
-
-    def __init__(self, text: str, voice_gender: str, parent=None) -> None:
-        super().__init__(parent)
-        self._text = text
-        self._voice_gender = voice_gender.lower()
-        self._stop_flag = False
-
-    def run(self) -> None:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(self._speak_async())
-        except Exception:
-            pass
-        finally:
-            loop.close()
-            self.finished.emit()
-
-    async def _speak_async(self) -> None:
-        import edge_tts
-
-        voice = _resolve_voice(self._text, self._voice_gender)
-        communicate = edge_tts.Communicate(self._text, voice)
-
-        audio_data = b""
-        async for chunk in communicate.stream():
-            if self._stop_flag:
-                return
-            if chunk["type"] == "audio":
-                audio_data += chunk["data"]
-
-        if self._stop_flag or not audio_data:
-            return
-
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        try:
-            tmp.write(audio_data)
-            tmp.close()
-            await self._play_file(tmp.name)
-        finally:
-            try:
-                os.unlink(tmp.name)
-            except OSError:
-                pass
-
-    async def _play_file(self, path: str) -> None:
-        if sys.platform == "win32":
-            await self._play_win32(path)
-        else:
-            # macOS / Linux fallback via subprocess
-            import subprocess
-            player = "afplay" if sys.platform == "darwin" else "mpg123"
-            proc = await asyncio.create_subprocess_exec(player, path)
-            while proc.returncode is None:
-                if self._stop_flag:
-                    proc.terminate()
-                    break
-                await asyncio.sleep(0.1)
-
-    async def _play_win32(self, path: str) -> None:
-        import ctypes
-        winmm = ctypes.windll.winmm
-        alias = self._MCI_ALIAS
-        buf = ctypes.create_unicode_buffer(256)
-        winmm.mciSendStringW(f'open "{path}" type mpegvideo alias {alias}', None, 0, None)
-        winmm.mciSendStringW(f'play {alias}', None, 0, None)
-        try:
-            while True:
-                winmm.mciSendStringW(f'status {alias} mode', buf, 255, None)
-                if buf.value not in ("playing", "seeking") or self._stop_flag:
-                    break
-                await asyncio.sleep(0.1)
-        finally:
-            winmm.mciSendStringW(f'stop {alias}', None, 0, None)
-            winmm.mciSendStringW(f'close {alias}', None, 0, None)
-
-    def stop_speaking(self) -> None:
-        self._stop_flag = True
-        if sys.platform == "win32":
-            try:
-                import ctypes
-                ctypes.windll.winmm.mciSendStringW(
-                    f'stop {self._MCI_ALIAS}', None, 0, None
-                )
-            except Exception:
-                pass
 
 
 class EditorPanel(QWidget):
@@ -197,17 +32,15 @@ class EditorPanel(QWidget):
         self._current_chapter_id: Optional[str] = None
         self._current_project_id: Optional[str] = None
         self._dirty = False
-        self._tts_worker: Optional[_TTSWorker] = None
         self._build_ui()
         self._setup_autosave()
 
     def _build_ui(self) -> None:
-        from PySide6.QtWidgets import QSizePolicy
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # ── Row 1: existing toolbar (chapter title / save / word count) ──
+        # Toolbar
         self._toolbar = QToolBar()
         self._toolbar.setMovable(False)
 
@@ -228,32 +61,7 @@ class EditorPanel(QWidget):
 
         layout.addWidget(self._toolbar)
 
-        # ── Row 2: Read Aloud bar (always fully visible, never overflows) ──
-        read_bar = QWidget()
-        read_bar.setFixedHeight(36)
-        read_bar.setStyleSheet("background: #1e1e2e; border-bottom: 1px solid #313244;")
-        read_layout = QHBoxLayout(read_bar)
-        read_layout.setContentsMargins(8, 0, 8, 0)
-        read_layout.setSpacing(6)
-
-        read_layout.addWidget(QLabel("Read Aloud:"))
-
-        self._voice_combo = QComboBox()
-        self._voice_combo.addItems(["Male", "Female"])
-        self._voice_combo.setFixedWidth(90)
-        read_layout.addWidget(self._voice_combo)
-
-        self._btn_read = QPushButton("▶  Start Reading")
-        self._btn_read.setFixedHeight(26)
-        self._btn_read.setToolTip("Read chapter aloud — language is auto-detected (requires internet)")
-        self._btn_read.clicked.connect(self._toggle_read)
-        read_layout.addWidget(self._btn_read)
-
-        read_layout.addStretch()
-
-        layout.addWidget(read_bar)
-
-        # ── Editor ──
+        # Editor
         self._editor = QTextEdit()
         self._editor.setPlaceholderText(
             "Select a chapter from the project panel, or start writing here…"
@@ -280,7 +88,6 @@ class EditorPanel(QWidget):
         chapter = self._pm.get_chapter(chapter_id)
         if chapter:
             self._chapter_label.setText(chapter["title"])
-        # Load accepted draft if any
         draft = self._pm.get_accepted_draft(chapter_id)
         self._editor.blockSignals(True)
         self._editor.setPlainText(draft["content"] if draft else "")
@@ -315,26 +122,6 @@ class EditorPanel(QWidget):
         text = self._editor.toPlainText()
         count = count_words(text)
         self._word_count_label.setText(f"{count:,} words")
-
-    def _toggle_read(self) -> None:
-        if self._tts_worker and self._tts_worker.isRunning():
-            self._tts_worker.stop_speaking()
-            self._tts_worker.wait()
-            return
-        text = self._editor.toPlainText().strip()
-        if not text:
-            return
-        gender = self._voice_combo.currentText()
-        self._tts_worker = _TTSWorker(text, gender, self)
-        self._tts_worker.finished.connect(self._on_tts_finished)
-        self._btn_read.setText("■  Stop Reading")
-        self._voice_combo.setEnabled(False)
-        self._tts_worker.start()
-
-    def _on_tts_finished(self) -> None:
-        self._btn_read.setText("▶  Start Reading")
-        self._voice_combo.setEnabled(True)
-        self._tts_worker = None
 
     def _save_now(self) -> None:
         self._autosave()
