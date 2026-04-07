@@ -1650,16 +1650,14 @@ async def tts(req: TTSRequest):
     except ImportError:
         raise HTTPException(status_code=501, detail="edge-tts not installed")
 
-    lang = req.lang.lower()
-    if lang.startswith("zh") and "tw" in lang:
-        lang = "zh-tw"
-    elif lang.startswith("zh"):
-        lang = "zh"
-    else:
-        lang = lang.split("-")[0]
+    # Use the AI Language selected in the UI as the authoritative source.
+    lang = req.lang.split("-")[0].lower() if req.lang else "en"
+    if lang not in {k[0] for k in _VOICE_MAP}:
+        lang = "en"
 
     gender = req.gender.lower() if req.gender.lower() in ("male", "female") else "female"
     voice = _VOICE_MAP.get((lang, gender)) or _VOICE_MAP.get(("en", gender), "en-US-JennyNeural")
+    log.info("TTS: lang=%s gender=%s voice=%s chars=%d", lang, gender, voice, len(req.text))
 
     async def _generate():
         communicate = edge_tts.Communicate(req.text, voice)

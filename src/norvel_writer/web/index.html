@@ -2831,8 +2831,7 @@ el('settings-btn').addEventListener('click', () => {
     if (!text) return;
 
     const gender = voiceSel.value;
-    const lang   = (typeof state !== 'undefined' && state.currentProjectLang)
-                   || 'en';
+    const lang   = el('ai-lang')?.value || 'en';
 
     btn.textContent = '⏳ Loading…';
     btn.style.borderColor = 'var(--yellow)';
