@@ -77,20 +77,39 @@ Local-first AI writing assistant powered by [Ollama](https://ollama.com). Your w
 
 ### Prerequisites
 
-1. **Python 3.11+**
-2. **Ollama** — download from [ollama.com](https://ollama.com/download)
+1. **Ollama** — download from [ollama.com](https://ollama.com/download)
 
-### Install
+### Windows (recommended)
+
+```bat
+run.bat
+```
+
+That's it. `run.bat` auto-installs [uv](https://astral.sh/uv), downloads Python 3.11, and installs all packages on first launch.
+
+### Manual install
 
 ```bash
-# Clone and install
+# Clone
 git clone <repo>
 cd norvel-writer
-pip install -e .
 
-# Run
+# Install with uv (recommended — manages Python version automatically)
+uv sync
+uv run python -m norvel_writer
+
+# Or with pip (requires Python 3.11 already installed)
+pip install -e .
 python -m norvel_writer
 ```
+
+> **Windows build error — `chroma-hnswlib` / "Microsoft Visual C++ 14.0 required"**
+>
+> This happens when `uv sync` or `pip install` picks up Python 3.12+ instead of 3.11.
+> Pre-built wheels for `chroma-hnswlib` only exist for Python 3.11 on Windows.
+> The repo includes a `.python-version` file that pins uv to 3.11 automatically.
+> If you see this error, make sure you are running `uv sync` (not `pip install`) from the repo root,
+> or use `run.bat` which always passes `--python 3.11`.
 
 On first launch, the setup wizard will guide you through:
 - Verifying Ollama is running
