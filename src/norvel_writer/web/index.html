@@ -2817,6 +2817,12 @@ el('settings-btn').addEventListener('click', () => {
   const voiceSel = el('read-voice-select');
   let speaking = false;
 
+  // Pre-load voices as early as possible (Chrome loads them async)
+  let _voices = [];
+  function loadVoices() { _voices = speechSynthesis.getVoices(); }
+  loadVoices();
+  speechSynthesis.addEventListener('voiceschanged', loadVoices);
+
   function stopReading() {
     speechSynthesis.cancel();
     speaking = false;
@@ -2826,59 +2832,60 @@ el('settings-btn').addEventListener('click', () => {
   }
 
   function pickVoice(lang, preferFemale) {
-    const voices = speechSynthesis.getVoices();
-    // Normalise: zh-CN → zh, ja-JP → ja, etc.
+    if (!_voices.length) return null;
     const base = lang.split('-')[0].toLowerCase();
-    const langLower = lang.toLowerCase();
-    // Try exact lang match first, then base match
-    const pool = voices.filter(v =>
-      v.lang.toLowerCase().startsWith(langLower) ||
+    const pool = _voices.filter(v =>
+      v.lang.toLowerCase().startsWith(lang.toLowerCase()) ||
       v.lang.toLowerCase().startsWith(base)
     );
-    if (!pool.length) return null;
-    // Prefer Microsoft Neural voices (Edge browser), then any match
-    const neural = pool.filter(v => v.name.includes('Neural'));
-    const candidates = neural.length ? neural : pool;
-    // Female heuristic: name contains Female/Zira/Jenny/Xiaoxiao/Nanami etc.
-    const femaleNames = /female|zira|jenny|xiaoxiao|nanami|seouk|aria|ana|sonia|camille/i;
-    const maleNames   = /male|david|guy|yunxi|keita|injoon|diego|mark|george/i;
-    if (preferFemale) {
-      return candidates.find(v => femaleNames.test(v.name)) || candidates[0];
-    } else {
-      return candidates.find(v => maleNames.test(v.name)) ||
-             candidates.find(v => !femaleNames.test(v.name)) ||
-             candidates[0];
-    }
+    const candidates = pool.length ? pool : _voices; // fall back to any voice
+    const neural = candidates.filter(v => v.name.includes('Neural'));
+    const src = neural.length ? neural : candidates;
+    const femaleRe = /female|zira|jenny|xiaoxiao|nanami|aria|ana|sonia|camille/i;
+    const maleRe   = /male|david|guy|yunxi|keita|injoon|diego|mark|george/i;
+    return preferFemale
+      ? (src.find(v => femaleRe.test(v.name)) || src[0])
+      : (src.find(v => maleRe.test(v.name)) || src.find(v => !femaleRe.test(v.name)) || src[0]);
+  }
+
+  function doSpeak(text, preferFemale, lang) {
+    speechSynthesis.cancel(); // clear any queued utterance first
+    const utter = new SpeechSynthesisUtterance(text);
+    const voice = pickVoice(lang, preferFemale);
+    if (voice) { utter.voice = voice; utter.lang = voice.lang; }
+    else { utter.lang = lang; }
+    utter.onend = utter.onerror = stopReading;
+    speechSynthesis.speak(utter);
   }
 
   btn.addEventListener('click', () => {
     if (speaking) { stopReading(); return; }
 
-    const text = (el('editor').innerText || '').trim();
-    if (!text) return;
+    const text = (el('editor').innerText || el('editor').textContent || '').trim();
+    if (!text) { btn.title = 'No text — select a chapter first'; return; }
 
     const preferFemale = voiceSel.value === 'female';
-    const utter = new SpeechSynthesisUtterance(text);
-
-    // Detect language from <html lang> or project setting, fall back to 'en'
-    const pageLang = document.documentElement.lang || 'en';
-    const voice = pickVoice(pageLang, preferFemale);
-    if (voice) {
-      utter.voice = voice;
-      utter.lang  = voice.lang;
-    }
-
-    utter.onend = utter.onerror = stopReading;
+    // Use chapter language stored in state if available, else page lang, else 'en'
+    const lang = (typeof state !== 'undefined' && state.currentProjectLang)
+      ? state.currentProjectLang
+      : (document.documentElement.lang || 'en');
 
     speaking = true;
     btn.textContent = '■ Stop';
     btn.style.borderColor = 'var(--red)';
     voiceSel.disabled = true;
-    speechSynthesis.speak(utter);
-  });
 
-  // Voices load async in some browsers
-  speechSynthesis.addEventListener('voiceschanged', () => {});
+    // If voices not ready yet, wait for voiceschanged then speak
+    if (!_voices.length) {
+      speechSynthesis.addEventListener('voiceschanged', function once() {
+        speechSynthesis.removeEventListener('voiceschanged', once);
+        loadVoices();
+        doSpeak(text, preferFemale, lang);
+      });
+    } else {
+      doSpeak(text, preferFemale, lang);
+    }
+  });
 })();
 el('settings-cancel-btn').addEventListener('click', () => el('modal-overlay').classList.remove('visible'));
 el('modal-overlay').addEventListener('click', (e) => { if (e.target === el('modal-overlay')) el('modal-overlay').classList.remove('visible'); });
