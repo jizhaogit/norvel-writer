@@ -1592,3 +1592,83 @@ async def save_llm_config(body: Dict[str, Any]):
         return {"ok": True, "path": str(dest)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Text-to-Speech ─────────────────────────────────────────────────────────────
+
+_VOICE_MAP: dict[tuple[str, str], str] = {
+    ("en",    "male"):   "en-US-GuyNeural",
+    ("en",    "female"): "en-US-JennyNeural",
+    ("zh",    "male"):   "zh-CN-YunxiNeural",
+    ("zh",    "female"): "zh-CN-XiaoxiaoNeural",
+    ("zh-tw", "male"):   "zh-TW-YunJheNeural",
+    ("zh-tw", "female"): "zh-TW-HsiaoChenNeural",
+    ("ja",    "male"):   "ja-JP-KeitaNeural",
+    ("ja",    "female"): "ja-JP-NanamiNeural",
+    ("ko",    "male"):   "ko-KR-InJoonNeural",
+    ("ko",    "female"): "ko-KR-SunHiNeural",
+    ("es",    "male"):   "es-ES-AlvaroNeural",
+    ("es",    "female"): "es-ES-ElviraNeural",
+    ("fr",    "male"):   "fr-FR-HenriNeural",
+    ("fr",    "female"): "fr-FR-DeniseNeural",
+    ("de",    "male"):   "de-DE-ConradNeural",
+    ("de",    "female"): "de-DE-KatjaNeural",
+    ("ru",    "male"):   "ru-RU-DmitryNeural",
+    ("ru",    "female"): "ru-RU-SvetlanaNeural",
+    ("pt",    "male"):   "pt-BR-AntonioNeural",
+    ("pt",    "female"): "pt-BR-FranciscaNeural",
+    ("ar",    "male"):   "ar-SA-HamedNeural",
+    ("ar",    "female"): "ar-SA-ZariyahNeural",
+    ("hi",    "male"):   "hi-IN-MadhurNeural",
+    ("hi",    "female"): "hi-IN-SwaraNeural",
+    ("it",    "male"):   "it-IT-DiegoNeural",
+    ("it",    "female"): "it-IT-ElsaNeural",
+    ("nl",    "male"):   "nl-NL-MaartenNeural",
+    ("nl",    "female"): "nl-NL-ColetteNeural",
+    ("pl",    "male"):   "pl-PL-MarekNeural",
+    ("pl",    "female"): "pl-PL-ZofiaNeural",
+    ("tr",    "male"):   "tr-TR-AhmetNeural",
+    ("tr",    "female"): "tr-TR-EmelNeural",
+    ("vi",    "male"):   "vi-VN-NamMinhNeural",
+    ("vi",    "female"): "vi-VN-HoaiMyNeural",
+    ("th",    "male"):   "th-TH-NiwatNeural",
+    ("th",    "female"): "th-TH-PremwadeeNeural",
+}
+
+
+class TTSRequest(BaseModel):
+    text: str
+    gender: str = "female"
+    lang: str = "en"
+
+
+@app.post("/api/tts")
+async def tts(req: TTSRequest):
+    """Generate speech audio from text using edge-tts. Returns MP3."""
+    try:
+        import edge_tts
+    except ImportError:
+        raise HTTPException(status_code=501, detail="edge-tts not installed")
+
+    lang = req.lang.lower()
+    if lang.startswith("zh") and "tw" in lang:
+        lang = "zh-tw"
+    elif lang.startswith("zh"):
+        lang = "zh"
+    else:
+        lang = lang.split("-")[0]
+
+    gender = req.gender.lower() if req.gender.lower() in ("male", "female") else "female"
+    voice = _VOICE_MAP.get((lang, gender)) or _VOICE_MAP.get(("en", gender), "en-US-JennyNeural")
+
+    async def _generate():
+        communicate = edge_tts.Communicate(req.text, voice)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                yield chunk["data"]
+
+    return StreamingResponse(
+        _generate(),
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-cache"},
+    )

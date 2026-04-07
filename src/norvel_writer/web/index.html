@@ -2811,79 +2811,50 @@ el('settings-btn').addEventListener('click', () => {
   el('modal-overlay').classList.add('visible');
 });
 
-// ── Read Aloud (Web Speech API) ───────────────────────────────────────────────
+// ── Read Aloud (edge-tts via backend → <audio>) ───────────────────────────────
 (function () {
-  const btn = el('read-btn');
+  const btn     = el('read-btn');
   const voiceSel = el('read-voice-select');
-  let speaking = false;
-
-  // Pre-load voices as early as possible (Chrome loads them async)
-  let _voices = [];
-  function loadVoices() { _voices = speechSynthesis.getVoices(); }
-  loadVoices();
-  speechSynthesis.addEventListener('voiceschanged', loadVoices);
+  let audio = null;
 
   function stopReading() {
-    speechSynthesis.cancel();
-    speaking = false;
+    if (audio) { audio.pause(); audio.src = ''; audio = null; }
     btn.textContent = '▶ Read';
     btn.style.borderColor = '';
     voiceSel.disabled = false;
   }
 
-  function pickVoice(lang, preferFemale) {
-    if (!_voices.length) return null;
-    const base = lang.split('-')[0].toLowerCase();
-    const pool = _voices.filter(v =>
-      v.lang.toLowerCase().startsWith(lang.toLowerCase()) ||
-      v.lang.toLowerCase().startsWith(base)
-    );
-    const candidates = pool.length ? pool : _voices; // fall back to any voice
-    const neural = candidates.filter(v => v.name.includes('Neural'));
-    const src = neural.length ? neural : candidates;
-    const femaleRe = /female|zira|jenny|xiaoxiao|nanami|aria|ana|sonia|camille/i;
-    const maleRe   = /male|david|guy|yunxi|keita|injoon|diego|mark|george/i;
-    return preferFemale
-      ? (src.find(v => femaleRe.test(v.name)) || src[0])
-      : (src.find(v => maleRe.test(v.name)) || src.find(v => !femaleRe.test(v.name)) || src[0]);
-  }
-
-  function doSpeak(text, preferFemale, lang) {
-    speechSynthesis.cancel(); // clear any queued utterance first
-    const utter = new SpeechSynthesisUtterance(text);
-    const voice = pickVoice(lang, preferFemale);
-    if (voice) { utter.voice = voice; utter.lang = voice.lang; }
-    else { utter.lang = lang; }
-    utter.onend = utter.onerror = stopReading;
-    speechSynthesis.speak(utter);
-  }
-
-  btn.addEventListener('click', () => {
-    if (speaking) { stopReading(); return; }
+  btn.addEventListener('click', async () => {
+    if (audio) { stopReading(); return; }
 
     const text = (el('editor').innerText || el('editor').textContent || '').trim();
-    if (!text) { btn.title = 'No text — select a chapter first'; return; }
+    if (!text) return;
 
-    const preferFemale = voiceSel.value === 'female';
-    // Use chapter language stored in state if available, else page lang, else 'en'
-    const lang = (typeof state !== 'undefined' && state.currentProjectLang)
-      ? state.currentProjectLang
-      : (document.documentElement.lang || 'en');
+    const gender = voiceSel.value;
+    const lang   = (typeof state !== 'undefined' && state.currentProjectLang)
+                   || 'en';
 
-    speaking = true;
-    btn.textContent = '■ Stop';
-    btn.style.borderColor = 'var(--red)';
+    btn.textContent = '⏳ Loading…';
+    btn.style.borderColor = 'var(--yellow)';
     voiceSel.disabled = true;
 
-    // If voices not ready yet, wait for voiceschanged then speak
-    if (!_voices.length) {
-      speechSynthesis.addEventListener('voiceschanged', function once() {
-        speechSynthesis.removeEventListener('voiceschanged', once);
-        loadVoices();
-        doSpeak(text, preferFemale, lang);
+    try {
+      const resp = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, gender, lang }),
       });
-    } else {
-      doSpeak(text, preferFemale, lang);
+      if (!resp.ok) throw new Error(await resp.text());
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      audio = new Audio(url);
+      audio.onended = audio.onerror = stopReading;
+      btn.textContent = '■ Stop';
+      btn.style.borderColor = 'var(--red)';
+      audio.play();
+    } catch (e) {
+      stopReading();
+      alert('Read Aloud error: ' + e.message);
     }
   });
 })();
