@@ -203,63 +203,58 @@ class EditorPanel(QWidget):
         self._setup_autosave()
 
     def _build_ui(self) -> None:
+        from PySide6.QtWidgets import QSizePolicy
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Toolbar
+        # ── Row 1: existing toolbar (chapter title / save / word count) ──
         self._toolbar = QToolBar()
         self._toolbar.setMovable(False)
 
         self._chapter_label = QLabel("No chapter selected")
         self._chapter_label.setStyleSheet("padding: 0 8px; color: #89b4fa; font-weight: bold;")
-
         self._toolbar.addWidget(self._chapter_label)
         self._toolbar.addSeparator()
 
-        btn_save = QPushButton("Save")
-        btn_save.setShortcut("Ctrl+S")
-        btn_save.setToolTip("Save (Ctrl+S)")
-        btn_save.clicked.connect(self._save_now)
-        self._toolbar.addWidget(btn_save)
+        act_save = QAction("Save", self)
+        act_save.setShortcut("Ctrl+S")
+        act_save.triggered.connect(self._save_now)
+        self._toolbar.addAction(act_save)
 
         self._word_count_label = QLabel("0 words")
         self._word_count_label.setObjectName("subtitle")
         self._word_count_label.setStyleSheet("padding: 0 12px; color: #a6adc8;")
         self._toolbar.addWidget(self._word_count_label)
 
-        # Stretch spacer pushes Read controls to the right
-        spacer = QWidget()
-        spacer.setSizePolicy(
-            spacer.sizePolicy().horizontalPolicy(),
-            spacer.sizePolicy().verticalPolicy(),
-        )
-        from PySide6.QtWidgets import QSizePolicy
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._toolbar.addWidget(spacer)
+        layout.addWidget(self._toolbar)
 
-        self._toolbar.addSeparator()
+        # ── Row 2: Read Aloud bar (always fully visible, never overflows) ──
+        read_bar = QWidget()
+        read_bar.setFixedHeight(36)
+        read_bar.setStyleSheet("background: #1e1e2e; border-bottom: 1px solid #313244;")
+        read_layout = QHBoxLayout(read_bar)
+        read_layout.setContentsMargins(8, 0, 8, 0)
+        read_layout.setSpacing(6)
 
-        voice_label = QLabel("Voice:")
-        voice_label.setStyleSheet("padding: 0 4px 0 8px; color: #a6adc8;")
-        self._toolbar.addWidget(voice_label)
+        read_layout.addWidget(QLabel("Read Aloud:"))
 
         self._voice_combo = QComboBox()
         self._voice_combo.addItems(["Male", "Female"])
-        self._voice_combo.setFixedWidth(80)
-        self._toolbar.addWidget(self._voice_combo)
+        self._voice_combo.setFixedWidth(90)
+        read_layout.addWidget(self._voice_combo)
 
-        self._btn_read = QPushButton("Read Aloud")
-        self._btn_read.setToolTip("Read chapter aloud (auto-detects language, requires internet)")
-        self._btn_read.setStyleSheet(
-            "QPushButton { padding: 2px 10px; }"
-        )
+        self._btn_read = QPushButton("▶  Start Reading")
+        self._btn_read.setFixedHeight(26)
+        self._btn_read.setToolTip("Read chapter aloud — language is auto-detected (requires internet)")
         self._btn_read.clicked.connect(self._toggle_read)
-        self._toolbar.addWidget(self._btn_read)
+        read_layout.addWidget(self._btn_read)
 
-        layout.addWidget(self._toolbar)
+        read_layout.addStretch()
 
-        # Editor
+        layout.addWidget(read_bar)
+
+        # ── Editor ──
         self._editor = QTextEdit()
         self._editor.setPlaceholderText(
             "Select a chapter from the project panel, or start writing here…"
@@ -333,12 +328,12 @@ class EditorPanel(QWidget):
         gender = self._voice_combo.currentText()
         self._tts_worker = _TTSWorker(text, gender, self)
         self._tts_worker.finished.connect(self._on_tts_finished)
-        self._btn_read.setText("Stop Reading")
+        self._btn_read.setText("■  Stop Reading")
         self._voice_combo.setEnabled(False)
         self._tts_worker.start()
 
     def _on_tts_finished(self) -> None:
-        self._btn_read.setText("Read Aloud")
+        self._btn_read.setText("▶  Start Reading")
         self._voice_combo.setEnabled(True)
         self._tts_worker = None
 
