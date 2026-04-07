@@ -8,7 +8,7 @@ import tempfile
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtGui import QAction, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QToolBar,
     QVBoxLayout,
     QWidget,
-    QAction,
 )
 
 from norvel_writer.config.defaults import AUTOSAVE_INTERVAL_MS
