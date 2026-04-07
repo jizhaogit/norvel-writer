@@ -54,6 +54,12 @@ Local-first AI writing assistant powered by [Ollama](https://ollama.com). Your w
 - **External Edit Round-Trip** — export a chapter → edit in any external tool → re-import → diff and continue
 - **NotebookLM Export** — export project materials in NotebookLM-ready format for additional research workflows
 
+### Read Aloud
+
+- **Read Aloud** — reads the current chapter aloud using Microsoft neural TTS (edge-tts); select Male or Female voice from the topbar before clicking ▶ Read
+- **Auto-language** — voice is chosen from the **AI Language** selector; 18 languages supported (English, Chinese, Japanese, Korean, French, German, Spanish, and more)
+- **No extra install** — edge-tts is included in the package; requires an **internet connection** at read time (audio is synthesised by Microsoft's free Azure neural TTS service)
+
 ### Internationalisation
 
 - **Multilingual content** — write in any language Ollama supports
