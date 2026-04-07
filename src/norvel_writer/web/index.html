@@ -1365,6 +1365,15 @@ textarea.ctrl { resize: vertical; font-family: inherit; }
     </div>
   </div>
 
+  <!-- Read Aloud -->
+  <div id="read-aloud-controls" style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+    <select id="read-voice-select" title="Reader voice gender" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:3px 6px;font-size:12px;cursor:pointer;">
+      <option value="female">Female</option>
+      <option value="male">Male</option>
+    </select>
+    <button id="read-btn" title="Read chapter aloud" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;">▶ Read</button>
+  </div>
+
   <button id="settings-btn">⚙ Settings</button>
 </div>
 
@@ -2801,6 +2810,76 @@ el('settings-btn').addEventListener('click', () => {
   loadDotEnv();
   el('modal-overlay').classList.add('visible');
 });
+
+// ── Read Aloud (Web Speech API) ───────────────────────────────────────────────
+(function () {
+  const btn = el('read-btn');
+  const voiceSel = el('read-voice-select');
+  let speaking = false;
+
+  function stopReading() {
+    speechSynthesis.cancel();
+    speaking = false;
+    btn.textContent = '▶ Read';
+    btn.style.borderColor = '';
+    voiceSel.disabled = false;
+  }
+
+  function pickVoice(lang, preferFemale) {
+    const voices = speechSynthesis.getVoices();
+    // Normalise: zh-CN → zh, ja-JP → ja, etc.
+    const base = lang.split('-')[0].toLowerCase();
+    const langLower = lang.toLowerCase();
+    // Try exact lang match first, then base match
+    const pool = voices.filter(v =>
+      v.lang.toLowerCase().startsWith(langLower) ||
+      v.lang.toLowerCase().startsWith(base)
+    );
+    if (!pool.length) return null;
+    // Prefer Microsoft Neural voices (Edge browser), then any match
+    const neural = pool.filter(v => v.name.includes('Neural'));
+    const candidates = neural.length ? neural : pool;
+    // Female heuristic: name contains Female/Zira/Jenny/Xiaoxiao/Nanami etc.
+    const femaleNames = /female|zira|jenny|xiaoxiao|nanami|seouk|aria|ana|sonia|camille/i;
+    const maleNames   = /male|david|guy|yunxi|keita|injoon|diego|mark|george/i;
+    if (preferFemale) {
+      return candidates.find(v => femaleNames.test(v.name)) || candidates[0];
+    } else {
+      return candidates.find(v => maleNames.test(v.name)) ||
+             candidates.find(v => !femaleNames.test(v.name)) ||
+             candidates[0];
+    }
+  }
+
+  btn.addEventListener('click', () => {
+    if (speaking) { stopReading(); return; }
+
+    const text = (el('editor').innerText || '').trim();
+    if (!text) return;
+
+    const preferFemale = voiceSel.value === 'female';
+    const utter = new SpeechSynthesisUtterance(text);
+
+    // Detect language from <html lang> or project setting, fall back to 'en'
+    const pageLang = document.documentElement.lang || 'en';
+    const voice = pickVoice(pageLang, preferFemale);
+    if (voice) {
+      utter.voice = voice;
+      utter.lang  = voice.lang;
+    }
+
+    utter.onend = utter.onerror = stopReading;
+
+    speaking = true;
+    btn.textContent = '■ Stop';
+    btn.style.borderColor = 'var(--red)';
+    voiceSel.disabled = true;
+    speechSynthesis.speak(utter);
+  });
+
+  // Voices load async in some browsers
+  speechSynthesis.addEventListener('voiceschanged', () => {});
+})();
 el('settings-cancel-btn').addEventListener('click', () => el('modal-overlay').classList.remove('visible'));
 el('modal-overlay').addEventListener('click', (e) => { if (e.target === el('modal-overlay')) el('modal-overlay').classList.remove('visible'); });
 
