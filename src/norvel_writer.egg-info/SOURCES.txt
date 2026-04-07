@@ -20,6 +20,7 @@ src/norvel_writer/core/diff_engine.py
 src/norvel_writer/core/draft_engine.py
 src/norvel_writer/core/export_engine.py
 src/norvel_writer/core/project.py
+src/norvel_writer/core/role_loader.py
 src/norvel_writer/core/style_profile.py
 src/norvel_writer/ingestion/__init__.py
 src/norvel_writer/ingestion/base.py
@@ -47,6 +48,9 @@ src/norvel_writer/resources/prompts/continue_draft.j2
 src/norvel_writer/resources/prompts/extract_style.j2
 src/norvel_writer/resources/prompts/rewrite_passage.j2
 src/norvel_writer/resources/prompts/summarise_chapter.j2
+src/norvel_writer/resources/roles/editor.toml
+src/norvel_writer/resources/roles/qa.toml
+src/norvel_writer/resources/roles/writer.toml
 src/norvel_writer/storage/__init__.py
 src/norvel_writer/storage/db.py
 src/norvel_writer/storage/vector_store.py
@@ -55,6 +59,7 @@ src/norvel_writer/storage/repositories/document_repo.py
 src/norvel_writer/storage/repositories/draft_repo.py
 src/norvel_writer/storage/repositories/project_repo.py
 src/norvel_writer/storage/repositories/style_repo.py
+src/norvel_writer/storage/repositories/version_repo.py
 src/norvel_writer/ui/__init__.py
 src/norvel_writer/ui/main_window.py
 src/norvel_writer/ui/theme.py
@@ -82,6 +87,7 @@ src/norvel_writer/ui/widgets/streaming_text.py
 src/norvel_writer/utils/__init__.py
 src/norvel_writer/utils/async_worker.py
 src/norvel_writer/utils/chunker.py
+src/norvel_writer/utils/chunker.test.py
 src/norvel_writer/utils/logging_config.py
 src/norvel_writer/utils/text_utils.py
 src/norvel_writer/web/index.html
