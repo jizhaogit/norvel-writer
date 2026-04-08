@@ -27,6 +27,7 @@ Requires-Dist: Jinja2<4,>=3.1
 Requires-Dist: platformdirs<5,>=4.2
 Requires-Dist: tomli>=2.0; python_version < "3.11"
 Requires-Dist: tomli-w<2,>=1.0
+Requires-Dist: PySide6<7,>=6.6
 Requires-Dist: edge-tts>=6.1
 Provides-Extra: dev
 Requires-Dist: pytest>=8; extra == "dev"
