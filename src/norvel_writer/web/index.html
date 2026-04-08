@@ -2811,31 +2811,30 @@ el('settings-btn').addEventListener('click', () => {
   el('modal-overlay').classList.add('visible');
 });
 
-// ── Read Aloud (edge-tts via backend → <audio>) ───────────────────────────────
+// ── Read Aloud (edge-tts via backend → <audio>, auto-advances chapters) ──────
 (function () {
-  const btn     = el('read-btn');
+  const btn      = el('read-btn');
   const voiceSel = el('read-voice-select');
-  let audio = null;
+  let audio   = null;
+  let running = false;   // true while reading or advancing between chapters
 
   function stopReading() {
+    running = false;
     if (audio) { audio.pause(); audio.src = ''; audio = null; }
     btn.textContent = '▶ Read';
     btn.style.borderColor = '';
     voiceSel.disabled = false;
   }
 
-  btn.addEventListener('click', async () => {
-    if (audio) { stopReading(); return; }
-
+  async function readCurrentChapter() {
+    if (!running) return;
     const text = (el('editor').innerText || el('editor').textContent || '').trim();
-    if (!text) return;
+    if (!text) { stopReading(); return; }
 
     const gender = voiceSel.value;
     const lang   = el('ai-lang')?.value || 'en';
-
     btn.textContent = '⏳ Loading…';
     btn.style.borderColor = 'var(--yellow)';
-    voiceSel.disabled = true;
 
     try {
       const resp = await fetch('/api/tts', {
@@ -2844,10 +2843,12 @@ el('settings-btn').addEventListener('click', () => {
         body: JSON.stringify({ text, gender, lang }),
       });
       if (!resp.ok) throw new Error(await resp.text());
+      if (!running) return;   // user stopped while fetching
       const blob = await resp.blob();
       const url  = URL.createObjectURL(blob);
       audio = new Audio(url);
-      audio.onended = audio.onerror = stopReading;
+      audio.onerror = stopReading;
+      audio.onended = () => { audio = null; if (running) advanceToNextChapter(); };
       btn.textContent = '■ Stop';
       btn.style.borderColor = 'var(--red)';
       audio.play();
@@ -2855,6 +2856,27 @@ el('settings-btn').addEventListener('click', () => {
       stopReading();
       alert('Read Aloud error: ' + e.message);
     }
+  }
+
+  async function advanceToNextChapter() {
+    if (!running) return;
+    const items = Array.from(document.querySelectorAll('.chapter-item'));
+    const idx   = items.findIndex(d => d.dataset.id === String(state.currentChapterId));
+    if (idx === -1 || idx >= items.length - 1) { stopReading(); return; }
+    const nextId = items[idx + 1].dataset.id;
+    btn.textContent = '⏳ Loading…';
+    btn.style.borderColor = 'var(--yellow)';
+    await selectChapter(nextId);
+    await new Promise(r => setTimeout(r, 300));  // wait for editor DOM to settle
+    readCurrentChapter();
+  }
+
+  btn.addEventListener('click', () => {
+    if (running) { stopReading(); return; }
+    if (!state.currentChapterId) return;
+    running = true;
+    voiceSel.disabled = true;
+    readCurrentChapter();
   });
 })();
 el('settings-cancel-btn').addEventListener('click', () => el('modal-overlay').classList.remove('visible'));
