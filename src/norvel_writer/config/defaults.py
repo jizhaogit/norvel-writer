@@ -6,7 +6,7 @@ APP_AUTHOR = "NorvelWriter"
 # Ollama
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_CHAT_MODEL = "gemma3:4b"
-DEFAULT_EMBED_MODEL = "nomic-embed-text"
+DEFAULT_EMBED_MODEL = "bge-m3"
 FALLBACK_CHAT_MODELS = [
     "gemma3:4b",
     "gemma3:1b",
@@ -15,8 +15,8 @@ FALLBACK_CHAT_MODELS = [
     "mistral:7b",
     "phi3:mini",
 ]
-RECOMMENDED_EMBED_MODEL = "nomic-embed-text"
-EMBED_DIMENSION = 768  # nomic-embed-text default
+RECOMMENDED_EMBED_MODEL = "bge-m3"
+EMBED_DIMENSION = 1024  # bge-m3 default
 
 # Chunking
 DEFAULT_CHUNK_TOKENS = 512

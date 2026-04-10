@@ -194,7 +194,7 @@ class ModelsPage(QWizardPage):
     def _skip(self) -> None:
         self._main_status.setText(
             "Skipped. You can download models later via File → Settings "
-            "or by running: ollama pull gemma3:4b && ollama pull nomic-embed-text"
+            "or by running: ollama pull gemma3:4b && ollama pull bge-m3"
         )
         self._ready = True
         self.completeChanged.emit()

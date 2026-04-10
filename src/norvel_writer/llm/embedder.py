@@ -31,9 +31,7 @@ def _infer_zero_dim() -> int:
 
 _ZERO_DIM = _infer_zero_dim()
 
-# nomic-embed-text context limits:
-#   v1   → 2 048 tokens ≈  8 192 chars
-#   v1.5 → 8 192 tokens ≈ 32 768 chars
+# bge-m3 context limit: 8 192 tokens ≈ 32 768 chars
 #
 # _EMBED_DOC_MAX_CHARS — hard ceiling applied to every chunk before it is sent
 #   to the embedding API.  The chunker targets 512 tokens ≈ 2 048 chars, but
@@ -41,7 +39,7 @@ _ZERO_DIM = _infer_zero_dim()
 #   will emit oversized blocks when no internal split point exists (common with
 #   dense CJK prose or codex entries with no blank lines).  Truncating here
 #   prevents HTTP 400 "input length exceeds context length" errors.
-#   8 000 chars ≈ 2 000 tokens — safely under both v1 and v1.5 hard limits.
+#   8 000 chars ≈ 2 000 tokens — safely under bge-m3's 8 192-token limit.
 #   Normal 512-token chunks are ≈ 2 048 chars, well below this ceiling.
 _EMBED_DOC_MAX_CHARS   = 8000   # ≈ 2 000 tokens — document chunks
 _EMBED_QUERY_MAX_CHARS = 2000   # ≈   500 tokens — RAG queries (less = fine)

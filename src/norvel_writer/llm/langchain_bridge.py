@@ -419,7 +419,7 @@ EMBEDDINGS_PROVIDER=ollama
 # Then pull models from a terminal:
 #
 #   ollama pull gemma3:4b          # recommended chat model  (~2.5 GB)
-#   ollama pull nomic-embed-text   # required for embeddings (~274 MB)
+#   ollama pull bge-m3             # required for embeddings (~1.2 GB)
 #
 # Other good chat models:
 #   gemma3:1b      (lightweight, ~800 MB)
@@ -434,7 +434,7 @@ EMBEDDINGS_PROVIDER=ollama
 #
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 OLLAMA_CHAT_MODEL=gemma3:4b
-OLLAMA_EMBED_MODEL=nomic-embed-text
+OLLAMA_EMBED_MODEL=bge-m3
 # OLLAMA_VISION_MODEL=llava:7b
 #
 # ── Sampling parameters ───────────────────────────────────────────────────
