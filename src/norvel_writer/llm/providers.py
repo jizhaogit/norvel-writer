@@ -96,7 +96,7 @@ embeddings = ollama
 # Install Ollama from https://ollama.com/download, then pull models with:
 #
 #   ollama pull gemma3:4b          # recommended chat model (~2.5 GB)
-#   ollama pull nomic-embed-text   # required for embeddings (~274 MB)
+#   ollama pull bge-m3             # required for embeddings (~1.2 GB)
 #
 # Other good chat models to try:
 #   gemma3:1b      (lightweight, ~800 MB)
@@ -118,8 +118,8 @@ base_url     = http://127.0.0.1:11434
 # Model used for all writing/chat generation.
 chat_model   = gemma3:4b
 
-# Model used for embedding (RAG).  nomic-embed-text is strongly recommended.
-embed_model  = nomic-embed-text
+# Model used for embedding (RAG).  bge-m3 is strongly recommended.
+embed_model  = bge-m3
 
 # Optional vision model for image description.  Leave blank to disable.
 vision_model =
