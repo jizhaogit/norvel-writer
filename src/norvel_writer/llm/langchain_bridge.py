@@ -79,6 +79,11 @@ def _env(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
 
 
+def get_active_provider() -> str:
+    """Return the active LLM provider name (lowercase): 'ollama', 'openai', etc."""
+    return _env("LLM_PROVIDER", "ollama").lower()
+
+
 # ── LLM singleton ──────────────────────────────────────────────────────────
 
 _llm = None
@@ -165,11 +170,41 @@ def get_llm():
                 _ollama_kw["top_p"] = float(_top_p)
             if _top_k:
                 _ollama_kw["top_k"] = int(_top_k)
+            # Merge GUI-configured AppConfig overrides (take precedence over .env)
+            try:
+                from norvel_writer.config.settings import get_config as _get_app_cfg
+                _acfg = _get_app_cfg()
+                _gui_overrides = {
+                    "temperature":    _acfg.ollama_gen_temperature,
+                    "top_p":          _acfg.ollama_gen_top_p,
+                    "min_p":          _acfg.ollama_gen_min_p,
+                    "repeat_penalty": _acfg.ollama_gen_repeat_penalty,
+                    "seed":           _acfg.ollama_gen_seed,
+                    "num_predict":    _acfg.ollama_gen_num_predict,
+                    "num_ctx":        _acfg.ollama_gen_num_ctx,
+                }
+                for _k, _v in _gui_overrides.items():
+                    if _v is not None:
+                        _ollama_kw[_k] = _v
+            except Exception as _cfg_err:
+                log.debug("AppConfig Ollama override read failed: %s", _cfg_err)
+
             _llm = ChatOllama(**_ollama_kw)
             log.info(
                 "LLM: Ollama %s @ %s (ctx=%d, temp=%.2f)",
                 _llm.model, _llm.base_url,
-                _ollama_kw["num_ctx"], _ollama_kw["temperature"],
+                _ollama_kw.get("num_ctx", 0), _ollama_kw["temperature"],
+            )
+            log.debug(
+                "Ollama effective settings: temp=%.2f top_p=%s min_p=%s "
+                "repeat_penalty=%.2f seed=%s ctx=%d predict=%s",
+                _ollama_kw.get("temperature", 0.0),
+                _ollama_kw.get("top_p", "(default)"),
+                _ollama_kw.get("min_p", "(default)"),
+                _ollama_kw.get("repeat_penalty", 1.0),
+                _ollama_kw.get("seed", "(random)"),
+                _ollama_kw.get("num_ctx", 0),
+                _ollama_kw.get("num_predict", "(unlimited)"),
             )
 
     except Exception as exc:

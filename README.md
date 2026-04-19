@@ -185,6 +185,30 @@ Gemma 4 e2b supports up to 128 K tokens. Match your settings to your available V
 
 Recommended Gemma 4 sampling parameters: `OLLAMA_TEMPERATURE=1.0`, `OLLAMA_TOP_P=0.95`, `OLLAMA_TOP_K=64`.
 
+### Ollama Advanced Generation Settings
+
+When `LLM_PROVIDER=ollama`, the **Settings** dialog exposes an **Ollama Advanced Generation Settings** panel with per-request sampling controls. These sliders directly influence every story generation call — they are not cosmetic.
+
+| Parameter | Default | Range | Effect |
+|---|---|---|---|
+| Temperature | 0.85 | 0.0 – 2.0 | Higher = more creative, lower = more stable |
+| Top-p | 0.90 | 0.0 – 1.0 | Higher = more token variety, lower = more conservative |
+| Min-p | 0.03 | 0.0 – 1.0 | Filters out very unlikely token candidates |
+| Repeat penalty | 1.08 | 0.8 – 2.0 | Reduces repetitive wording and looping |
+| Seed | (empty) | integer | Same seed can help reproduce similar outputs |
+| num_ctx | (from .env) | ≥ 512 | Context window size; overrides `OLLAMA_NUM_CTX` |
+| num_predict | (from .env) | ≥ 64 | Max tokens per call; overrides `OLLAMA_NUM_PREDICT` |
+
+Three one-click **presets** are available in the panel:
+
+| Preset | Temperature | Top-p | Min-p | Repeat penalty | Best for |
+|---|---|---|---|---|---|
+| **Stable** | 0.60 | 0.85 | 0.05 | 1.15 | Clean continuity, less surprising output |
+| **Balanced** | 0.85 | 0.90 | 0.03 | 1.08 | Normal day-to-day writing |
+| **Creative** | 1.10 | 0.95 | 0.02 | 1.05 | More surprising output, some consistency trade-off |
+
+Settings are saved to `config.toml` and restored on restart. They override the corresponding `.env` variables when set. If the panel is hidden (provider is not Ollama), values are preserved but not sent.
+
 ### Context Budgets
 
 These cap how many tokens of each section are included in every prompt (applies to all writers, Editor, QA, and Chat Writer):

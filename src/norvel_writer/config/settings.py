@@ -62,6 +62,16 @@ class AppConfig(BaseSettings):
     first_run_complete: bool = False
     last_opened_project_id: Optional[str] = None
 
+    # Ollama advanced generation settings — override .env defaults from the Settings UI.
+    # None means "not set by the user; fall back to .env or hardcoded default".
+    ollama_gen_temperature: Optional[float] = None
+    ollama_gen_top_p: Optional[float] = None
+    ollama_gen_min_p: Optional[float] = None
+    ollama_gen_repeat_penalty: Optional[float] = None
+    ollama_gen_seed: Optional[int] = None
+    ollama_gen_num_predict: Optional[int] = None
+    ollama_gen_num_ctx: Optional[int] = None
+
     @field_validator("data_dir", mode="before")
     @classmethod
     def coerce_path(cls, v: object) -> Path:
@@ -118,6 +128,21 @@ class AppConfig(BaseSettings):
             # TOML has no null — omit None values entirely
             **({"last_opened_project_id": self.last_opened_project_id}
                if self.last_opened_project_id is not None else {}),
+            # Ollama advanced generation settings — only written when explicitly set
+            **({"ollama_gen_temperature": self.ollama_gen_temperature}
+               if self.ollama_gen_temperature is not None else {}),
+            **({"ollama_gen_top_p": self.ollama_gen_top_p}
+               if self.ollama_gen_top_p is not None else {}),
+            **({"ollama_gen_min_p": self.ollama_gen_min_p}
+               if self.ollama_gen_min_p is not None else {}),
+            **({"ollama_gen_repeat_penalty": self.ollama_gen_repeat_penalty}
+               if self.ollama_gen_repeat_penalty is not None else {}),
+            **({"ollama_gen_seed": self.ollama_gen_seed}
+               if self.ollama_gen_seed is not None else {}),
+            **({"ollama_gen_num_predict": self.ollama_gen_num_predict}
+               if self.ollama_gen_num_predict is not None else {}),
+            **({"ollama_gen_num_ctx": self.ollama_gen_num_ctx}
+               if self.ollama_gen_num_ctx is not None else {}),
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
