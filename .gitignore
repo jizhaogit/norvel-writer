@@ -41,3 +41,4 @@ src/norvel_writer/utils/__pycache__/__init__.cpython-311.pyc
 src/norvel_writer/utils/__pycache__/logging_config.cpython-311.pyc
 uv.lock
 .claude/worktrees/musing-thompson/
+/.claude
