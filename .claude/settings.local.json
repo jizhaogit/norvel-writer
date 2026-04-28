@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/unit/test_settings_dialog.py -v --tb=short)",
+      "Bash(uv run *)"
+    ]
+  }
+}

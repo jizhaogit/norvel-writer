@@ -148,6 +148,12 @@ class DraftEngine:
         from norvel_writer.llm.prompt_builder import _lang_display
         from norvel_writer.utils.text_utils import truncate_to_tokens
 
+        # Parse natural-language word count from the instruction field ("write 2000 words"),
+        # same as chat_with_context does, so Draft panel respects explicit length targets.
+        _parsed_min, _parsed_max = _extract_word_target(user_instruction)
+        min_words = max(min_words, _parsed_min)
+        max_words = max(max_words, _parsed_max)
+
         limits = get_context_limits()
         lang_display = _lang_display(language)
         last_para = _last_paragraphs(current_text, n_tokens=512)
@@ -1551,7 +1557,11 @@ def _build_writer_system_prompt(
                 f"{combined_memory}"
             )
         else:
-            prompt += f"\n\n## PRIORITY 4 — Project Memory (Codex / Beats / Notes / Research / Visuals)\n{combined_memory}"
+            prompt += (
+                f"\n\n## PRIORITY 4 — Project Memory (Codex / Beats / Notes / Research / Visuals)\n"
+                f"{combined_memory}\n"
+                f"[END OF PRIORITY 4 CONTEXT]"
+            )
 
     # Priority 5 — QA issues
     if qa_note:
@@ -1568,8 +1578,9 @@ def _build_writer_system_prompt(
         defer_note = " (secondary — defer to Priority 2 Persona if one is set)" if persona else ""
         prompt += f"\n\n## PRIORITY 6 — Style Reference Samples{defer_note}\n"
         prompt += "Use these excerpts as stylistic reference. Match their tone, rhythm, and sentence structure:\n"
-        for chunk in style_chunks:
-            prompt += f"---\n{chunk}\n"
+        _total = len(style_chunks)
+        for i, chunk in enumerate(style_chunks, 1):
+            prompt += f"\n[Style Sample {i} of {_total}]\n---\n{chunk}\n---\n"
 
     # Chapter beats — for non-beats modes, append here as before.
     # For beats mode the beats were already placed at the top of the context.

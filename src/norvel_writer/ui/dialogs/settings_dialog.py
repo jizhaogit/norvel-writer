@@ -7,11 +7,13 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -20,25 +22,77 @@ from norvel_writer.config.defaults import KNOWN_VISION_MODELS
 from norvel_writer.config.defaults import LANGUAGES, language_display
 
 
-# ── Ollama advanced settings recommended defaults ─────────────────────────
+# ── Step ↔ float conversions (1–10 integer steps → real parameter values) ────
+#
+#   Temperature   step × 0.20        →  0.20 … 2.00
+#   Top-p         step × 0.10        →  0.10 … 1.00
+#   Min-p         step × 0.01        →  0.01 … 0.10
+#   Repeat        0.90 + step × 0.10 →  1.00 … 1.90
+
+def _temp_to_step(v: float) -> int:
+    return max(1, min(10, round(v / 0.2)))
+
+def _step_to_temp(s: int) -> float:
+    return round(s * 0.2, 2)
+
+def _top_p_to_step(v: float) -> int:
+    return max(1, min(10, round(v / 0.1)))
+
+def _step_to_top_p(s: int) -> float:
+    return round(s * 0.1, 2)
+
+def _min_p_to_step(v: float) -> int:
+    return max(1, min(10, round(v / 0.01)))
+
+def _step_to_min_p(s: int) -> float:
+    return round(s * 0.01, 3)
+
+def _repeat_to_step(v: float) -> int:
+    return max(1, min(10, round((v - 0.9) / 0.1)))
+
+def _step_to_repeat(s: int) -> float:
+    return round(0.9 + s * 0.1, 2)
+
+
+# ── Defaults & presets (in 1–10 integer steps) ────────────────────────────────
+#
+#   step   temp   top_p   min_p   repeat
+#     1    0.20   0.10    0.01    1.00
+#     2    0.40   0.20    0.02    1.10
+#     3    0.60   0.30    0.03    1.20
+#     4    0.80   0.40    0.04    1.30
+#     5    1.00   0.50    0.05    1.40
+#     6    1.20   0.60    0.06    1.50
+#     7    1.40   0.70    0.07    1.60
+#     8    1.60   0.80    0.08    1.70
+#     9    1.80   0.90    0.09    1.80
+#    10    2.00   1.00    0.10    1.90
 
 _DEFAULTS = {
-    "temperature":    0.85,
-    "top_p":          0.90,
-    "min_p":          0.03,
-    "repeat_penalty": 1.08,
+    "temperature":    4,   # → 0.80
+    "top_p":          9,   # → 0.90
+    "min_p":          3,   # → 0.03
+    "repeat_penalty": 2,   # → 1.10
 }
 
 _PRESETS = {
-    "Stable":   {"temperature": 0.60, "top_p": 0.85, "min_p": 0.05, "repeat_penalty": 1.15},
+    "Stable":   {"temperature": 3,  "top_p": 9,  "min_p": 5, "repeat_penalty": 3},
     "Balanced": _DEFAULTS,
-    "Creative": {"temperature": 1.10, "top_p": 0.95, "min_p": 0.02, "repeat_penalty": 1.05},
+    "Creative": {"temperature": 6,  "top_p": 10, "min_p": 2, "repeat_penalty": 1},
+}
+
+_PRESET_TIPS = {
+    "Stable":   "temp=0.60  top_p=0.90  min_p=0.05  repeat=1.20 — clean continuity",
+    "Balanced": "temp=0.80  top_p=0.90  min_p=0.03  repeat=1.10 — normal use",
+    "Creative": "temp=1.20  top_p=1.00  min_p=0.02  repeat=1.00 — more surprising output",
 }
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _make_language_combo(current_code: str) -> QComboBox:
+def _make_language_combo(current_code: str) -> "QComboBox":
+    """Return a QComboBox pre-populated with all supported languages, with
+    the item matching *current_code* pre-selected."""
     combo = QComboBox()
     selected_index = 0
     for i, (code, (eng, native)) in enumerate(LANGUAGES.items()):
@@ -50,29 +104,24 @@ def _make_language_combo(current_code: str) -> QComboBox:
     return combo
 
 
-def _make_slider_widget(
-    min_val: int,
-    max_val: int,
-    initial: int,
-    scale: int = 100,
-    decimals: int = 2,
-) -> tuple[QWidget, QSlider, QLabel]:
-    """Return (container, slider, value_label). Stored value = slider.value() / scale."""
+def _make_step_slider(initial: int = 5) -> tuple[QWidget, QSlider, QLabel]:
+    """Return (container, slider, value_label) for a 1–10 integer step slider."""
     container = QWidget()
     row = QHBoxLayout(container)
     row.setContentsMargins(0, 0, 0, 0)
     row.setSpacing(8)
 
     slider = QSlider(Qt.Orientation.Horizontal)
-    slider.setRange(min_val, max_val)
+    slider.setRange(1, 10)
     slider.setValue(initial)
+    slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+    slider.setTickInterval(1)
 
-    fmt = f"{{:.{decimals}f}}"
-    value_label = QLabel(fmt.format(initial / scale))
-    value_label.setMinimumWidth(44)
+    value_label = QLabel(str(initial))
+    value_label.setMinimumWidth(24)
     value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-    slider.valueChanged.connect(lambda v: value_label.setText(fmt.format(v / scale)))
+    slider.valueChanged.connect(lambda v: value_label.setText(str(v)))
 
     row.addWidget(slider, stretch=1)
     row.addWidget(value_label)
@@ -86,19 +135,31 @@ def _subtitle(text: str) -> QLabel:
     return lbl
 
 
-# ── Main dialog ────────────────────────────────────────────────────────────
+# ── Main dialog ────────────────────────────────────────────────────────────────
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setMinimumWidth(560)
+        self.setMinimumHeight(420)
         self._build_ui()
         self._load()
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # ── Scrollable content area ────────────────────────────────────────
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 4)
 
         # ── Ollama ────────────────────────────────────────────────────────
         ollama_group = QGroupBox("Ollama")
@@ -125,44 +186,45 @@ class SettingsDialog(QDialog):
         layout.addWidget(ollama_group)
 
         # ── Ollama Advanced Generation Settings ───────────────────────────
-        self._adv_group = QGroupBox("Ollama Advanced Generation Settings")
+        self._adv_group = QGroupBox("Ollama Advanced Generation Settings  (1 = low · 10 = high)")
         adv_form = QFormLayout(self._adv_group)
 
-        # Temperature
-        _temp_w, self._slider_temp, self._lbl_temp = _make_slider_widget(0, 200, 85)
+        _temp_w, self._slider_temp, _ = _make_step_slider(_DEFAULTS["temperature"])
         adv_form.addRow("Temperature:", _temp_w)
-        adv_form.addRow("", _subtitle("Higher = more creative, lower = more stable"))
+        adv_form.addRow("", _subtitle(
+            "1 = very stable (0.2)  ·  5 = neutral (1.0)  ·  10 = very creative (2.0)"
+        ))
 
-        # Top-p
-        _top_p_w, self._slider_top_p, self._lbl_top_p = _make_slider_widget(0, 100, 90)
+        _top_p_w, self._slider_top_p, _ = _make_step_slider(_DEFAULTS["top_p"])
         adv_form.addRow("Top-p:", _top_p_w)
-        adv_form.addRow("", _subtitle("Higher = more variety, lower = more conservative"))
+        adv_form.addRow("", _subtitle(
+            "1 = conservative (0.1)  ·  5 = moderate (0.5)  ·  10 = full variety (1.0)"
+        ))
 
-        # Min-p
-        _min_p_w, self._slider_min_p, self._lbl_min_p = _make_slider_widget(0, 100, 3)
+        _min_p_w, self._slider_min_p, _ = _make_step_slider(_DEFAULTS["min_p"])
         adv_form.addRow("Min-p:", _min_p_w)
-        adv_form.addRow("", _subtitle("Filters out very unlikely token candidates"))
+        adv_form.addRow("", _subtitle(
+            "1 = permissive (0.01)  ·  5 = moderate (0.05)  ·  10 = strict (0.10) — filters unlikely tokens"
+        ))
 
-        # Repeat penalty
-        _rep_w, self._slider_repeat, self._lbl_repeat = _make_slider_widget(80, 200, 108)
+        _rep_w, self._slider_repeat, _ = _make_step_slider(_DEFAULTS["repeat_penalty"])
         adv_form.addRow("Repeat penalty:", _rep_w)
-        adv_form.addRow("", _subtitle("Reduces repetitive wording and looping"))
+        adv_form.addRow("", _subtitle(
+            "1 = minimal (1.0)  ·  5 = moderate (1.4)  ·  10 = strong (1.9) — reduces looping"
+        ))
 
-        # Seed
         self._seed_edit = QLineEdit()
         self._seed_edit.setPlaceholderText("Empty = random each run")
         self._seed_edit.setMaximumWidth(180)
         adv_form.addRow("Seed:", self._seed_edit)
         adv_form.addRow("", _subtitle("Same seed can help reproduce similar outputs"))
 
-        # Num context (num_ctx)
         self._num_ctx_edit = QLineEdit()
         self._num_ctx_edit.setPlaceholderText("Empty = use .env default")
         self._num_ctx_edit.setMaximumWidth(180)
         adv_form.addRow("Context window (num_ctx):", self._num_ctx_edit)
         adv_form.addRow("", _subtitle("Token context window; must not exceed your model's maximum"))
 
-        # Num predict (num_predict)
         self._num_predict_edit = QLineEdit()
         self._num_predict_edit.setPlaceholderText("Empty = use .env default")
         self._num_predict_edit.setMaximumWidth(180)
@@ -176,18 +238,12 @@ class SettingsDialog(QDialog):
         preset_layout.setSpacing(6)
         for name, vals in _PRESETS.items():
             btn = QPushButton(name)
-            btn.setToolTip(
-                f"temperature={vals['temperature']:.2f}  "
-                f"top_p={vals['top_p']:.2f}  "
-                f"min_p={vals['min_p']:.2f}  "
-                f"repeat_penalty={vals['repeat_penalty']:.2f}"
-            )
+            btn.setToolTip(_PRESET_TIPS.get(name, ""))
             _vals = dict(vals)
             btn.clicked.connect(lambda _checked=False, v=_vals: self._apply_preset(v))
             preset_layout.addWidget(btn)
         preset_layout.addStretch()
-
-        reset_btn = QPushButton("Reset to recommended defaults")
+        reset_btn = QPushButton("Reset to defaults")
         reset_btn.clicked.connect(lambda: self._apply_preset(_DEFAULTS))
         preset_layout.addWidget(reset_btn)
         adv_form.addRow("Presets:", preset_row)
@@ -235,13 +291,21 @@ class SettingsDialog(QDialog):
         ui_form.addRow("Theme:", self._theme)
         layout.addWidget(ui_group)
 
-        # ── Buttons ───────────────────────────────────────────────────────
+        layout.addStretch()
+        scroll.setWidget(content)
+        outer.addWidget(scroll, stretch=1)
+
+        # ── Buttons — always visible, outside the scroll area ─────────────
+        btn_wrapper = QWidget()
+        bw = QVBoxLayout(btn_wrapper)
+        bw.setContentsMargins(12, 4, 12, 8)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        bw.addWidget(buttons)
+        outer.addWidget(btn_wrapper)
 
     def _is_ollama_provider(self) -> bool:
         import os
@@ -270,29 +334,35 @@ class SettingsDialog(QDialog):
         self._set_combo_by_code(self._content_language, cfg.default_content_language)
         self._set_combo_by_code(self._project_language, cfg.default_project_language)
 
-        # Advanced Ollama generation settings
-        temp = cfg.ollama_gen_temperature if cfg.ollama_gen_temperature is not None else _DEFAULTS["temperature"]
-        top_p = cfg.ollama_gen_top_p if cfg.ollama_gen_top_p is not None else _DEFAULTS["top_p"]
-        min_p = cfg.ollama_gen_min_p if cfg.ollama_gen_min_p is not None else _DEFAULTS["min_p"]
-        rep = cfg.ollama_gen_repeat_penalty if cfg.ollama_gen_repeat_penalty is not None else _DEFAULTS["repeat_penalty"]
+        # Convert stored floats → nearest 1–10 step (or use default step if not yet saved)
+        temp_f = cfg.ollama_gen_temperature    if cfg.ollama_gen_temperature    is not None \
+                 else _step_to_temp(_DEFAULTS["temperature"])
+        top_f  = cfg.ollama_gen_top_p          if cfg.ollama_gen_top_p          is not None \
+                 else _step_to_top_p(_DEFAULTS["top_p"])
+        min_f  = cfg.ollama_gen_min_p          if cfg.ollama_gen_min_p          is not None \
+                 else _step_to_min_p(_DEFAULTS["min_p"])
+        rep_f  = cfg.ollama_gen_repeat_penalty if cfg.ollama_gen_repeat_penalty is not None \
+                 else _step_to_repeat(_DEFAULTS["repeat_penalty"])
 
-        self._slider_temp.setValue(round(temp * 100))
-        self._slider_top_p.setValue(round(top_p * 100))
-        self._slider_min_p.setValue(round(min_p * 100))
-        self._slider_repeat.setValue(round(rep * 100))
+        self._slider_temp.setValue(_temp_to_step(temp_f))
+        self._slider_top_p.setValue(_top_p_to_step(top_f))
+        self._slider_min_p.setValue(_min_p_to_step(min_f))
+        self._slider_repeat.setValue(_repeat_to_step(rep_f))
 
         self._seed_edit.setText("" if cfg.ollama_gen_seed is None else str(cfg.ollama_gen_seed))
         self._num_ctx_edit.setText("" if cfg.ollama_gen_num_ctx is None else str(cfg.ollama_gen_num_ctx))
-        self._num_predict_edit.setText("" if cfg.ollama_gen_num_predict is None else str(cfg.ollama_gen_num_predict))
+        self._num_predict_edit.setText(
+            "" if cfg.ollama_gen_num_predict is None else str(cfg.ollama_gen_num_predict)
+        )
 
         # Show advanced panel only when Ollama is the active provider
         self._adv_group.setVisible(self._is_ollama_provider())
 
     def _apply_preset(self, vals: dict) -> None:
-        self._slider_temp.setValue(round(vals["temperature"] * 100))
-        self._slider_top_p.setValue(round(vals["top_p"] * 100))
-        self._slider_min_p.setValue(round(vals["min_p"] * 100))
-        self._slider_repeat.setValue(round(vals["repeat_penalty"] * 100))
+        self._slider_temp.setValue(vals["temperature"])
+        self._slider_top_p.setValue(vals["top_p"])
+        self._slider_min_p.setValue(vals["min_p"])
+        self._slider_repeat.setValue(vals["repeat_penalty"])
 
     def _save(self) -> None:
         from norvel_writer.config.settings import get_config
@@ -310,11 +380,11 @@ class SettingsDialog(QDialog):
         cfg.default_content_language = self._content_language.currentData()
         cfg.default_project_language = self._project_language.currentData()
 
-        # Advanced Ollama settings — validate and clamp
-        cfg.ollama_gen_temperature = max(0.0, min(2.0, self._slider_temp.value() / 100))
-        cfg.ollama_gen_top_p = max(0.0, min(1.0, self._slider_top_p.value() / 100))
-        cfg.ollama_gen_min_p = max(0.0, min(1.0, self._slider_min_p.value() / 100))
-        cfg.ollama_gen_repeat_penalty = max(0.8, min(2.0, self._slider_repeat.value() / 100))
+        # Convert 1–10 integer steps → real float values for Ollama
+        cfg.ollama_gen_temperature    = _step_to_temp(self._slider_temp.value())
+        cfg.ollama_gen_top_p          = _step_to_top_p(self._slider_top_p.value())
+        cfg.ollama_gen_min_p          = _step_to_min_p(self._slider_min_p.value())
+        cfg.ollama_gen_repeat_penalty = _step_to_repeat(self._slider_repeat.value())
 
         seed_text = self._seed_edit.text().strip()
         if seed_text:
